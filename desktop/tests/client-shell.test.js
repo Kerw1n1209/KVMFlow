@@ -278,7 +278,7 @@ test('computer names save before hardware setup and survive reopening without ar
   await win.saveSettings();
   assert.equal(win.document.querySelector('#edit-name').value, '我的工作电脑');
   assert.equal(requests.some(entry => entry.method === 'config.set' || entry.method === 'usb.watch.start'), false);
-  assert.match(win.document.querySelector('#event-list').textContent, /电脑配置组已保存/);
+  assert.match(win.document.querySelector('#event-list').textContent, /电脑配置已保存/);
   const storage = { 'kvmflow-computer-group-draft-v1': win.localStorage.getItem('kvmflow-computer-group-draft-v1') };
   const reopened = await client(t, { config: null, computerName: '另一个系统名称', storage });
   reopened.win.navigate('settings');
@@ -478,7 +478,7 @@ test('paused and failed backend states stay visible and do not claim picture suc
   subscriptions.get('state')({ state: 'armed', enabled: false });
   assert.match(win.document.querySelector('#nav-state').textContent, /自动切换已暂停/);
   subscriptions.get('switch.report')({ per_monitor: [{ commanded: true }] });
-  assert.equal(win.document.querySelector('#last-title').textContent, '指令已接受');
+  assert.equal(win.document.querySelector('#last-title').textContent, '切换指令已发送');
   subscriptions.get('runtime.error')({ message: '请重启' });
   assert.equal(win.document.querySelector('#nav-state').textContent, '后台组件不可用');
 });
@@ -491,7 +491,7 @@ test('USB calibration ignores a peripheral departure and requires the physical h
   assert.equal(requests.filter(entry => entry.method === 'wizard.begin').length, 1);
   const candidates = subscriptions.get('wizard.candidates');
   await candidates({ disappeared: [{ vid_pid: '3837:303c', product: 'keyboard', serial: 'kbd' }] });
-  assert.match(win.document.querySelector('#guide-content').textContent, /等待 Switch Hub/);
+  assert.match(win.document.querySelector('#guide-content').textContent, /等待 USB 切换器/);
   assert.equal(requests.filter(entry => entry.method === 'display.list').length, 0);
   await candidates({ disappeared: [
     { vid_pid: '1a40:0101', product: 'USB Hub', serial: 'hub' },

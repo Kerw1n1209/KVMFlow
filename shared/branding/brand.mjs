@@ -1,7 +1,9 @@
 // One source of truth; Vite resolves the shared file into each deployment.
+import logoUrl from './logo.png?url';
+
 export const BRAND = Object.freeze({
   name: 'KVMFlow',
-  logoUrl: new URL('./logo.png', import.meta.url).href,
+  logoUrl,
 });
 
 export function applyBranding(doc = document) {

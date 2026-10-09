@@ -51,7 +51,7 @@ test('background errors stay quiet and a manual check can recover', async t => {
   } });
   assert.equal(c.doc.getElementById('update-toolbar').classList.contains('hidden'), true);
   await c.click('check-update');
-  assert.match(c.doc.getElementById('update-detail').textContent, /当前已是最新版本/);
+  assert.match(c.doc.getElementById('update-detail').textContent, /已是最新版本/);
 });
 
 test('failed verification offers retry without installation, download progress prevents duplicate clicks', async t => {

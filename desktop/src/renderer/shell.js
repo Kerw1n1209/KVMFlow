@@ -298,7 +298,7 @@ function addComputer() {
 function renderDiagnostics() {
   $('#event-list').innerHTML = model.events.map(event =>
     `<div class="event"><div><strong>${escapeHtml(window.KVMFlowI18n.format(event.titleMessage ?? event.title))}</strong><p class="hint">${escapeHtml(window.KVMFlowI18n.format(event.copyMessage ?? event.copy))}</p></div>
-      <span class="time">${escapeHtml(event.time)}</span></div>`).join('');
+      <span class="time">${escapeHtml(event.time)}</span></div>`).join('') || `<p class="hint">${t('no.switch.records.yet')}</p>`;
 }
 const pages = ['status', 'guide', 'settings', 'diagnostics'];
 function navigate(page) {

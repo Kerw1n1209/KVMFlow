@@ -18,7 +18,7 @@
 <type>(<optional-scope>): <summary>
 ```
 
-类型和示例见 `.gitmessage`。摘要说明具体改动；需要时在正文解释原因或兼容影响。
+类型和示例见 `.gitmessage`。摘要写清改了什么，需要时在正文说明原因和兼容性影响。
 提交模板不得预置 AI 或机器人协作者署名，保持 `.gitmessage` 为通用消息模板。
 
 本地启用模板和消息格式检查：
@@ -52,6 +52,6 @@ git diff --cached
 gitleaks git --staged --redact=100 --ignore-gitleaks-allow
 ```
 
-Gitleaks 需要单独安装。它用于检查凭据，公开范围、图片内容和诊断中的个人信息仍需人工审核。
+Gitleaks 需要单独安装，用于检查凭据。图片内容、诊断中的个人信息及文件是否适合公开，需要人工检查。
 不要把私钥放进源码、提交消息或日志。构建与更新签名说明见 `docs/building.md`
 和 `docs/auto-updates.md`。
