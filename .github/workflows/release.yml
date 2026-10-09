@@ -1,0 +1,160 @@
+name: Build and release KVMFlow
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kvmflow-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Require a release commit from main
+        run: git merge-base --is-ancestor HEAD origin/main
+      - name: Check versions and release tag
+        id: version
+        run: node desktop/scripts/release-metadata.cjs validate
+
+  build:
+    needs: validate
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            os: macos-15
+            target: aarch64-apple-darwin
+          - platform: win
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install Rust target
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: rustup toolchain install stable --profile minimal --target "$RELEASE_TARGET"
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Verify desktop logic
+        working-directory: desktop
+        run: npm test
+      - name: Verify hardware runtime with isolated scenarios
+        run: cargo test --locked --manifest-path sidecar/Cargo.toml --workspace
+      - name: Build signed release artifacts
+        working-directory: desktop
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "Missing TAURI_SIGNING_PRIVATE_KEY repository secret" >&2
+            exit 1
+          fi
+          npm run "dist:$RELEASE_PLATFORM"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: installers-${{ matrix.platform }}
+          path: desktop/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: installers-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify both updater signatures again
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          cargo run --locked --quiet --manifest-path desktop/tools/update-verifier/Cargo.toml -- \
+            desktop/src-tauri/tauri.conf.json \
+            "release-assets/KVMFlow-$VERSION-macos-arm64.app.tar.gz" \
+            "release-assets/KVMFlow-$VERSION-macos-arm64.app.tar.gz.sig" \
+            "release-assets/KVMFlow Setup $VERSION.exe" \
+            "release-assets/KVMFlow Setup $VERSION.exe.sig"
+      - name: Assemble manifest and checksums
+        run: node desktop/scripts/release-metadata.cjs prepare release-assets
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: complete-release
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [validate, package]
+    if: needs.validate.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.validate.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: complete-release
+          path: release-assets
+      - name: Upload everything to a draft, then publish atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --json isDraft > release-state.json; then
+            if [ "$(jq -r .isDraft release-state.json)" != true ]; then
+              echo "Release already published; refusing to replace public artifacts" >&2
+              exit 1
+            fi
+          else
+            extra=()
+            if [[ "$TAG" == *-* ]]; then extra+=(--prerelease); fi
+            gh release create "$TAG" --verify-tag --draft --title "KVMFlow $TAG" --generate-notes "${extra[@]}"
+          fi
+          gh release upload "$TAG" release-assets/* --clobber
+          test "$(gh release view "$TAG" --json assets --jq '.assets | length')" -eq 7
+          gh release edit "$TAG" --draft=false

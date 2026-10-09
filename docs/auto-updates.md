@@ -30,12 +30,28 @@
 
 ## 分发
 
-当前客户端继续使用现有官方更新服务。官网及云端运营服务的部署代码独立维护，
-本地开发不依赖这些服务的源码或凭据。
+GitHub Actions 自动构建 macOS arm64 和 Windows x64。只有两端构建、签名验证
+和产物检查全部成功后，才发布 GitHub Release；失败不会发布半套安装包。
+新客户端优先读取 GitHub Releases 的更新清单，原更新地址保留为备用。
+已经安装且只认识原更新地址的旧客户端，需要先安装新包才能切换到新入口。
 
-未来可以通过 GitHub Actions 构建，并将安装包、更新包、签名文件和更新清单
-发布到 GitHub Releases。迁移时，需要维持已安装客户端使用的更新入口，
-或先发布能够识别新入口的过渡版本。
+在 GitHub 的 Actions 中选择 `Build and release KVMFlow` → `Run workflow`，
+选择 `main` 即可验证双平台构建并下载 `complete-release` 产物，不发布 Release。
+正式发版时，先将 package.json、tauri.conf.json、Cargo.toml 的版本更新为同一版本，
+提交到 main，然后推送对应标签，例如：
+
+```sh
+git tag v0.2.3
+git push origin v0.2.3
+```
+
+标签必须与代码版本一致，且指向 main 中的提交。已公开的同版本 Release 不会被覆盖。
+仓库 Secret `TAURI_SIGNING_PRIVATE_KEY` 提供更新签名；密钥有口令时另设
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。工作流使用内置 GITHUB_TOKEN 发布，
+无需配置额外 GitHub 访问令牌。
+
+发布附件包含 DMG、Windows EXE、macOS 更新包、两份更新签名、latest.json
+以及 SHA256SUMS.txt。此流程不自动同步 R2/OSS，也不修改官网或旧更新服务。
 
 更新清单提供版本、说明、发布日期，以及各平台更新包的 URL 和签名。
 当前发行目标为 macOS arm64 和 Windows x64。

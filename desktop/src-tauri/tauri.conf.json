@@ -44,7 +44,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGN0MxM0Q5NkQ3RDFFRjgKUldUNEhuMXQyUk44NzVxV1JBRnNyMXFZSkkrTHRnNXEyTFd6TGxpV2pGcXRCZTlTN1dNQm9Xc2UK",
-      "endpoints": ["https://api.kvmflow.net/updates/latest.json"],
+      "endpoints": ["https://github.com/Kerw1n1209/KVMFlow/releases/latest/download/latest.json", "https://api.kvmflow.net/updates/latest.json"],
       "requireSignedVersion": true,
       "windows": { "installMode": "passive" }
     }
