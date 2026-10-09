@@ -345,12 +345,17 @@ input, select { font-weight: 400; }
 .switch-title strong { font-size: 17px; letter-spacing: 0; }
 .switch-ports, .port-grid { grid-template-columns: repeat(var(--port-count), minmax(112px, 1fr)); gap: 16px; }
 .port-grid { padding: 32px 0 0 112px; }
-.port-card { min-height: 172px; border-radius: 3px; background: var(--surface-raised); }
-.port-card.current, .port-card.next { border-width: 1px; padding: 20px 12px 14px; }
+.port-card { min-height: 0; gap: 6px; padding: 14px 12px; border-radius: 3px; background: var(--surface-raised); }
+.port-card.current, .port-card.next { border-width: 1px; padding: 14px 12px; }
+.port-card .port-index,
+.port-card .node-name,
+.port-card .port-state { font-family: var(--font-family); font-weight: 500; }
+.port-card .computer-icon { width: 32px; height: 32px; flex: 0 0 32px; margin: 0; }
 .port-card.current { border-color: var(--ink); }
 .port-card::before { height: 33px; border-color: var(--line-strong); }
 .port-state { border: 0; background: var(--surface-muted); border-radius: 2px; }
 .port-card.next .port-state { border: 0; background: var(--surface-muted); }
+.port-card .port-state { min-height: 30px; margin-top: 0; padding: 6px 8px; }
 .switch-summary { border-color: var(--line); padding: 16px 24px; }
 .summary-mark { display: none; }
 .wizard { padding: 28px 0; border: 0; }

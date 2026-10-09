@@ -137,6 +137,9 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.validate.outputs.tag }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: complete-release
@@ -153,8 +156,9 @@ jobs:
           else
             extra=()
             if [[ "$TAG" == *-* ]]; then extra+=(--prerelease); fi
-            gh release create "$TAG" --verify-tag --draft --title "KVMFlow $TAG" --generate-notes "${extra[@]}"
+            gh release create "$TAG" --verify-tag --draft --title "KVMFlow $TAG" --notes-file "desktop/releases/${TAG#v}.md" "${extra[@]}"
           fi
+          gh release edit "$TAG" --notes-file "desktop/releases/${TAG#v}.md"
           gh release upload "$TAG" release-assets/* --clobber
           test "$(gh release view "$TAG" --json assets --jq '.assets | length')" -eq 7
           gh release edit "$TAG" --draft=false

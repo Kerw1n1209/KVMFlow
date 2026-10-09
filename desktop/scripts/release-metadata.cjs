@@ -22,8 +22,15 @@ function signature(file, version) {
   if (!decoded.includes(`\tversion:${version}\t`) && !decoded.includes(`\tversion:${version}\n`)) throw Error('Updater signature is missing the correct signed version: ' + path.basename(file));
   return encoded;
 }
-function prepareRelease(directory, version, repository, date = new Date()) {
+function readReleaseNotes(version, base = root) {
+  if (!semver.test(version)) throw Error('Invalid release version');
+  const notes = fs.readFileSync(path.join(base, 'desktop/releases', `${version}.md`), 'utf8').trim();
+  if (!notes) throw Error('Release notes must not be empty');
+  return notes;
+}
+function prepareRelease(directory, version, repository, date = new Date(), notes = readReleaseNotes(version)) {
   if (!semver.test(version) || !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw Error('Invalid release version or repository');
+  if (typeof notes !== 'string' || !notes.trim()) throw Error('Release notes must not be empty');
   const macInstaller = `KVMFlow-${version}-arm64.dmg`;
   const macUpdate = `KVMFlow-${version}-macos-arm64.app.tar.gz`;
   // GitHub normalizes spaces in asset names to dots. Normalize before hashing
@@ -49,7 +56,7 @@ function prepareRelease(directory, version, repository, date = new Date()) {
   if (fs.readFileSync(path.join(directory, macUpdate)).subarray(0, 2).toString('hex') !== '1f8b') throw Error('Invalid macOS updater archive');
   const base = `https://github.com/${repository}/releases/download/v${version}/`;
   const manifest = {
-    version, notes: `KVMFlow ${version}\n版本说明：https://github.com/${repository}/releases/tag/v${version}`,
+    version, notes: notes.trim(),
     pub_date: date.toISOString(), platforms: {
       'darwin-aarch64': { url: base + encodeURIComponent(macUpdate), signature: signature(path.join(directory, `${macUpdate}.sig`), version) },
       'windows-x86_64': { url: base + encodeURIComponent(winInstaller), signature: signature(path.join(directory, `${winInstaller}.sig`), version) },
@@ -64,6 +71,7 @@ function prepareRelease(directory, version, repository, date = new Date()) {
 if (require.main === module) {
   const version = readVersion();
   if (process.argv[2] === 'validate') {
+    readReleaseNotes(version);
     const result = validateRef(version, process.env.GITHUB_REF);
     console.log(JSON.stringify(result));
     if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(result).map(([key,value]) => `${key}=${value}`).join('\n') + '\n');
@@ -71,4 +79,4 @@ if (require.main === module) {
     console.log('Release assets prepared:', prepareRelease(path.resolve(process.argv[3] || 'release-assets'), version, process.env.GITHUB_REPOSITORY || 'Kerw1n1209/KVMFlow').join(', '));
   } else throw Error('usage: node release-metadata.cjs validate|prepare [asset-directory]');
 }
-module.exports = { readVersion, validateRef, prepareRelease };
+module.exports = { readVersion, readReleaseNotes, validateRef, prepareRelease };

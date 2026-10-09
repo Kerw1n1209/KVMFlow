@@ -7,7 +7,7 @@
   const status = document.getElementById('update-status');
   const section = document.createElement('section');
   section.className = 'panel update-settings';
-  section.innerHTML = `<div class="panel-title"><div><h2>${t("app.updates")}</h2><p id="update-version" class="hint"></p></div><button id="check-update" class="secondary">${t("check.for.updates")}</button></div><p id="update-detail" class="hint" role="status" aria-live="polite"></p><details id="update-notes" class="hidden"><summary>${t("release.notes")}</summary><p></p></details>`;
+  section.innerHTML = `<div class="panel-title"><div><h2>${t("app.updates")}</h2><p id="update-version" class="hint"></p></div><button id="check-update" class="secondary">${t("check.for.updates")}</button></div><p id="update-detail" class="hint" role="status" aria-live="polite"></p><details id="update-notes" class="hidden" open><summary>${t("release.notes")}</summary><p></p></details>`;
   document.getElementById('settings-page').append(section);
   const checkButton = section.querySelector('#check-update');
   const detail = section.querySelector('#update-detail');
@@ -37,12 +37,16 @@
     detail.textContent = text;
     detail.setAttribute('aria-live', phase === 'error' ? 'assertive' : 'polite');
     action.disabled = busy();
-    checkButton.disabled = busy() || Boolean(update);
-    checkButton.textContent = phase === 'checking' ? t("checking") : update ? t("update.available") : t("check.for.updates");
-    action.textContent = ({
+    checkButton.disabled = busy();
+    checkButton.classList.toggle('primary', Boolean(update));
+    checkButton.classList.toggle('secondary', !update);
+    const phaseLabel = ({
+      checking: t("checking"),
       downloading: t("downloading"), ready: t("restart.and.update"),
       installing: t("installing"), error: t("retry.update"),
-    })[phase] || t("update.to.value", {
+    })[phase];
+    checkButton.textContent = phaseLabel || t(update ? "download.update" : "check.for.updates");
+    action.textContent = phaseLabel || t("update.to.value", {
   p0: update?.version || ''
 });
     notes.classList.toggle('hidden', !update?.notes);
@@ -96,7 +100,7 @@
     }
   }
   action.addEventListener('click', perform);
-  checkButton.addEventListener('click', () => check(true));
+  checkButton.addEventListener('click', perform);
   api.onProgress(({ percent }) => {
     if (phase !== 'downloading') return;
     render(percent == null ? message("downloading.the.update") : percent >= 100 ? message("verifying.the.update.package") : message("downloading.the.update.value", {

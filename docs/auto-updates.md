@@ -3,7 +3,8 @@
 客户端使用 Tauri 2 updater。启动后检查更新一次，运行中每 6 小时检查一次，
 也可以从设置页手动检查。
 
-发现新版后，客户端显示版本与更新说明。下载完成并通过签名验证后，
+发现新版后，客户端显示版本与完整更新说明，设置页按钮变为「下载更新」。
+更新说明默认展开。下载完成并通过签名验证后，按钮变为「重启并更新」，
 可重启安装更新。未保存的设置需要先保存；安装失败时会恢复监听并保留更新包供重试。
 检查更新失败不会阻止本地 USB/DDC 功能。
 
@@ -38,11 +39,13 @@ GitHub Actions 自动构建 macOS arm64 和 Windows x64。只有两端构建、�
 在 GitHub 的 Actions 中选择 `Build and release KVMFlow` → `Run workflow`，
 选择 `main` 即可验证双平台构建并下载 `complete-release` 产物，不发布 Release。
 正式发版时，先将 package.json、tauri.conf.json、Cargo.toml 的版本更新为同一版本，
+并更新两份锁文件。将本次更新说明写入 `desktop/releases/<版本号>.md`，
+同一份内容会用于 GitHub Release 和应用内的更新说明；缺失或为空时，发布流程会停止。
 提交到 main，然后推送对应标签，例如：
 
 ```sh
-git tag v0.2.3
-git push origin v0.2.3
+git tag v0.2.5
+git push origin v0.2.5
 ```
 
 标签必须与代码版本一致，且指向 main 中的提交。已公开的同版本 Release 不会被覆盖。

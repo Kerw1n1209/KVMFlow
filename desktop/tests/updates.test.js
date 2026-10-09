@@ -43,6 +43,20 @@ test('new version appears globally, verifies download before offering restart, a
   assert.deepEqual(c.calls, ['check', 'download', 'install']);
 });
 
+test('settings button downloads and installs the available update, with notes expanded', async t => {
+  const c = await client(t);
+  const button = c.doc.getElementById('check-update');
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, '下载更新');
+  assert.equal(button.classList.contains('primary'), true);
+  assert.equal(c.doc.getElementById('update-notes').open, true);
+  await c.click('check-update');
+  assert.deepEqual(c.calls, ['check', 'download']);
+  assert.equal(button.textContent, '重启并更新');
+  await c.click('check-update');
+  assert.deepEqual(c.calls, ['check', 'download', 'install']);
+});
+
 test('background errors stay quiet and a manual check can recover', async t => {
   let attempts = 0;
   const c = await client(t, { check: async () => {
@@ -62,9 +76,11 @@ test('failed verification offers retry without installation, download progress p
     await new Promise((_, reject) => { rejectDownload = reject; });
   } });
   await c.click('update-action');
+  assert.equal(c.doc.getElementById('check-update').disabled, true);
   c.progress({ percent: 42 });
   assert.match(c.doc.getElementById('update-status').textContent, /42%/);
   await c.click('update-action');
+  await c.click('check-update');
   assert.equal(attempts, 1);
   rejectDownload(new Error('invalid signature'));
   await flush();

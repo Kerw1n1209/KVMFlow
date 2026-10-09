@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { readVersion, validateRef, prepareRelease } = require('../scripts/release-metadata.cjs');
+const { readVersion, readReleaseNotes, validateRef, prepareRelease } = require('../scripts/release-metadata.cjs');
+const releaseNotes = '设置页可直接下载更新。\n\n- 更新说明默认展开。';
+const prepareFixtureRelease = dir => prepareRelease(dir, '0.2.3', 'Kerw1n1209/KVMFlow', new Date('2026-10-09T00:00:00Z'), releaseNotes);
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvmflow-release-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -22,9 +24,10 @@ test('only matching tags publish, main manual runs are build-only', () => {
   assert.throws(() => validateRef('0.2.3','refs/heads/untrusted'));
 });
 test('both platforms and checksum manifest are required', t => {
-  const dir = fixture(t); const files = prepareRelease(dir,'0.2.3','Kerw1n1209/KVMFlow');
+  const dir = fixture(t); const files = prepareFixtureRelease(dir);
   assert.equal(files.length,7);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir,'latest.json')));
+  assert.equal(manifest.notes, releaseNotes);
   assert.deepEqual(Object.keys(manifest.platforms),['darwin-aarch64','windows-x86_64']);
   assert.match(manifest.platforms['windows-x86_64'].url,/KVMFlow\.Setup\.0\.2\.3\.exe$/);
   assert.ok(files.includes('KVMFlow.Setup.0.2.3.exe'));
@@ -32,10 +35,21 @@ test('both platforms and checksum manifest are required', t => {
   assert.match(fs.readFileSync(path.join(dir,'SHA256SUMS.txt'),'utf8'),/  KVMFlow\.Setup\.0\.2\.3\.exe\n/);
   assert.equal(fs.readFileSync(path.join(dir,'SHA256SUMS.txt'),'utf8').trim().split('\n').length,6);
   fs.unlinkSync(path.join(dir,'KVMFlow.Setup.0.2.3.exe'));
-  assert.throws(()=>prepareRelease(dir,'0.2.3','Kerw1n1209/KVMFlow'),/missing/);
+  assert.throws(()=>prepareFixtureRelease(dir),/missing/);
 });
 test('wrong signed versions cannot produce an update manifest', t => {
   const dir = fixture(t);
   fs.writeFileSync(path.join(dir,'KVMFlow Setup 0.2.3.exe.sig'),Buffer.from('trusted comment: timestamp:1\tversion:0.2.2\n').toString('base64'));
-  assert.throws(()=>prepareRelease(dir,'0.2.3','Kerw1n1209/KVMFlow'),/signed version/);
+  assert.throws(()=>prepareFixtureRelease(dir),/signed version/);
+});
+test('release notes are versioned and missing, empty or unsafe versions are rejected', t => {
+  const dir = fixture(t);
+  const releases = path.join(dir, 'desktop/releases');
+  fs.mkdirSync(releases, { recursive: true });
+  fs.writeFileSync(path.join(releases, '0.2.3.md'), releaseNotes + '\n');
+  assert.equal(readReleaseNotes('0.2.3', dir), releaseNotes);
+  assert.throws(() => readReleaseNotes('0.2.4', dir), /ENOENT/);
+  assert.throws(() => readReleaseNotes('../0.2.3', dir), /Invalid/);
+  fs.writeFileSync(path.join(releases, '0.2.3.md'), ' \n');
+  assert.throws(() => readReleaseNotes('0.2.3', dir), /empty/);
 });
