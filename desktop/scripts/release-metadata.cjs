@@ -26,7 +26,18 @@ function prepareRelease(directory, version, repository, date = new Date()) {
   if (!semver.test(version) || !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw Error('Invalid release version or repository');
   const macInstaller = `KVMFlow-${version}-arm64.dmg`;
   const macUpdate = `KVMFlow-${version}-macos-arm64.app.tar.gz`;
-  const winInstaller = `KVMFlow Setup ${version}.exe`;
+  // GitHub normalizes spaces in asset names to dots. Normalize before hashing
+  // and building URLs so downloaded filenames, checksums and URLs agree.
+  const winInstaller = `KVMFlow.Setup.${version}.exe`;
+  const winSource = `KVMFlow Setup ${version}.exe`;
+  for (const suffix of ['', '.sig']) {
+    const source = path.join(directory, winSource + suffix);
+    const destination = path.join(directory, winInstaller + suffix);
+    if (fs.existsSync(source)) {
+      if (fs.existsSync(destination)) throw Error('Duplicate Windows release asset');
+      fs.renameSync(source, destination);
+    }
+  }
   const files = [macInstaller, macUpdate, `${macUpdate}.sig`, winInstaller, `${winInstaller}.sig`];
   for (const name of files) {
     const file = path.join(directory, name);

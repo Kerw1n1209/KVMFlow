@@ -26,9 +26,12 @@ test('both platforms and checksum manifest are required', t => {
   assert.equal(files.length,7);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir,'latest.json')));
   assert.deepEqual(Object.keys(manifest.platforms),['darwin-aarch64','windows-x86_64']);
-  assert.match(manifest.platforms['windows-x86_64'].url,/KVMFlow%20Setup%200\.2\.3\.exe$/);
+  assert.match(manifest.platforms['windows-x86_64'].url,/KVMFlow\.Setup\.0\.2\.3\.exe$/);
+  assert.ok(files.includes('KVMFlow.Setup.0.2.3.exe'));
+  assert.ok(!fs.existsSync(path.join(dir,'KVMFlow Setup 0.2.3.exe')));
+  assert.match(fs.readFileSync(path.join(dir,'SHA256SUMS.txt'),'utf8'),/  KVMFlow\.Setup\.0\.2\.3\.exe\n/);
   assert.equal(fs.readFileSync(path.join(dir,'SHA256SUMS.txt'),'utf8').trim().split('\n').length,6);
-  fs.unlinkSync(path.join(dir,'KVMFlow Setup 0.2.3.exe'));
+  fs.unlinkSync(path.join(dir,'KVMFlow.Setup.0.2.3.exe'));
   assert.throws(()=>prepareRelease(dir,'0.2.3','Kerw1n1209/KVMFlow'),/missing/);
 });
 test('wrong signed versions cannot produce an update manifest', t => {
