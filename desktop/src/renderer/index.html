@@ -1,6 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
+<html lang="zh-CN"><head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KVMFlow</title>
@@ -9,47 +8,49 @@
   <link rel="stylesheet" href="updates.css">
 </head>
 <body>
-  <div class="shell"><aside class="nav" aria-label="主导航"><div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"/></svg></span><span>KVMFlow</span></div><nav class="nav-list"><button class="nav-item active" data-page="status"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"/></svg>状态</button><button class="nav-item" data-page="guide"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>初始化</button><button class="nav-item" data-page="diagnostics"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 16l3-4 3 2 5-7"/></svg>诊断</button></nav><div class="nav-bottom"><span id="nav-dot" class="dot"></span><span id="nav-state" class="nav-state">需要初始化</span><button class="gear" title="设置" aria-label="设置" data-page="settings"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16M8 4v4M16 10v4M11 16v4"/></svg></button></div></aside>
+  <div class="shell"><aside class="nav" aria-label="主导航" data-i18n-aria-label="main.navigation"><div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"></path></svg></span><span>KVMFlow</span></div><nav class="nav-list"><button class="nav-item active" data-page="status"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"></path></svg><span data-i18n="status">状态</span></button><button class="nav-item" data-page="guide"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5"></path></svg><span data-i18n="setup">初始化</span></button><button class="nav-item" data-page="diagnostics"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 16l3-4 3 2 5-7"></path></svg><span data-i18n="diagnostics">诊断</span></button></nav><div class="nav-bottom"><span id="nav-dot" class="dot"></span><span id="nav-state" class="nav-state" data-i18n="setup.required">需要初始化</span><button class="gear" title="设置" aria-label="设置" data-page="settings" data-i18n-title="settings" data-i18n-aria-label="settings"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16M8 4v4M16 10v4M11 16v4"></path></svg></button></div></aside>
     <main><div class="page">
-      <div id="update-toolbar" class="update-toolbar hidden"><span id="update-status" class="hint" role="status" aria-live="polite"></span><button id="update-action" class="secondary">更新</button></div>
-      <section id="status-page"><header class="header"><div><h1>状态</h1><p class="sub">查看当前连接状态和设备队列。</p></div></header><section class="panel route"><div class="route-cell"><div class="label">这台电脑</div><div id="home-computer" class="route-value"></div></div><div class="route-cell"><div class="label">USB Switch 端口</div><div id="home-port" class="route-value"></div></div><div class="route-cell"><div class="label">切换到</div><div id="home-next" class="route-value"></div></div></section><section class="panel"><div class="panel-title"><h2>显示器输入源</h2><span id="mapping-state" class="status"></span></div><table class="monitor-table"><thead><tr><th>显示器</th><th>这台电脑</th><th>切换到</th></tr></thead><tbody id="display-table"></tbody></table></section><section class="panel"><div class="last"><div><h2 id="last-title">等待完成引导</h2><p id="last-copy" class="sub">从“确认 USB Switch”开始。</p></div><button class="secondary" data-page="diagnostics">查看诊断</button></div></section></section>
-      <section id="guide-page" class="hidden"><header class="header"><h1>初始化</h1><span id="guide-count" class="hint"></span></header><div id="steps" class="steps"></div><section id="guide-content" class="panel wizard"></section></section>
+      <div id="update-toolbar" class="update-toolbar hidden"><span id="update-status" class="hint" role="status" aria-live="polite"></span><button id="update-action" class="secondary" data-i18n="update">更新</button></div>
+      <section id="status-page"><header class="header"><div><h1 data-i18n="status">状态</h1><p class="sub" data-i18n="view.the.current.connections.and.computer.queue">查看当前连接状态和设备队列。</p></div></header><section class="panel route"><div class="route-cell"><div class="label" data-i18n="this.computer.201">这台电脑</div><div id="home-computer" class="route-value"></div></div><div class="route-cell"><div class="label" data-i18n="usb.switch.port">USB Switch 端口</div><div id="home-port" class="route-value"></div></div><div class="route-cell"><div class="label" data-i18n="switch.to">切换到</div><div id="home-next" class="route-value"></div></div></section><section class="panel"><div class="panel-title"><h2 data-i18n="monitor.input.sources">显示器输入源</h2><span id="mapping-state" class="status"></span></div><table class="monitor-table"><thead><tr><th data-i18n="monitor">显示器</th><th data-i18n="this.computer.201">这台电脑</th><th data-i18n="switch.to">切换到</th></tr></thead><tbody id="display-table"></tbody></table></section><section class="panel"><div class="last"><div><h2 id="last-title" data-i18n="waiting.for.setup">等待完成引导</h2><p id="last-copy" class="sub" data-i18n="start.with.identify.usb.switch">从“确认 USB Switch”开始。</p></div><button class="secondary" data-page="diagnostics" data-i18n="view.diagnostics">查看诊断</button></div></section></section>
+      <section id="guide-page" class="hidden"><header class="header"><h1 data-i18n="setup">初始化</h1><span id="guide-count" class="hint"></span></header><div id="steps" class="steps"></div><section id="guide-content" class="panel wizard"></section></section>
       <section id="settings-page" class="hidden">
-        <header class="header"><h1>设置</h1></header>
+        <header class="header"><h1 data-i18n="settings">设置</h1></header><section class="settings-section language-panel"><div class="panel-title"><h2 data-i18n="language.title">语言</h2><span id="language-save-status" class="hint" role="status" aria-live="polite"></span></div><div class="response-row"><div class="response-copy"><label for="language-select" data-i18n="language.title">语言</label><span data-i18n="language.description">选择界面语言，跟随系统时将自动匹配。</span></div><select id="language-select" class="response-select"><option value="auto" data-i18n="language.auto">跟随系统</option><option value="zh-CN" lang="zh-CN">简体中文</option><option value="en" lang="en">English</option></select></div></section>
         <section class="settings-section computer-settings" aria-labelledby="computer-settings-title">
-          <div class="settings-section-heading"><h2 id="computer-settings-title">电脑与显示器</h2><button id="save-settings" class="primary">保存电脑配置</button></div>
+          <div class="settings-section-heading"><h2 id="computer-settings-title" data-i18n="computers.and.monitors">电脑与显示器</h2><button id="save-settings" class="primary" data-i18n="save.computer.settings">保存电脑配置</button></div>
           <div class="settings-grid">
-            <section class="settings-computers" aria-labelledby="computer-list-title"><div class="panel-title"><h3 id="computer-list-title">已记录的电脑</h3><button id="add-computer" class="settings-text-button">＋ 添加电脑</button></div><div id="computer-list"></div></section>
-            <section id="computer-editor" class="settings-editor" aria-label="电脑配置"></section>
+            <section class="settings-computers" aria-labelledby="computer-list-title"><div class="panel-title"><h3 id="computer-list-title" data-i18n="saved.computers">已记录的电脑</h3><button id="add-computer" class="settings-text-button" data-i18n="add.computer">＋ 添加电脑</button></div><div id="computer-list"></div></section>
+            <section id="computer-editor" class="settings-editor" aria-label="电脑配置" data-i18n-aria-label="computer.settings"></section>
           </div>
         </section>
         <section class="settings-section response-panel" aria-labelledby="response-title">
-          <div class="panel-title"><h2 id="response-title">切换响应</h2><span class="hint settings-tag">自动保存</span></div>
+          <div class="panel-title"><h2 id="response-title" data-i18n="switch.timing">切换响应</h2><span class="hint settings-tag" data-i18n="saved.automatically">自动保存</span></div>
           <div class="response-list">
-            <div class="response-row"><div class="response-copy"><label for="timing-absent">切出延迟</label><span>检测到键鼠离开后，等待多久执行切换</span></div><select id="timing-absent" class="response-select"><option value="0">立即</option><option value="500">0.5 秒</option><option value="1000">1 秒</option><option value="3000">3 秒</option><option value="5000">5 秒</option><option value="10000">10 秒</option></select></div>
-            <div class="response-row"><div class="response-copy"><label for="timing-stable">接入确认</label><span>等待键鼠接入状态稳定，避免短暂连接误判</span></div><select id="timing-stable" class="response-select"><option value="0">立即</option><option value="500">0.5 秒</option><option value="1000">1 秒</option><option value="3000">3 秒</option><option value="5000">5 秒</option></select></div>
-            <div class="response-row"><div class="response-copy"><label for="timing-cooldown">重复保护</label><span>忽略保护时间内的连续触发，避免重复切换</span></div><select id="timing-cooldown" class="response-select"><option value="0">关闭</option><option value="1000">1 秒</option><option value="3000">3 秒</option><option value="5000">5 秒</option><option value="15000">15 秒</option></select></div>
-            <div class="response-row hidden"><div class="response-copy"><strong>主机模式</strong><span id="host-mode-description"></span></div><label class="toggle-control" for="arrival-correction"><input id="arrival-correction" type="checkbox"><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label">关闭</span></label></div>
+            <div class="response-row"><div class="response-copy"><label for="timing-absent" data-i18n="departure.delay">切出延迟</label><span data-i18n="how.long.to.wait.after.the.keyboard.and.mouse.leave.before.switching">检测到键鼠离开后，等待多久执行切换</span></div><select id="timing-absent" class="response-select"><option value="0">立即</option><option value="500">0.5 秒</option><option value="1000">1 秒</option><option value="3000">3 秒</option><option value="5000">5 秒</option><option value="10000">10 秒</option></select></div>
+            <div class="response-row"><div class="response-copy"><label for="timing-stable" data-i18n="arrival.confirmation">接入确认</label><span data-i18n="wait.for.a.stable.keyboard.and.mouse.connection.to.avoid.transient.chang">等待键鼠接入状态稳定，避免短暂连接误判</span></div><select id="timing-stable" class="response-select"><option value="0">立即</option><option value="500">0.5 秒</option><option value="1000">1 秒</option><option value="3000">3 秒</option><option value="5000">5 秒</option></select></div>
+            <div class="response-row"><div class="response-copy"><label for="timing-cooldown" data-i18n="repeat.protection">重复保护</label><span data-i18n="ignore.repeated.triggers.during.this.period.to.avoid.duplicate.switching">忽略保护时间内的连续触发，避免重复切换</span></div><select id="timing-cooldown" class="response-select"><option value="0">关闭</option><option value="1000">1 秒</option><option value="3000">3 秒</option><option value="5000">5 秒</option><option value="15000">15 秒</option></select></div>
+            <div class="response-row hidden"><div class="response-copy"><strong data-i18n="host.mode">主机模式</strong><span id="host-mode-description"></span></div><label class="toggle-control" for="arrival-correction"><input id="arrival-correction" type="checkbox"><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label" data-i18n="off">关闭</span></label></div>
           </div>
         </section>
         <section class="settings-section startup-panel" aria-labelledby="startup-title">
-          <div class="panel-title"><h2 id="startup-title">启动与后台</h2><span class="settings-tag">自动保存</span></div>
-          <div id="startup-list" class="response-list"><div class="response-row startup-row"><div class="response-copy"><strong>开机自动启动</strong></div><label class="toggle-control" for="startup-at-login"><input id="startup-at-login" type="checkbox" disabled><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label">应用内设置</span></label></div></div>
+          <div class="panel-title"><h2 id="startup-title" data-i18n="startup.and.background">启动与后台</h2><span class="settings-tag" data-i18n="saved.automatically">自动保存</span></div>
+          <div id="startup-list" class="response-list"><div class="response-row startup-row"><div class="response-copy"><strong data-i18n="launch.at.login">开机自动启动</strong></div><label class="toggle-control" for="startup-at-login"><input id="startup-at-login" type="checkbox" disabled=""><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label" data-i18n="configure.in.the.app">应用内设置</span></label></div></div>
         </section>
       </section>
-      <section id="diagnostics-page" class="hidden"><header class="header"><h1>诊断</h1><button id="export-log" class="secondary">导出记录</button></header><section class="panel"><div class="panel-title"><h2>最近事件</h2><span class="hint">仅保留最近 8 条</span></div><div id="event-list" class="event-box"></div></section><section class="panel"><h2>画面没有切换</h2><div class="recovery"><div class="recovery-row"><span class="number">1</span><div><strong>打开显示器菜单，确认输入源</strong></div></div><div class="recovery-row"><span class="number">2</span><div><strong>在“电脑和输入源”核对另一台电脑的值</strong></div></div><div class="recovery-row"><span class="number">3</span><div><strong>重新连接视频线后再试一次</strong></div></div></div></section></section>
+      <section id="diagnostics-page" class="hidden"><header class="header"><h1 data-i18n="diagnostics">诊断</h1><button id="export-log" class="secondary" data-i18n="export.records">导出记录</button></header><section class="panel"><div class="panel-title"><h2 data-i18n="recent.events">最近事件</h2><span class="hint" data-i18n="only.the.8.most.recent.events">仅保留最近 8 条</span></div><div id="event-list" class="event-box"></div></section><section class="panel"><h2 data-i18n="the.picture.did.not.switch">画面没有切换</h2><div class="recovery"><div class="recovery-row"><span class="number">1</span><div><strong data-i18n="open.the.monitor.menu.and.check.the.input.source">打开显示器菜单，确认输入源</strong></div></div><div class="recovery-row"><span class="number">2</span><div><strong data-i18n="check.the.other.computer.s.values.in.computers.and.monitors">在“电脑和输入源”核对另一台电脑的值</strong></div></div><div class="recovery-row"><span class="number">3</span><div><strong data-i18n="reconnect.the.video.cable.and.try.again">重新连接视频线后再试一次</strong></div></div></div></section></section>
     </div></main></div>
 
 
   <dialog id="local-input-confirmation" aria-labelledby="local-input-confirmation-title" aria-describedby="local-input-confirmation-copy">
-    <h2 id="local-input-confirmation-title">修改本机显示器输入值？</h2>
+    <h2 id="local-input-confirmation-title" data-i18n="change.this.computer.s.monitor.input.values">修改本机显示器输入值？</h2>
     <p id="local-input-confirmation-copy"></p>
-    <div class="confirmation-actions"><button id="cancel-local-input" autofocus>取消</button><button id="confirm-local-input" class="primary">确认修改</button></div>
+    <div class="confirmation-actions"><button id="cancel-local-input" autofocus="" data-i18n="cancel">取消</button><button id="confirm-local-input" class="primary" data-i18n="confirm.change">确认修改</button></div>
   </dialog>
   <script src="branding.js"></script>
-  <script src="bridge.js"></script>
-  <script src="shell.js"></script>
-  <script src="app.js"></script>
-  <script src="updates.js"></script>
-</body>
-</html>
+
+
+
+
+
+
+<script src="i18n.js"></script><script src="bootstrap.js"></script>
+</body></html>

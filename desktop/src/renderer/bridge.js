@@ -32,7 +32,7 @@
     request: async (method, params = {}) => {
       try { return await invoke('runtime_request', { method, params }); }
       catch (error) {
-        throw Object.assign(new Error(error?.message || String(error)), { code: error?.code });
+        throw Object.assign(new Error(window.KVMFlowI18n?.errorMessage(error?.message || String(error)) ?? error?.message ?? String(error)), { code: error?.code });
       }
     },
     onNotification: addListener,
@@ -45,6 +45,7 @@
     exportDiagnostics: (payload) => invoke('export_diagnostics', { payload }),
     confirmDelete: (name) => invoke('confirm_delete', { name }),
     confirmLocalInput: (changes) => invoke('confirm_local_input', { changes }),
+    language: { set: (preference, systemLocale) => invoke('locale_set', { preference, systemLocale }) },
     updates: {
       check: () => invoke('update_check'),
       download: () => invoke('update_download'),

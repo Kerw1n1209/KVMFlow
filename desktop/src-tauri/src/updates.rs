@@ -23,7 +23,7 @@ pub async fn update_check(app: AppHandle) -> Result<Value, String> {
     let mut pending = state
         .pending
         .try_lock()
-        .map_err(|_| "更新操作正在进行，请稍后重试。")?;
+        .map_err(|_| crate::tr(&app, "native.update.inProgress"))?;
     // A periodic check must not discard an already verified download.
     if let Some(update) = pending.update.as_ref() {
         return Ok(
@@ -34,10 +34,15 @@ pub async fn update_check(app: AppHandle) -> Result<Value, String> {
         .updater_builder()
         .timeout(Duration::from_secs(30))
         .build()
-        .map_err(|_| "无法初始化更新，请重新安装应用。")?
+        .map_err(|_| crate::tr(&app, "native.update.initialize"))?
         .check()
         .await
-        .map_err(|_| "无法检查更新。请检查网络后重试。")?;
+        .map_err(|_| {
+            crate::tr(
+                &app,
+                "unable.to.check.for.updates.check.your.network.and.try.again",
+            )
+        })?;
     if let Some(update) = update.as_mut() {
         update.timeout = Some(Duration::from_secs(300));
     }
@@ -59,11 +64,14 @@ pub async fn update_download(app: AppHandle) -> Result<(), String> {
     let mut pending = state
         .pending
         .try_lock()
-        .map_err(|_| "更新操作正在进行，请稍后重试。")?;
+        .map_err(|_| crate::tr(&app, "native.update.inProgress"))?;
     if pending.bytes.is_some() {
         return Ok(());
     }
-    let update = pending.update.as_ref().ok_or("请先检查更新。")?;
+    let update = pending
+        .update
+        .as_ref()
+        .ok_or(crate::tr(&app, "native.update.checkFirst"))?;
     let mut downloaded = 0u64;
     let mut last_percent = None;
     let mut last_event = std::time::Instant::now();
@@ -86,7 +94,7 @@ pub async fn update_download(app: AppHandle) -> Result<(), String> {
             || {},
         )
         .await
-        .map_err(|_| "更新包下载或签名验证失败。请检查网络后重试。")?;
+        .map_err(|_| crate::tr(&app, "native.update.verify"))?;
     // download() verifies the signature before these bytes can be installed.
     pending.bytes = Some(bytes);
     Ok(())
@@ -98,9 +106,17 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
     let pending = state
         .pending
         .try_lock()
-        .map_err(|_| "更新操作正在进行，请稍后重试。")?;
-    let update = pending.update.as_ref().ok_or("请先检查更新。")?.clone();
-    let bytes = pending.bytes.as_ref().ok_or("请先下载更新。")?.clone();
+        .map_err(|_| crate::tr(&app, "native.update.inProgress"))?;
+    let update = pending
+        .update
+        .as_ref()
+        .ok_or(crate::tr(&app, "native.update.checkFirst"))?
+        .clone();
+    let bytes = pending
+        .bytes
+        .as_ref()
+        .ok_or(crate::tr(&app, "native.update.downloadFirst"))?
+        .clone();
     state.installing.store(true, Ordering::Release);
     let runtime = app.state::<crate::Host>().runtime.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -115,8 +131,15 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
     .await;
     state.installing.store(false, Ordering::Release);
     result
-        .map_err(|_| "更新操作失败，请重启应用后重试。")?
-        .map_err(str::to_string)?;
+        .map_err(|_| crate::tr(&app, "native.update.failed"))?
+        .map_err(|key| {
+            let message = crate::tr(&app, key);
+            if key == "update.failed.and.automatic.switching.was.not.restored.restart.the.app.a" {
+                format!("E_UPDATE_RESTORE: {message}")
+            } else {
+                message
+            }
+        })?;
     app.restart();
 }
 
@@ -128,10 +151,10 @@ fn install_with_runtime(
     // Pausing is transient; it does not change the saved configuration.
     let before = runtime
         .request("state.get", json!({}))
-        .map_err(|_| "无法读取切换状态，请稍后重试。")?;
+        .map_err(|_| "native.update.readState")?;
     runtime
         .request("app.setEnabled", json!({ "enabled": false }))
-        .map_err(|_| "无法暂停自动切换，请稍后重试。")?;
+        .map_err(|_| "native.update.pause")?;
     if let Err(error) = install() {
         let restored = runtime.request(
             "app.setEnabled",
@@ -139,9 +162,9 @@ fn install_with_runtime(
         );
         eprintln!("Update installation failed: {error}");
         return Err(if restored.is_err() {
-            "更新失败，自动切换未恢复。请重启应用后重试。"
+            "update.failed.and.automatic.switching.was.not.restored.restart.the.app.a"
         } else {
-            "无法安装更新，请重试或从官网下载最新版。"
+            "native.update.install"
         });
     }
     Ok(())

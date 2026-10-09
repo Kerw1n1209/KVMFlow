@@ -1,3 +1,4 @@
+const t = (id, params) => window.KVMFlowI18n.t(id, params);
 // Local UI model. The persisted Rust configuration is authoritative; this
 // cache stores navigation and recent UI events, never hardware evidence.
 const key = 'kvmflow-local-prototype-v2';
@@ -6,8 +7,8 @@ const defaults = {
   localId: windowsHost ? 'win' : 'mac', nextId: windowsHost ? 'mac' : 'win',
   usbConfirmed: false,
   computers: [
-    { id: windowsHost ? 'win' : 'mac', name: '本机', port: 1, local: true, sources: [] },
-    { id: windowsHost ? 'mac' : 'win', name: '另一台电脑', port: 2, local: false, sources: [] },
+    { id: windowsHost ? 'win' : 'mac', name: t("this.computer"), nameKey: "this.computer", port: 1, local: true, sources: [] },
+    { id: windowsHost ? 'mac' : 'win', name: t("other.computer"), nameKey: "other.computer", port: 2, local: false, sources: [] },
   ],
   displays: [], events: [],
 };
@@ -23,7 +24,7 @@ const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[char]);
-const source = (value) => value !== '' && value != null && Number.isFinite(Number(value)) ? String(Number(value)) : '未填写';
+const source = (value) => value !== '' && value != null && Number.isFinite(Number(value)) ? String(Number(value)) : t("not.set");
 const local = () => model.computers.find(c => c.id === model.localId);
 const next = () => model.computers.find(c => c.id === model.nextId) || model.computers.find(c => !c.local) || local();
 const save = () => localStorage.setItem(key, JSON.stringify(model));
@@ -36,82 +37,89 @@ const markComputerSettingsStructureChanged = () => {
 };
 
 function log(title, copy) {
-  model.events.unshift({ title, copy, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+  model.events.unshift({ title, copy, titleMessage: window.KVMFlowI18n.describe(title), copyMessage: window.KVMFlowI18n.describe(copy), time: new Date().toLocaleTimeString(window.KVMFlowI18n.locale, { hour: '2-digit', minute: '2-digit' }) });
   model.events = model.events.slice(0, 8);
   save(); renderDiagnostics();
 }
 
 function navState() {
   const state = window.__kvmflowRuntimeState;
-  const label = state === 'error' ? '后台组件不可用'
-    : !model.usbConfirmed ? '需要初始化'
-    : state === 'learning' ? '正在识别 USB Switch'
-    : state === 'pushing' ? '正在发送切换指令'
-    : state === 'disabled' ? '自动切换已暂停' : '等待 USB Switch';
+  const label = state === 'error' ? t("background.component.unavailable")
+    : !model.usbConfirmed ? t("setup.required")
+    : state === 'learning' ? t("identifying.usb.switch")
+    : state === 'pushing' ? t("sending.switch.commands")
+    : state === 'disabled' ? t("automatic.switching.paused") : t("waiting.for.usb.switch");
   $('#nav-dot').className = `dot${model.usbConfirmed && state !== 'error' ? ' good' : ''}`;
   $('#nav-state').textContent = label;
+  $('#nav-state').title = label;
 }
 
 function renderStatus() {
   const a = local(), b = next();
   $('#home-computer').textContent = a.name;
-  $('#home-port').textContent = `端口 ${a.port}`;
-  $('#home-next').textContent = `${b.name} · 端口 ${b.port}`;
-  $('#mapping-state').textContent = model.usbConfirmed ? '已记录输入映射' : '未完成';
+  $('#home-port').textContent = t("port.value", {
+  p0: a.port
+});
+  $('#home-next').textContent = t("value.port.value", {
+  p0: b.name,
+  p1: b.port
+});
+  $('#mapping-state').textContent = model.usbConfirmed ? t("input.mappings.saved") : t("incomplete");
   $('#display-table').innerHTML = model.displays.map((name, i) =>
     `<tr><td><strong>${escapeHtml(name)}</strong></td><td>${source(a.sources[i])}</td><td>${source(b.sources[i])}</td></tr>`).join('');
   const report = window.__kvmflowLastSwitchReport;
   const outcomes = report?.per_monitor || [];
   const accepted = outcomes.length && outcomes.every(entry => entry.commanded === true || entry.ok === true);
-  $('#last-title').textContent = report ? (accepted ? '指令已接受' : '切换未完成') : '等待 USB Switch';
-  $('#last-copy').textContent = report ? '请以显示器实际画面为准。无画面时打开诊断与恢复。' : '按 USB Switch 后会显示最近一次指令结果。';
+  $('#last-title').textContent = report ? (accepted ? t("command.accepted") : t("switch.incomplete")) : t("waiting.for.usb.switch");
+  $('#last-copy').textContent = report ? t("check.the.actual.display.if.there.is.no.picture.open.diagnostics.and.rec") : t("the.latest.command.result.appears.after.you.press.usb.switch");
   renderTopology();
 }
 
-const labels = ['确认 USB Switch', '记录这台电脑', '填写另一台电脑', '开始切换'];
+const labels = ["identify.usb.switch", "record.this.computer", "set.up.the.other.computer", "start.switching"];
 function renderSteps() {
   $('#steps').innerHTML = labels.map((label, i) =>
-    `<div class="step ${i === step ? 'active' : ''} ${i < step ? 'done' : ''}">${i + 1} ${label}</div>`).join('');
-  $('#guide-count').textContent = `第 ${step + 1} 步，共 4 步`;
+    `<div class="step ${i === step ? 'active' : ''} ${i < step ? 'done' : ''}">${i + 1} ${t(label)}</div>`).join('');
+  $('#guide-count').textContent = t("step.value.of.4", {
+  p0: step + 1
+});
 }
 const copyIcon = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="10" height="10" rx="1"/><path d="M15 9V5H5v10h4"/></svg>';
 function guideView() {
   const a = local(), b = next();
   return [
-    `<div class="wizard-head"><h1>确认 USB Switch</h1><p class="sub">键鼠在这台电脑时，开始识别。</p></div>
-      <div class="callout"><strong>${model.usbConfirmed ? '已识别 USB Switch' : '准备好后开始识别'}</strong></div>
-      <div class="wizard-footer"><span></span><button class="primary" data-action="confirmUsb">${model.usbConfirmed ? '继续' : '开始识别'}</button></div>`,
-    `<div class="wizard-head"><h1>记住这台电脑的输入值</h1><p class="sub">请记住每台显示器对应的原始数值。</p></div>
-      <div class="value-list">${model.displays.map((display, i) =>
-        `<div class="value-row"><strong>${escapeHtml(display)}</strong><span class="source-value">${source(a.sources[i])}</span>
-        <button class="copy" title="复制" data-action="copyValue" data-value="${source(a.sources[i])}">${copyIcon}</button></div>`).join('')}</div>
-      <div class="wizard-footer"><button class="secondary" data-action="previousStep">上一步</button><button class="primary" data-action="nextStep">我记住了</button></div>`,
-    `<div class="wizard-head"><h1>另一台电脑的输入值</h1><p class="sub">填写显示器读到的原始数值。</p></div>
+    `<div class="wizard-head"><h1>${t("identify.usb.switch")}</h1><p class="sub">${t("start.identification.while.the.keyboard.and.mouse.are.connected.to.this.")}</p></div>
+      <div class="callout"><strong>${model.usbConfirmed ? t("usb.switch.identified") : t("start.when.you.are.ready")}</strong></div>
+      <div class="wizard-footer"><span></span><button class="primary" data-action="confirmUsb">${model.usbConfirmed ? t("continue") : t("start.identification")}</button></div>`,
+    `<div class="wizard-head"><h1>${t("remember.this.computer.s.input.values")}</h1><p class="sub">${t("note.the.raw.input.value.for.each.monitor")}</p></div>
+      <div class="value-list">${model.displays.map((display, i) => `<div class="value-row"><strong>${escapeHtml(display)}</strong><span class="source-value">${source(a.sources[i])}</span>
+        <button class="copy" title="${t("copy")}" data-action="copyValue" data-value="${source(a.sources[i])}">${copyIcon}</button></div>`).join('')}</div>
+      <div class="wizard-footer"><button class="secondary" data-action="previousStep">${t("back")}</button><button class="primary" data-action="nextStep">${t("i.have.noted.them")}</button></div>`,
+    `<div class="wizard-head"><h1>${t("the.other.computer.s.input.values")}</h1><p class="sub">${t("enter.the.raw.values.read.from.the.monitors")}</p></div>
       <div class="choice-stack">
         <div class="choice ${choice === 'known' ? 'selected' : ''}" role="button" tabindex="0" data-action="selectChoice" data-value="known">
-          <div class="choice-title"><span class="radio"></span>我已经知道</div>
+          <div class="choice-title"><span class="radio"></span>${t("i.know.the.values")}</div>
           ${choice === 'known' ? `<div class="choice-body"><div class="source-fields">
-            <div class="source-field"><label for="target-name">另一台电脑</label><input id="target-name" value="${escapeHtml(b.name)}" maxlength="32"></div>
-            ${model.displays.map((display, i) => `<div class="source-field"><label for="target-${i}">${escapeHtml(display)} 输入值</label>
-              <input id="target-${i}" type="number" required min="0" max="255" value="${source(b.sources[i]) === '未填写' ? '' : source(b.sources[i])}"></div>`).join('')}</div>
-            <button class="secondary inline-link" data-action="openTargetSettings">管理已记录的电脑</button></div>` : ''}
+            <div class="source-field"><label for="target-name">${t("other.computer")}</label><input id="target-name" value="${escapeHtml(b.name)}" maxlength="32"></div>
+            ${model.displays.map((display, i) => `<div class="source-field"><label for="target-${i}">${escapeHtml(display)} ${t("input.value")}</label>
+              <input id="target-${i}" type="number" required min="0" max="255" value="${source(b.sources[i]) === t("not.set") ? '' : source(b.sources[i])}"></div>`).join('')}</div>
+            <button class="secondary inline-link" data-action="openTargetSettings">${t("manage.saved.computers")}</button></div>` : ''}
         </div>
         <div class="choice ${choice === 'unknown' ? 'selected' : ''}" role="button" tabindex="0" data-action="selectChoice" data-value="unknown">
-          <div class="choice-title"><span class="radio"></span>我还不知道</div>
+          <div class="choice-title"><span class="radio"></span>${t("i.do.not.know.yet")}</div>
           ${choice === 'unknown' ? `<div class="choice-body"><ol class="compact-steps">
-            <li><span class="number">1</span><span>用显示器菜单切到另一台电脑</span></li>
-            <li><span class="number">2</span><span>按 USB Switch</span></li>
-            <li><span class="number">3</span><span>在另一台电脑打开 KVMFlow，记住它的输入值</span></li>
-            <li><span class="number">4</span><span>切回这里填写</span></li></ol>
-            <button class="secondary inline-link" data-action="setChoice" data-value="known">我已查看</button></div>` : ''}
+            <li><span class="number">1</span><span>${t("use.the.monitor.menu.to.switch.to.the.other.computer")}</span></li>
+            <li><span class="number">2</span><span>${t("press.usb.switch")}</span></li>
+            <li><span class="number">3</span><span>${t("open.kvmflow.on.the.other.computer.and.note.its.input.values")}</span></li>
+            <li><span class="number">4</span><span>${t("switch.back.here.and.enter.the.values")}</span></li></ol>
+            <button class="secondary inline-link" data-action="setChoice" data-value="known">${t("i.have.checked")}</button></div>` : ''}
         </div></div>
-      <div class="wizard-footer"><button class="secondary" data-action="previousStep">上一步</button>
-        <button class="primary" ${choice === 'known' ? '' : 'disabled'} data-action="saveTarget">保存并开始切换</button></div>`,
-    `<div class="wizard-head"><h1>按 USB Switch</h1><p class="sub">按下后将向显示器发送切换指令。</p></div>
-      <div id="test-status" class="test-state" aria-live="polite"><div class="test-status"><strong>等待 USB Switch</strong>
-        <p id="test-status-copy" class="hint">按下实体按钮后，请确认实际画面。</p></div></div>
-      <div class="wizard-footer"><button class="secondary" data-action="previousStep">上一步</button>
-        <span id="test-action-hint" class="hint">等待 USB Switch</span></div>`,
+      <div class="wizard-footer"><button class="secondary" data-action="previousStep">${t("back")}</button>
+        <button class="primary" ${choice === 'known' ? '' : 'disabled'} data-action="saveTarget">${t("save.and.start.switching")}</button></div>`,
+    `<div class="wizard-head"><h1>${t("press.usb.switch")}</h1><p class="sub">${t("press.the.button.to.send.input.switch.commands.to.the.monitors")}</p></div>
+      <div id="test-status" class="test-state" aria-live="polite"><div class="test-status"><strong>${t("waiting.for.usb.switch")}</strong>
+        <p id="test-status-copy" class="hint">${t("after.pressing.the.physical.button.check.the.actual.display")}</p></div></div>
+      <div class="wizard-footer"><button class="secondary" data-action="previousStep">${t("back")}</button>
+        <span id="test-action-hint" class="hint">${t("waiting.for.usb.switch")}</span></div>`,
   ][step];
 }
 function renderGuide() { renderSteps(); $('#guide-content').innerHTML = guideView(); }
@@ -124,17 +132,19 @@ window.selectChoice = (event, value) => {
   window.setChoice(value);
 };
 window.copyValue = async (value) => {
-  try { await navigator.clipboard.writeText(value); log('已复制输入值', value); }
-  catch { log('请记住输入值', value); }
+  try { await navigator.clipboard.writeText(value); log(t("input.value.copied"), value); }
+  catch { log(t("note.the.input.value"), value); }
 };
 function inputValues(prefix) {
   const fields = model.displays.map((_, i) => $(`#${prefix}-${i}`));
-  for (const field of fields) if (!field?.reportValidity()) throw new Error('请填写 0 到 255 之间的整数输入值。');
+  for (const field of fields) if (!field?.reportValidity()) throw new Error(t("enter.an.integer.input.value.from.0.to.255"));
   return fields.map(field => Number(field.value));
 }
 window.saveTarget = () => {
   const values = inputValues('target'), b = next();
-  b.name = $('#target-name').value.trim() || '另一台电脑';
+  const name = $('#target-name').value.trim() || t("other.computer");
+  if (name !== b.name) delete b.nameKey;
+  b.name = name;
   b.sources = values;
   save(); step = 3; renderStatus(); renderGuide();
 };
@@ -142,8 +152,8 @@ function renderComputers() {
   $('#computer-list').innerHTML = [...model.computers].sort((a, b) => a.port - b.port).map(c =>
     `<div class="computer-row ${c.id === editingId ? 'selected' : ''}"><button class="computer-select" data-action="editComputer" data-value="${escapeHtml(c.id)}" aria-pressed="${c.id === editingId}">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"/></svg>
-      <span class="computer-copy"><span><span class="computer-name">${escapeHtml(c.name)}</span>${c.local ? '<span class="settings-tag">本机</span>' : ''}</span><span class="hint">端口 ${c.port}</span></span></button>
-      ${c.local ? '' : `<button class="settings-text-button danger-button" data-action="deleteComputer" data-value="${escapeHtml(c.id)}">删除</button>`}</div>`).join('');
+      <span class="computer-copy"><span><span class="computer-name">${escapeHtml(c.name)}</span>${c.local ? `<span class="settings-tag">${t("this.computer")}</span>` : ''}</span><span class="hint">${t("port")} ${c.port}</span></span></button>
+      ${c.local ? '' : `<button class="settings-text-button danger-button" data-action="deleteComputer" data-value="${escapeHtml(c.id)}">${t("delete")}</button>`}</div>`).join('');
   renderEditor(editingId);
 }
 function renderEditor(id) {
@@ -151,17 +161,17 @@ function renderEditor(id) {
   if (!c) return;
   editingId = id;
   const automatic = c.local && model.displays.length > 0 && model.localInputSources?.every(value => value === 'learned_active_read');
-  $('#computer-editor').innerHTML = `<div class="settings-editor-heading"><h3>${escapeHtml(c.name)}</h3>${c.local ? '<span class="settings-tag">本机</span>' : ''}</div>
-    <div class="form-grid"><div class="field"><label for="edit-name">电脑名称</label>
+  $('#computer-editor').innerHTML = `<div class="settings-editor-heading"><h3>${escapeHtml(c.name)}</h3>${c.local ? `<span class="settings-tag">${t("this.computer")}</span>` : ''}</div>
+    <div class="form-grid"><div class="field"><label for="edit-name">${t("computer.name")}</label>
       <input id="edit-name" value="${escapeHtml(c.name)}" maxlength="32"></div>
-      <div class="field"><label for="edit-port">USB Switch 端口</label><select id="edit-port">
+      <div class="field"><label for="edit-port">${t("usb.switch.port")}</label><select id="edit-port">
       ${model.computers.map((_, i) => `<option ${i + 1 === Number(c.port) ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></div></div>
-      <div class="form-section"><div class="settings-editor-heading"><h3>显示器输入值</h3>${automatic ? '<span id="local-input-origin" class="settings-tag">自动读取</span>' : ''}</div>
+      <div class="form-section"><div class="settings-editor-heading"><h3>${t("monitor.input.values")}</h3>${automatic ? `<span id="local-input-origin" class="settings-tag">${t("read.automatically")}</span>` : ''}</div>
       <div class="input-fields">${model.displays.map((display, i) => {
-        const value = source(c.sources[i]) === '未填写' ? '' : source(c.sources[i]);
-        return `<div class="field settings-input-row"><label for="edit-${i}">${escapeHtml(display)}</label>
+  const value = source(c.sources[i]) === t("not.set") ? '' : source(c.sources[i]);
+  return `<div class="field settings-input-row"><label for="edit-${i}">${escapeHtml(display)}</label>
           <input id="edit-${i}" type="number" required min="0" max="255" step="1" data-confirmed-value="${escapeHtml(value)}" value="${escapeHtml(value)}"></div>`;
-      }).join('') || '<p class="settings-empty" role="status">未读取到显示器输入值</p>'}</div></div>`;
+}).join('') || `<p class="settings-empty" role="status">${t("no.monitor.input.values.were.read")}</p>`}</div></div>`;
 }
 window.hasUnsavedComputerEditor = () => {
   const computer = model.computers.find(item => item.id === editingId);
@@ -174,8 +184,8 @@ window.hasUnsavedComputerEditor = () => {
   return fields.some((field, index) => {
     const current = source(computer.sources[index]);
     if (!field.validity.valid) return true;
-    if (field.value === '') return current !== '未填写';
-    return current === '未填写' || Number(field.value) !== Number(computer.sources[index]);
+    if (field.value === '') return current !== t("not.set");
+    return current === t("not.set") || Number(field.value) !== Number(computer.sources[index]);
   });
 };
 window.editComputer = (id) => { editingId = id; renderComputers(); };
@@ -193,8 +203,10 @@ window.confirmLocalInputs = async () => {
   if (fields.some(field => !field.reportValidity())) return false;
   const dialog = $('#local-input-confirmation');
   const cancel = $('#cancel-local-input'), confirm = $('#confirm-local-input');
-  const descriptions = fields.map(field => `${$(`label[for="${field.id}"]`).textContent}：${field.dataset.confirmedValue || '未填写'} → ${field.value}`);
-  $('#local-input-confirmation-copy').textContent = `${descriptions.join('；')}。修改错误可能导致显示器无法切回本机。`;
+  const descriptions = fields.map(field => `${$(`label[for="${field.id}"]`).textContent}：${field.dataset.confirmedValue || t("not.set")} → ${field.value}`);
+  $('#local-input-confirmation-copy').textContent = t("value.an.incorrect.value.may.prevent.the.monitor.from.switching.back.to.", {
+  p0: descriptions.join('；')
+});
   const draft = fields.map(field => ({ field, value: field.value, previous: field.dataset.confirmedValue }));
   const applyDraft = accepted => {
     if (editingId !== computer.id || draft.some(({ field }) => !field.isConnected)) return false;
@@ -247,7 +259,7 @@ window.confirmLocalInputs = async () => {
 };
 $('#computer-editor').addEventListener('change', event => {
   if (!event.target.matches('.input-fields input')) return;
-  void window.confirmLocalInputs().catch(error => log('操作未完成', error.message || '请重试。'));
+  void window.confirmLocalInputs().catch(error => log(t("action.incomplete"), error.message || t("please.try.again")));
 });
 window.openTargetSettings = () => { editingId = next().id; navigate('settings'); };
 window.deleteComputer = async (id) => {
@@ -257,7 +269,7 @@ window.deleteComputer = async (id) => {
   model.computers.forEach((item, i) => { item.port = i + 1; });
   if (model.nextId === id) model.nextId = model.computers.find(item => !item.local)?.id || model.localId;
   editingId = model.localId;
-  save(); log('已移除电脑，尚未保存', '点击保存设置后生效。'); renderComputers(); renderStatus();
+  save(); log(t("computer.removed.changes.not.saved"), t("save.the.computer.settings.to.apply.this.change")); renderComputers(); renderStatus();
   markComputerSettingsStructureChanged();
 };
 function saveSettings() {
@@ -266,7 +278,9 @@ function saveSettings() {
   const values = inputValues('edit'), requestedPort = Number($('#edit-port').value);
   if (c.local) model.localInputSources = values.map((value, index) =>
     value === c.sources[index] ? (model.localInputSources?.[index] || 'unknown') : 'manual');
-  c.name = $('#edit-name').value.trim() || c.name; c.sources = values;
+  const name = $('#edit-name').value.trim() || c.name;
+  if (name !== c.name) delete c.nameKey;
+  c.name = name; c.sources = values;
   const queue = model.computers.filter(item => item.id !== c.id).sort((a, b) => a.port - b.port);
   queue.splice(Math.max(0, Math.min(queue.length, requestedPort - 1)), 0, c);
   queue.forEach((item, i) => { item.port = i + 1; });
@@ -277,13 +291,13 @@ function saveSettings() {
 }
 function addComputer() {
   const id = 'pc-' + Date.now();
-  model.computers.push({ id, name: '新电脑', port: model.computers.length + 1, local: false, sources: model.displays.map(() => null) });
+  model.computers.push({ id, name: t("new.computer"), nameKey: "new.computer", port: model.computers.length + 1, local: false, sources: model.displays.map(() => null) });
   editingId = id; save(); renderComputers();
   markComputerSettingsStructureChanged();
 }
 function renderDiagnostics() {
   $('#event-list').innerHTML = model.events.map(event =>
-    `<div class="event"><div><strong>${escapeHtml(event.title)}</strong><p class="hint">${escapeHtml(event.copy)}</p></div>
+    `<div class="event"><div><strong>${escapeHtml(window.KVMFlowI18n.format(event.titleMessage ?? event.title))}</strong><p class="hint">${escapeHtml(window.KVMFlowI18n.format(event.copyMessage ?? event.copy))}</p></div>
       <span class="time">${escapeHtml(event.time)}</span></div>`).join('');
 }
 const pages = ['status', 'guide', 'settings', 'diagnostics'];
@@ -299,23 +313,25 @@ function navigate(page) {
   if (page === 'diagnostics') renderDiagnostics();
 }
 const computerIcon = '<svg viewBox="0 0 48 48" aria-hidden="true"><rect x="8" y="9" width="32" height="23" rx="2.5"/><path d="M18 38h12M24 32v6M6 40h36"/></svg>';
-$('#status-page .header').insertAdjacentHTML('afterend', '<section id="topology" class="topology" aria-label="USB Switch 端口顺序"></section>');
+$('#status-page .header').insertAdjacentHTML('afterend', `<section id="topology" class="topology" aria-label="${t("usb.switch.port.order")}"></section>`);
 function renderTopology() {
   const current = local(), queue = [...model.computers].sort((a, b) => a.port - b.port);
   const at = Math.max(0, queue.findIndex(item => item.id === current.id));
   const target = queue[(at + 1) % queue.length] || current;
   const ready = model.usbConfirmed && queue.length > 1;
   $('#topology').innerHTML = `
-    ${ready ? '' : '<div class="topology-head"><div><h2>尚未完成初始化</h2><p>记录每台电脑的显示器输入值后即可开始使用。</p></div><button class="primary" data-action="beginSetup">开始初始化</button></div>'}
+    ${ready ? '' : `<div class="topology-head"><div><h2>${t("setup.incomplete")}</h2><p>${t("record.each.computer.s.monitor.input.values.to.get.started")}</p></div><button class="primary" data-action="beginSetup">${t("start.setup")}</button></div>`}
     <div class="switch-board"><div class="switch-board-scroll"><div class="switch-board-inner" style="--port-count:${queue.length}">
-      <div class="switch-chassis"><div class="switch-title"><strong>USB Switch</strong><span>${queue.length} 个端口</span></div>
+      <div class="switch-chassis"><div class="switch-title"><strong>USB Switch</strong><span>${queue.length} ${t("ports")}</span></div>
       <div class="switch-ports">${queue.map(item => `<div class="switch-port ${item.id === current.id ? 'current' : item.id === target.id ? 'next' : 'waiting'}">
         <strong>${item.port}</strong><span class="usb-slot" aria-hidden="true"></span></div>`).join('')}</div></div>
       <div class="port-grid">${queue.map(item => `<div class="port-card ${item.id === current.id ? 'current' : item.id === target.id ? 'next' : 'waiting'}">
-        <span class="port-index">端口 ${item.port}</span><span class="computer-icon">${computerIcon}</span><div class="node-name">${escapeHtml(item.name)}</div>
-        <em class="port-state">${item.id === current.id ? '本机' : item.id === target.id ? '下一台' : '等待切换'}</em></div>`).join('')}</div>
+        <span class="port-index">${t("port")} ${item.port}</span><span class="computer-icon">${computerIcon}</span><div class="node-name">${escapeHtml(item.name)}</div>
+        <em class="port-state">${item.id === current.id ? t("this.computer") : item.id === target.id ? t("next.computer") : t("waiting.to.switch")}</em></div>`).join('')}</div>
     </div></div><div class="switch-summary"><span class="summary-mark">i</span>
-      <span>本机位于端口 ${current.port}${queue.length > 1 ? `，下一台为端口 ${target.port}。` : '，请添加另一台电脑。'}</span></div></div>`;
+      <span>${t("this.computer.is.on.port")} ${current.port}${queue.length > 1 ? t("the.next.computer.is.on.port.value", {
+  p0: target.port
+}) : t("add.another.computer")}</span></div></div>`;
 }
 const actions = new Set(['confirmUsb', 'previousStep', 'nextStep', 'copyValue', 'selectChoice', 'setChoice', 'saveTarget', 'openTargetSettings', 'editComputer', 'deleteComputer', 'retryDisplayDetection']);
 function dispatchAction(event) {
@@ -327,7 +343,7 @@ function dispatchAction(event) {
   const result = action === 'selectChoice'
     ? window.selectChoice(event, control.dataset.value)
     : window[action](control.dataset.value);
-  Promise.resolve(result).catch(error => log('操作未完成', error.message || '请重试。'));
+  Promise.resolve(result).catch(error => log(t("action.incomplete"), error.message || t("please.try.again")));
 }
 document.addEventListener('click', dispatchAction);
 document.addEventListener('keydown', event => {

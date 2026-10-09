@@ -4,6 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
+const { initializeI18n } = require('./i18n-helper');
 const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 
@@ -60,6 +61,7 @@ async function client(t, options = {}) {
     confirmDelete: async () => true,
     exportDiagnostics: async payload => { exported = payload; return true; },
   };
+  await initializeI18n(win, options.language || 'zh-CN');
   vm.runInContext(read('src/renderer/shell.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/app.js'), dom.getInternalVMContext());
   await new Promise(resolve => setTimeout(resolve, 10));
@@ -498,4 +500,94 @@ test('USB calibration ignores a peripheral departure and requires the physical h
   assert.equal(requests.filter(entry => entry.method === 'wizard.end').length, 1);
   assert.equal(requests.filter(entry => entry.method === 'display.list').length, 1);
   assert.match(win.document.querySelector('#guide-content').textContent, /屏幕/);
+});
+
+test('English renders dynamic status, setup, timing and local-input confirmation', async t => {
+  const c = await client(t, { language: 'en', config: automaticConfig(), computerName: '工作电脑' });
+  const doc = c.win.document;
+  assert.equal(doc.documentElement.lang, 'en');
+  assert.equal(doc.querySelector('#home-computer').textContent, '工作电脑');
+  assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB Switch');
+  c.win.navigate('guide');
+  assert.equal(doc.querySelector('#steps .active').textContent, '1 Identify USB Switch');
+  c.win.navigate('settings');
+  assert.equal(doc.querySelector('#local-input-origin').textContent, 'Read automatically');
+  assert.equal(doc.querySelector('label[for="timing-absent"]').textContent, 'Departure delay');
+  const input = doc.querySelector('#edit-0');
+  input.value = '15';
+  input.dispatchEvent(new c.win.Event('change', { bubbles: true }));
+  assert.equal(doc.querySelector('#local-input-confirmation-title').textContent, 'Change this computer’s monitor input values?');
+  assert.match(doc.querySelector('#local-input-confirmation-copy').textContent, /8 → 15/);
+  assert.match(doc.querySelector('#local-input-confirmation-copy').textContent, /prevent the monitor/);
+  assert.equal(c.requests.some(entry => entry.method === 'config.set'), false);
+});
+
+test('language selection preserves unsaved computer fields without writing hardware configuration', async t => {
+  const c = await client(t, { config: automaticConfig() });
+  const doc = c.win.document;
+  c.win.navigate('settings');
+  doc.querySelector('#edit-name').value = '我的电脑 <script>literal</script>';
+  doc.querySelector('#edit-port').value = '1';
+  doc.querySelector('#edit-0').value = '15';
+  const language = doc.querySelector('#language-select');
+  language.value = 'en';
+  language.dispatchEvent(new c.win.Event('change', { bubbles: true }));
+  await tick();
+  assert.equal(doc.documentElement.lang, 'en');
+  assert.equal(doc.querySelector('#edit-name').value, '我的电脑 <script>literal</script>');
+  assert.equal(doc.querySelector('#edit-port').value, '1');
+  assert.equal(doc.querySelector('#edit-0').value, '15');
+  assert.equal(doc.querySelector('#edit-0').dataset.confirmedValue, '8');
+  assert.equal(c.win.hasUnsavedComputerEditor(), true);
+  assert.equal(doc.querySelector('#settings-page').classList.contains('hidden'), false);
+  assert.equal(c.win.localStorage.getItem('kvmflow-language-v1'), 'en');
+  assert.equal(c.requests.some(entry => entry.method === 'config.set'), false);
+  language.value = 'zh-CN';
+  language.dispatchEvent(new c.win.Event('change', { bubbles: true }));
+  await tick();
+  assert.equal(doc.querySelector('#save-settings').textContent, '保存电脑配置');
+  assert.equal(doc.querySelector('#edit-name').value, '我的电脑 <script>literal</script>');
+});
+
+test('a failed native language save restores the selected preference and retains the editor', async t => {
+  const c = await client(t);
+  c.win.kvmflow.language = { set: async () => { throw new Error('disk full'); } };
+  c.win.navigate('settings');
+  const doc = c.win.document;
+  doc.querySelector('#edit-name').value = '未保存';
+  const language = doc.querySelector('#language-select');
+  language.value = 'en';
+  language.dispatchEvent(new c.win.Event('change', { bubbles: true }));
+  await tick();
+  assert.equal(doc.documentElement.lang, 'zh-CN');
+  assert.equal(language.value, 'zh-CN');
+  assert.equal(language.disabled, false);
+  assert.equal(doc.querySelector('#edit-name').value, '未保存');
+  assert.equal(doc.querySelector('#language-save-status').textContent, '无法保存语言偏好，请重试。');
+});
+
+test('generated computer names and new diagnostic events follow language without changing user names', async t => {
+  const c = await client(t, { config: null, computerName: null });
+  c.win.navigate('settings');
+  c.win.KVMFlowI18n.setPreference('en');
+  const doc = c.win.document;
+  assert.equal(doc.querySelector('#edit-name').value, 'This computer');
+  assert.match(doc.querySelector('#computer-list').textContent, /Other computer/);
+  assert.equal(c.win.hasUnsavedComputerEditor(), false);
+  c.win.log(c.win.KVMFlowI18n.t('switch.timing.saved'), c.win.KVMFlowI18n.t('settings.saved.on.this.computer'));
+  c.win.KVMFlowI18n.setPreference('zh-CN');
+  assert.match(doc.querySelector('#event-list').textContent, /切换响应已保存/);
+  assert.equal(doc.querySelector('#edit-name').value, '本机');
+});
+
+test('language changes during USB identification preserve the active calibration and translated status', async t => {
+  const c = await client(t, { config: null });
+  c.win.navigate('guide');
+  await c.win.confirmUsb();
+  c.win.KVMFlowI18n.setPreference('en');
+  const doc = c.win.document;
+  assert.equal(doc.querySelector('#guide-content .callout strong').textContent, 'Press USB Switch once now');
+  assert.equal(doc.querySelector('#guide-content .primary').disabled, true);
+  assert.equal(c.requests.filter(entry => entry.method === 'wizard.begin').length, 1);
+  assert.equal(c.requests.some(entry => entry.method === 'wizard.end'), false);
 });

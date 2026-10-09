@@ -1,6 +1,6 @@
 # 统一品牌素材
 
-`logo.png` 是唯一手工维护的 Logo 源图，使用已确认的墨水屏设计。
+`logo.png` 是唯一手工维护的 Logo 源图，使用双显示器相连的统一品牌图案。英文与中文 README、桌面界面和打包图标均引用此源图或其派生素材。
 
 - `brand.mjs` 提供共享品牌信息。
 - 桌面页面通过生成的 `window.KVMFLOW_BRAND.logoUrl` 和 CSS 变量 `--brand-logo-image` 引用。

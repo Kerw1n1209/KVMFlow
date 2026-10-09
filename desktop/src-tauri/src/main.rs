@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod host_name;
+mod locale;
 mod paths;
 mod updates;
 
@@ -24,9 +25,41 @@ struct Host {
     data_dir: std::path::PathBuf,
     page: Mutex<String>,
     status: MenuItem<tauri::Wry>,
+    settings: MenuItem<tauri::Wry>,
+    diagnostics: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+    last_state: Mutex<Value>,
     pause: CheckMenuItem<tauri::Wry>,
     ready: AtomicBool,
     wants_visible: AtomicBool,
+}
+
+pub(crate) fn tr(app: &AppHandle, key: &str) -> String {
+    app.try_state::<locale::Locale>()
+        .map(|locale| locale.text(key))
+        .unwrap_or_else(|| locale::translate("en", key))
+}
+
+#[tauri::command]
+fn locale_set(app: AppHandle, preference: String, system_locale: String) -> Result<(), String> {
+    app.state::<locale::Locale>()
+        .save(&preference, &system_locale)?;
+    let host = app.state::<Host>();
+    host.settings
+        .set_text(tr(&app, "settings"))
+        .map_err(|error| error.to_string())?;
+    host.diagnostics
+        .set_text(tr(&app, "native.diagnostics"))
+        .map_err(|error| error.to_string())?;
+    host.pause
+        .set_text(tr(&app, "native.pause"))
+        .map_err(|error| error.to_string())?;
+    host.quit
+        .set_text(tr(&app, "native.quit"))
+        .map_err(|error| error.to_string())?;
+    let state = host.last_state.lock().unwrap().clone();
+    update_status(&app, &state);
+    Ok(())
 }
 
 fn open_client(app: &AppHandle, page: &str) {
@@ -50,22 +83,24 @@ fn update_status(app: &AppHandle, data: &Value) {
     let Some(host) = app.try_state::<Host>() else {
         return;
     };
+    *host.last_state.lock().unwrap() = data.clone();
     let enabled = data
         .get("enabled")
         .and_then(Value::as_bool)
         .unwrap_or(data["state"] != "disabled");
     let text = match data["state"].as_str().unwrap_or("") {
-        "learning" => "正在识别 USB Switch",
-        "pushing" => "正在发送切换指令",
-        "disabled" => "自动切换已暂停",
-        _ if !enabled => "自动切换已暂停",
-        "idle" | "cooldown" | "armed" => "已连接，等待 USB Switch",
+        "error" => tr(app.app_handle(), "native.runtime.unavailable"),
+        "learning" => tr(app.app_handle(), "identifying.usb.switch"),
+        "pushing" => tr(app.app_handle(), "sending.switch.commands"),
+        "disabled" => tr(app.app_handle(), "automatic.switching.paused"),
+        _ if !enabled => tr(app.app_handle(), "automatic.switching.paused"),
+        "idle" | "cooldown" | "armed" => tr(app.app_handle(), "native.connected"),
         _ if data["mode"] == "multi_device_armed" || data["configMode"] == "multi_device_armed" => {
-            "已连接，等待 USB Switch"
+            tr(app.app_handle(), "native.connected")
         }
-        _ => "尚未完成设置",
+        _ => tr(app.app_handle(), "native.unconfigured"),
     };
-    let _ = host.status.set_text(text);
+    let _ = host.status.set_text(&text);
     let _ = host.pause.set_checked(!enabled);
     if let Some(tray) = app.tray_by_id("kvmflow") {
         let _ = tray.set_tooltip(Some(format!("KVMFlow - {text}")));
@@ -77,22 +112,20 @@ fn forward_notification(app: &AppHandle, kind: &str, data: Value) {
         update_status(app, &data);
     }
     if kind == "runtime.error" {
-        if let Some(host) = app.try_state::<Host>() {
-            let _ = host.status.set_text("后台组件不可用，请重启应用");
-        }
+        update_status(app, &json!({ "state": "error" }));
     }
     let notice = match kind {
         "switch.report" => Some((
-            "KVMFlow 已发送切换指令",
-            "请确认实际画面。若显示器黑屏，请打开诊断，检查输入源或重新连接视频线。",
+            tr(app.app_handle(), "native.switch.title"),
+            tr(app.app_handle(), "native.switch.body"),
         )),
         "trigger" if data["action"] == "unexpected_return" => Some((
-            "键鼠设备组回到了本机",
-            "若没有按 USB Switch，请检查线材和连接，并查看诊断。",
+            tr(app.app_handle(), "native.return.title"),
+            tr(app.app_handle(), "native.return.body"),
         )),
         "runtime.error" => Some((
-            "后台组件无法启动",
-            "请检查安装后重启 KVMFlow；仍无法启动时请导出诊断。",
+            tr(app.app_handle(), "native.error.title"),
+            tr(app.app_handle(), "native.error.body"),
         )),
         _ => None,
     };
@@ -118,22 +151,26 @@ async fn runtime_request(
     {
         return Err(kvmflow_core::protocol::RpcErrorBody {
             code: "E_BUSY".into(),
-            message: "正在安装更新，请等待应用重启。".into(),
+            message: tr(app.app_handle(), "native.update.busy").into(),
         });
     }
     if method == "shutdown" {
         return Err(kvmflow_core::protocol::RpcErrorBody {
             code: "E_UNKNOWN_METHOD".into(),
-            message: "请通过托盘退出 KVMFlow。".into(),
+            message: tr(app.app_handle(), "native.exit.tray").into(),
         });
     }
     let runtime = app.state::<Host>().runtime.clone();
-    tauri::async_runtime::spawn_blocking(move || runtime.request(&method, params))
+    let result = tauri::async_runtime::spawn_blocking(move || runtime.request(&method, params))
         .await
         .map_err(|_| kvmflow_core::protocol::RpcErrorBody {
             code: "E_BACKEND".into(),
-            message: "后台操作失败，请重启应用。".into(),
-        })?
+            message: tr(app.app_handle(), "native.backend.failed").into(),
+        })?;
+    result.map_err(|mut error| {
+        error.message = app.state::<locale::Locale>().error_text(&error.message);
+        error
+    })
 }
 
 #[tauri::command]
@@ -143,6 +180,7 @@ fn host_info(app: AppHandle) -> Value {
         "platform": std::env::consts::OS,
         "computerName": host_name::computer_name(),
         "initialPage": *app.state::<Host>().page.lock().unwrap(),
+        "languagePreference": app.state::<locale::Locale>().preference(),
     })
 }
 
@@ -197,11 +235,11 @@ fn startup_set(app: AppHandle, enabled: bool) -> Result<bool, String> {
 async fn confirm_delete(app: AppHandle, name: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
-            .message(format!("删除“{name}”？这会移除它的端口和输入值。"))
-            .title("删除电脑")
+            .message(tr(app.app_handle(), "native.delete.body").replace("{name}", &name))
+            .title(tr(app.app_handle(), "native.delete.title"))
             .buttons(MessageDialogButtons::OkCancelCustom(
-                "删除".into(),
-                "取消".into(),
+                tr(app.app_handle(), "delete").into(),
+                tr(app.app_handle(), "cancel").into(),
             ))
             .blocking_show()
     })
@@ -213,11 +251,14 @@ async fn confirm_delete(app: AppHandle, name: String) -> Result<bool, String> {
 async fn confirm_local_input(app: AppHandle, changes: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
-            .message(format!("{changes}。修改错误可能导致显示器无法切回本机。"))
-            .title("修改本机显示器输入值？")
+            .message(tr(app.app_handle(), "native.local.body").replace("{changes}", &changes))
+            .title(tr(
+                app.app_handle(),
+                "change.this.computer.s.monitor.input.values",
+            ))
             .buttons(MessageDialogButtons::OkCancelCustom(
-                "确认修改".into(),
-                "取消".into(),
+                tr(app.app_handle(), "confirm.change").into(),
+                tr(app.app_handle(), "cancel").into(),
             ))
             .blocking_show()
     })
@@ -258,18 +299,19 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
-        .invoke_handler(tauri::generate_handler![runtime_request, host_info, client_ready, startup_get, startup_set, export_diagnostics, confirm_delete, confirm_local_input, updates::update_check, updates::update_download, updates::update_install])
+        .invoke_handler(tauri::generate_handler![runtime_request, host_info, locale_set, client_ready, startup_get, startup_set, export_diagnostics, confirm_delete, confirm_local_input, updates::update_check, updates::update_download, updates::update_install])
         .setup(|app| {
             let handle = app.handle().clone();
             let data_dir = paths::data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            app.manage(locale::Locale::load(&data_dir));
             let hidden = std::env::args().any(|arg| arg == "--hidden");
             let page = if data_dir.join("config.json").is_file() { "status" } else { "wizard" };
-            let status = MenuItem::with_id(app, "status", "尚未完成设置", false, None::<&str>)?;
-            let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
-            let diagnostics = MenuItem::with_id(app, "diagnostics", "诊断与恢复", true, None::<&str>)?;
-            let pause = CheckMenuItem::with_id(app, "pause", "暂停监听切换", true, false, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出 KVMFlow", true, None::<&str>)?;
+            let status = MenuItem::with_id(app, "status", tr(app.app_handle(), "native.unconfigured"), false, None::<&str>)?;
+            let settings = MenuItem::with_id(app, "settings", tr(app.app_handle(), "settings"), true, None::<&str>)?;
+            let diagnostics = MenuItem::with_id(app, "diagnostics", tr(app.app_handle(), "native.diagnostics"), true, None::<&str>)?;
+            let pause = CheckMenuItem::with_id(app, "pause", tr(app.app_handle(), "native.pause"), true, false, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", tr(app.app_handle(), "native.quit"), true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&status, &settings, &diagnostics, &pause, &quit])?;
             let options = RuntimeOptions::new(data_dir.join("config.json"), data_dir.join("logs"));
             #[cfg(target_os = "macos")]
@@ -290,7 +332,7 @@ fn main() {
             };
             let notifications = handle.clone();
             let runtime = Arc::new(RuntimeHandle::start(options, move |kind, data| forward_notification(&notifications, kind, data))?);
-            app.manage(Host { runtime: runtime.clone(), data_dir, page: Mutex::new(page.into()), status, pause,
+            app.manage(Host { runtime: runtime.clone(), data_dir, page: Mutex::new(page.into()), status, settings, diagnostics, quit, pause, last_state: Mutex::new(json!({})),
                 ready: AtomicBool::new(false), wants_visible: AtomicBool::new(!hidden) });
             let icon = if cfg!(target_os = "macos") {
                 tauri::image::Image::from_bytes(include_bytes!("../../src/renderer/assets/trayTemplate.png"))?
@@ -323,7 +365,7 @@ fn main() {
                                     if let Ok(Ok(data)) = tauri::async_runtime::spawn_blocking(move || runtime.request("state.get", json!({}))).await {
                                         update_status(&app, &data);
                                     }
-                                    let _ = app.emit("runtime-notification", json!({ "kind": "runtime.error", "data": { "message": "无法更新自动切换状态，请查看诊断后重试。" } }));
+                                    let _ = app.emit("runtime-notification", json!({ "kind": "runtime.error", "data": { "message": tr(app.app_handle(), "native.state.failed") } }));
                                 }
                             }
                         });
@@ -339,7 +381,7 @@ fn main() {
                 let result = tauri::async_runtime::spawn_blocking(move || runtime.request("state.get", json!({}))).await;
                 match result {
                     Ok(Ok(data)) => update_status(&handle, &data),
-                    _ => forward_notification(&handle, "runtime.error", json!({ "message": "后台组件不可用，请检查安装并重启应用。" })),
+                    _ => forward_notification(&handle, "runtime.error", json!({ "message": tr(&handle, "native.install.failed") })),
                 }
             });
             // Never register the development executable at login. Release builds
@@ -369,7 +411,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("无法启动 KVMFlow");
+        .expect("Unable to start KVMFlow");
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
             if let Some(host) = app.try_state::<Host>() {

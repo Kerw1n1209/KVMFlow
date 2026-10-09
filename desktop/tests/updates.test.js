@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { JSDOM } = require('jsdom');
+const { initializeI18n } = require('./i18n-helper');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 async function client(t, overrides = {}) {
@@ -22,6 +23,7 @@ async function client(t, overrides = {}) {
       ...overrides,
     },
   };
+  await initializeI18n(dom.window);
   dom.window.eval(fs.readFileSync(path.join(root, 'src/renderer/updates.js'), 'utf8'));
   await flush();
   const doc = dom.window.document;
@@ -113,4 +115,31 @@ test('a newer structural edit remains unsaved when an older save finishes', asyn
   await c.click('update-action');
   assert.equal(c.calls.includes('install'), false);
   assert.match(c.doc.getElementById('update-status').textContent, /尚未保存/);
+});
+
+test('update progress and retry messages change language without another network check', async t => {
+  let rejectDownload;
+  const c = await client(t, { download: async () => new Promise((_, reject) => { rejectDownload = reject; }) });
+  await c.click('update-action');
+  c.progress({ percent: 42 });
+  c.win.KVMFlowI18n.setPreference('en', { persist: false });
+  assert.equal(c.doc.querySelector('#update-status').textContent, 'Downloading the update, 42%.');
+  assert.equal(c.doc.querySelector('#update-action').textContent, 'Downloading');
+  assert.equal(c.doc.querySelector('#update-version').textContent, 'Current version 0.2.0');
+  assert.equal(c.doc.querySelector('#update-notes summary').textContent, 'Release notes');
+  assert.equal(c.doc.querySelector('#update-notes p').textContent, '<script>bad()</script>\n修复切换');
+  assert.equal(c.calls.filter(call => call === 'check').length, 1);
+  rejectDownload(new Error('offline'));
+  await flush();
+  assert.match(c.doc.querySelector('#update-detail').textContent, /Download or verification failed/);
+  c.win.KVMFlowI18n.setPreference('zh-CN', { persist: false });
+  assert.match(c.doc.querySelector('#update-detail').textContent, /下载或验证失败/);
+});
+
+test('update restore failure uses a stable error code in either interface language', async t => {
+  const c = await client(t, { install: async () => { throw new Error('E_UPDATE_RESTORE: 自动切换未恢复'); } });
+  await c.click('update-action');
+  c.win.KVMFlowI18n.setPreference('en', { persist: false });
+  await c.click('update-action');
+  assert.match(c.doc.querySelector('#update-detail').textContent, /automatic switching was not restored/);
 });
