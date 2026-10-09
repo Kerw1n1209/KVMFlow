@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KVMFlow",
+  "version": "0.2.3",
+  "identifier": "net.kvmflow.desktop",
+  "build": {
+    "beforeDevCommand": "node scripts/prepare-tauri.js",
+    "beforeBuildCommand": "node scripts/prepare-tauri.js",
+    "frontendDist": "../src/renderer"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{
+      "label": "main",
+      "title": "KVMFlow",
+      "width": 1020,
+      "height": 700,
+      "minWidth": 840,
+      "minHeight": 580,
+      "visible": false
+    }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'",
+      "capabilities": ["main"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["dmg", "nsis"],
+    "category": "Utility",
+    "shortDescription": "USB Switch 触发显示器输入切换",
+    "icon": ["../src/renderer/assets/appIcon.png", "../build/icon.icns", "../build/icon.ico"],
+    "resources": {
+      "../../LICENSE": "LICENSE",
+      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
+    "macOS": { "minimumSystemVersion": "11.0" },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGN0MxM0Q5NkQ3RDFFRjgKUldUNEhuMXQyUk44NzVxV1JBRnNyMXFZSkkrTHRnNXEyTFd6TGxpV2pGcXRCZTlTN1dNQm9Xc2UK",
+      "endpoints": ["https://api.kvmflow.net/updates/latest.json"],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

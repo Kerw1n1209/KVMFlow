@@ -1,0 +1,4 @@
+# in-tree outputs of the vendored m1ddc Makefile (kept out of git; the
+# vendored sources themselves are tracked verbatim)
+m1ddc-2549fec/.objects/
+m1ddc-2549fec/m1ddc

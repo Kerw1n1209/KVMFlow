@@ -1,0 +1,10 @@
+[package]
+name = "kvmflow-core"
+description = "Platform-free KVMFlow core: protocol, config schema, debounce, switch state machine, retry, error codes, event model. The single shared implementation - platform adapters live in kvmflow-sidecar."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,18 @@
+{
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "KVMFlow",
+      "width": 1020, "height": 700, "minWidth": 840, "minHeight": 580,
+      "visible": false,
+      "titleBarStyle": "Overlay",
+      "hiddenTitle": true
+    }]
+  },
+  "bundle": {
+    "resources": {
+      "../resources/sidecar/m1ddc": "m1ddc"
+    },
+    "macOS": { "infoPlist": "Info.plist", "signingIdentity": "-" }
+  }
+}

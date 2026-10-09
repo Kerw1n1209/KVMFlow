@@ -1,0 +1,10 @@
+[package]
+name = "kvmflow-update-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+minisign-verify = "0.2"
+serde_json = "1"

@@ -1,0 +1,34 @@
+.update-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 44px;
+  margin-bottom: 0;
+}
+.update-toolbar:not(.hidden) ~ section > .header {
+  padding-top: 16px;
+}
+.update-toolbar .hint {
+  flex: 1 1 240px;
+  text-align: right;
+}
+.update-toolbar button {
+  flex: 0 0 auto;
+}
+.update-settings details {
+  margin-top: 12px;
+}
+.update-settings summary {
+  cursor: pointer;
+}
+.update-settings summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.update-settings details p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--sub);
+}

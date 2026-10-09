@@ -1,0 +1,23 @@
+# <type>(<scope>): <summary>
+#
+# Types:
+#   feat      New user-facing functionality
+#   fix       Bug fix
+#   docs      Documentation only
+#   style     Formatting with no behavior change
+#   refactor  Code change with no feature or bug fix
+#   perf      Performance improvement
+#   test      Tests only
+#   build     Build system or dependency change
+#   ci        Continuous integration change
+#   chore     Repository maintenance
+#   revert    Revert an earlier commit
+#
+# Examples:
+#   feat(desktop): add monitor input discovery
+#   fix(sidecar): cancel pending bounce retries
+#   docs: explain the release workflow
+#
+# Keep the summary imperative, specific, and free of a trailing period.
+# Add a body below when the reason or migration impact is not obvious.
+# Do not prefill bot attribution in this template.

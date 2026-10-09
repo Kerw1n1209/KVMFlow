@@ -1,0 +1,72 @@
+# build artifacts
+.DS_Store
+.agents/
+sidecar/target/
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/tools/update-verifier/target/
+desktop/src-tauri/gen/
+desktop/resources/sidecar/
+cloudflare/api/node_modules/
+cloudflare/api/.wrangler/
+probes/mac/.build/
+probes/logs/
+*.log
+
+# local test evidence and working notes
+forensics/
+windows-smoke-session-*.md
+defect-kvm7.md
+artifacts/kvm*.png
+artifacts/kvm16/
+artifacts/updater-preview-*/
+artifacts/admin/
+
+# Official website is maintained locally, outside this repository.
+/website/
+
+# local environment files
+.env
+.env.*
+!.env.example
+
+# Supabase CLI link/cache metadata; project association and connection details
+# are local deployment state, not product source.
+supabase/.temp/
+
+# runtime-local agent instructions (not product code; KVM-1 09:57 decision)
+CLAUDE.md
+
+# generated or local-only
+.wrangler/
+desktop/build/macos-icon/
+skills-lock.json
+docs/AGENT_HANDOFF_*.md
+
+# local secrets for wrangler dev
+cloudflare/api/.dev.vars
+
+# Private operations, deployment code, and internal working documents.
+/.private/
+/admin/
+/cloudflare/
+/supabase/
+/artifacts/
+/ibm/
+/linear.app/
+/docs/*
+!/docs/building.md
+!/docs/auto-updates.md
+
+# Credentials, signing material, and local tool state.
+.dev.vars
+.dev.vars.*
+*.key
+*.pem
+*.p12
+*.pfx
+*.mobileprovision
+.credentials*
+.npmrc
+.netrc

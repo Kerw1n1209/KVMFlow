@@ -1,0 +1,303 @@
+/* Product-level renderer refinements layered over the local shell. */
+/* Keep the desktop shell pinned to the native WebView viewport. The
+ * renderer is also used on Windows machines with non-default scaling, where
+ * a bare 100vh grid can leave the navigation column shorter than the window. */
+html,
+body {
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+.shell {
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+.nav {
+  height: 100%;
+  min-height: 0;
+  background: var(--surface);
+}
+
+main {
+  height: 100%;
+  min-height: 0;
+  background: var(--surface);
+}
+
+/* Navigation and page content share the same light paper surface. */
+.nav .nav-item,
+.nav .gear { background: transparent; }
+.nav .nav-item:hover,
+.nav .nav-item.active,
+.nav .gear:hover { background: var(--surface-muted); }
+.page > section > .header { background: var(--surface); }
+
+@supports (height: 100dvh) {
+  .shell,
+  .nav,
+  main {
+    height: 100dvh;
+  }
+}
+
+.toggle-control {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  line-height: 1;
+}
+
+.toggle-track {
+  box-sizing: border-box;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.toggle-track::after {
+  top: 2px;
+  left: 2px;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+}
+
+.toggle-label {
+  display: inline-flex;
+  height: 24px;
+  align-items: center;
+  line-height: 24px;
+}
+
+.startup-row .toggle-control {
+  min-width: 108px;
+}
+
+/* The visually hidden checkbox must be contained by its toggle; otherwise focusing it scrolls the overflow-hidden shell. */
+.toggle-control { position: relative; }
+.toggle-control input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+html, body { overflow: hidden; }
+
+.brand-mark { background-image: var(--brand-logo-image); }
+.window-drag { position: fixed; top: 0; left: 80px; right: 0; height: 38px; z-index: 1000; }
+.platform-darwin body:before { display: none; }
+.input-fields { margin-top: 12px; }
+.toggle-control:focus-within .toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+#nav-state { font-size: 12px; }
+@media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Keep the paper palette, with lighter system typography and explicit control states. */
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+body { font-weight: 400; letter-spacing: 0; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, .brand { font-weight: 600; letter-spacing: 0; }
+button, strong, .field, .source-field label, .computer-name,
+.choice-title, .nav-item.active, .step.active,
+.route-value, .source-value, .node-name, .queue-device strong,
+.switch-label, .switch-title strong, .switch-port strong,
+.port-card .node-name, .port-card.current .port-state,
+.port-card.next .port-state, .summary-mark,
+.response-copy label, .response-copy strong, .toggle-label {
+  font-weight: 500;
+}
+input, select { font-weight: 400; }
+
+/* Native select semantics retain keyboard navigation and the platform option menu. */
+#settings-page select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 36px;
+  padding: 8px 36px 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background-color: var(--surface);
+  background-image: url("assets/select-chevron.svg");
+  background-position: right 10px center;
+  background-size: 14px 14px;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .12s ease, background-color .12s ease;
+}
+#settings-page select:hover { border-color: var(--ink); }
+#settings-page select:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+#settings-page select:disabled { cursor: not-allowed; opacity: .5; }
+#settings-page .response-copy { min-width: 0; }
+#settings-page .response-copy label, #settings-page .response-copy strong { font-weight: 500; }
+#settings-page .response-select { flex: 0 0 auto; }
+
+/* Settings: open paper sections, one shared form rhythm, and a scrolling body. */
+#settings-page {
+  --settings-item-gap: 32px;
+  --settings-control-height: 44px;
+  padding-bottom: 48px;
+}
+.shell.settings-active main {
+  background: var(--surface);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.shell.settings-active main::-webkit-scrollbar { display: block; width: 6px; height: 6px; }
+.shell.settings-active main::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--line); }
+#settings-page > .header { background: var(--surface); }
+#settings-page > .header {
+  min-height: 106px;
+  padding-bottom: 24px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--line);
+}
+#settings-page .settings-section {
+  padding: 36px 0 44px;
+  border-bottom: 1px solid var(--line);
+}
+#settings-page .settings-section:last-child { border-bottom: 0; }
+#settings-page .settings-section-heading,
+#settings-page .panel-title,
+#settings-page .settings-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+}
+#settings-page .settings-section-heading {
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+#settings-page h2 { font-size: 21px; line-height: 28px; }
+#settings-page h3 { font-size: 17px; line-height: 24px; }
+#settings-page .settings-grid {
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.3fr);
+  gap: 32px;
+}
+#settings-page .settings-computers > .panel-title { justify-content: space-between; margin: 0 0 20px; gap: 8px; }
+#settings-page .settings-editor { min-width: 0; padding-left: 32px; border-left: 1px solid var(--line); }
+#settings-page .settings-editor > .settings-editor-heading { margin-bottom: 20px; }
+#settings-page .settings-editor > .settings-editor-heading h3 { font-size: 21px; line-height: 28px; }
+#settings-page .settings-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--surface-muted);
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+#settings-page .computer-row.selected .settings-tag { background: var(--surface); }
+#settings-page .settings-tag[hidden] { display: none; }
+#settings-page .computer-copy .settings-tag { margin-left: 10px; }
+#settings-page .settings-text-button {
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--sub);
+  font-size: 12px;
+  white-space: nowrap;
+}
+#settings-page #add-computer { color: var(--ink); }
+#settings-page .settings-text-button:hover { background: transparent; color: var(--ink); text-decoration: underline; }
+#settings-page .computer-row {
+  gap: 12px;
+  min-height: 84px;
+  padding: 0 12px;
+  margin-bottom: 12px;
+  border: 0;
+  border-radius: 3px;
+}
+#settings-page .computer-row.selected { background: var(--surface-muted); }
+#settings-page .computer-select {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 16px;
+  min-height: 84px;
+  padding: 12px 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+#settings-page .computer-select:hover { background: transparent; color: var(--ink); }
+#settings-page .computer-select svg { width: 26px; height: 26px; flex: 0 0 26px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+#settings-page .computer-copy { display: grid; min-width: 0; gap: 6px; }
+#settings-page .computer-copy > span:first-child { overflow-wrap: anywhere; }
+#settings-page .computer-name { font-size: 14px; }
+#settings-page .form-grid { grid-template-columns: minmax(0, 1fr); gap: var(--settings-item-gap); }
+#settings-page .field { gap: 10px; font-size: 14px; }
+#settings-page input,
+#settings-page select {
+  min-height: var(--settings-control-height);
+  height: var(--settings-control-height);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-radius: 3px;
+  font-size: 14px;
+}
+#settings-page .form-section { padding: 0; margin-top: var(--settings-item-gap); border: 0; }
+#settings-page .input-fields { display: grid; gap: var(--settings-item-gap); margin-top: var(--settings-item-gap); }
+#settings-page .settings-input-row {
+  grid-template-columns: minmax(0, 1fr) 168px;
+  align-items: center;
+  gap: 24px;
+  min-height: var(--settings-control-height);
+}
+#settings-page .settings-empty { margin: 0; color: var(--sub); font-size: 13px; }
+#settings-page .response-panel { overflow: visible; }
+#settings-page .settings-section > .panel-title { padding: 0; margin: 0 0 var(--settings-item-gap); border: 0; }
+#settings-page .response-list { display: grid; gap: var(--settings-item-gap); }
+#settings-page .response-row {
+  min-height: var(--settings-control-height);
+  padding: 0;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  gap: 24px;
+  border: 0;
+}
+#settings-page .response-copy label,
+#settings-page .response-copy strong { font-size: 14px; }
+#settings-page .response-select { width: 168px; }
+#settings-page .settings-background-note { margin-top: var(--settings-item-gap); color: var(--sub); font-size: 13px; }
+#settings-page .toggle-control input { width: 1px; height: 1px; min-height: 0; padding: 0; }
+#settings-page .update-settings { margin: 0; padding: 36px 0; border: 0; border-top: 1px solid var(--line); background: transparent; }
+#settings-page .update-settings > .panel-title { align-items: center; margin-bottom: 24px; }
+
+#local-input-confirmation {
+  width: min(440px, calc(100vw - 48px));
+  padding: 28px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+#local-input-confirmation::backdrop { background: rgba(0, 0, 0, .22); }
+#local-input-confirmation h2 { font-size: 18px; }
+#local-input-confirmation p { margin-top: 16px; color: var(--sub); line-height: 1.7; overflow-wrap: anywhere; }
+.confirmation-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 28px; }
+
+@media (max-width: 900px) {
+  #settings-page .settings-grid { grid-template-columns: minmax(180px, .7fr) minmax(0, 1fr); gap: 24px; }
+  #settings-page .settings-editor { padding-left: 24px; }
+  #settings-page .computer-row { padding: 0 8px; gap: 8px; }
+  #settings-page .computer-select { gap: 10px; }
+}
+@media (max-width: 680px) {
+  #settings-page .settings-grid { grid-template-columns: 1fr; gap: 32px; }
+  #settings-page .settings-editor { padding: 32px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  #settings-page .settings-section-heading { flex-wrap: wrap; }
+  #settings-page .settings-input-row,
+  #settings-page .response-row { grid-template-columns: minmax(0, 1fr) 132px; gap: 16px; }
+  #settings-page .response-select { width: 132px; }
+}
