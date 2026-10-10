@@ -2032,7 +2032,7 @@ dependencies = [
 
 [[package]]
 name = "kvmflow-desktop"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "kvmflow-core",
  "kvmflow-sidecar",

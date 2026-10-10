@@ -17,7 +17,7 @@ const html = fs.readFileSync(path.join(renderer, 'index.html'), 'utf8')
     '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=0',
     `--user-data-dir=${profile}`, 'about:blank',
   ]);
-  let ws;
+  let ws, command;
   const timeout = setTimeout(() => { chrome.kill(); process.exitCode = 1; }, 45000);
   try {
     const url = await new Promise((resolve, reject) => {
@@ -41,7 +41,7 @@ const html = fs.readFileSync(path.join(renderer, 'index.html'), 'utf8')
       pending.delete(result.id);
       result.error ? wait.reject(new Error(result.error.message)) : wait.resolve(result.result);
     });
-    const command = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    command = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
       const id = ++nextId;
       pending.set(id, { resolve, reject });
       ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
@@ -89,9 +89,16 @@ const html = fs.readFileSync(path.join(renderer, 'index.html'), 'utf8')
     }
   } finally {
     clearTimeout(timeout);
+    if (command && ws?.readyState === WebSocket.OPEN) {
+      await Promise.race([command('Browser.close').catch(() => {}), new Promise(resolve => setTimeout(resolve, 3000))]);
+    }
     if (ws) ws.close();
-    chrome.kill();
+    if (chrome.exitCode === null) chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once('exit', resolve));
-    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    try { await fs.promises.rm(profile, { recursive: true, force: true, maxRetries: 15, retryDelay: 200 }); }
+    catch (error) {
+      if (!['ENOTEMPTY', 'EBUSY'].includes(error.code)) throw error;
+      console.warn('Browser profile still in use; the ephemeral CI runner will clean it up.');
+    }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
