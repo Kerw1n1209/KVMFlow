@@ -580,6 +580,51 @@ test('generated computer names and new diagnostic events follow language without
   assert.equal(doc.querySelector('#edit-name').value, '本机');
 });
 
+test('stored legacy diagnostic events follow language without changing unknown evidence', async t => {
+  const events = [
+    { title: '电脑配置组已保存', copy: '初始化完成后，该组电脑配置将用于自动切换。', time: '21:34' },
+    { title: '本地配置未保存', copy: '请先检测显示器，再保存设置。', titleMessage: '本地配置未保存', time: '17:44' },
+    { title: '设备原始记录 <script>bad()</script>', copy: '用户设备名称 工作电脑', time: '12:00' },
+  ];
+  const c = await client(t, { config: null, computerName: '工作电脑', storage: { 'kvmflow-local-prototype-v2': JSON.stringify({
+    localId: 'mac', nextId: 'win', usbConfirmed: false, displays: [], events,
+    computers: [{ id: 'mac', name: '工作电脑', port: 1, local: true, sources: [] }],
+  }) } });
+  c.win.navigate('diagnostics');
+  c.win.KVMFlowI18n.setPreference('en');
+  const list = c.win.document.querySelector('#event-list');
+  assert.match(list.textContent, /Computer group saved/);
+  assert.match(list.textContent, /This computer group will be used/);
+  assert.match(list.textContent, /Local configuration not saved/);
+  assert.match(list.textContent, /Detect the monitors before saving settings/);
+  assert.match(list.textContent, /用户设备名称 工作电脑/);
+  assert.equal(list.querySelector('script'), null);
+  assert.equal(c.win.document.querySelector('#home-computer').textContent, '工作电脑');
+  c.win.KVMFlowI18n.setPreference('zh-CN');
+  assert.match(list.textContent, /电脑配置已保存/);
+  assert.match(list.textContent, /本地配置未保存/);
+});
+
+test('preset and custom timing options switch language without changing saved values', async t => {
+  const config = automaticConfig();
+  config.trigger.debounce.t_absent_ms = 2500;
+  const c = await client(t, { config });
+  c.win.navigate('settings');
+  const select = c.win.document.querySelector('#timing-absent');
+  assert.equal(select.selectedOptions[0].textContent, '2.5 秒（自定义）');
+  const beforeWrites = c.requests.filter(entry => entry.method === 'config.set').length;
+  c.win.KVMFlowI18n.setPreference('en');
+  assert.equal(select.value, '2500');
+  assert.equal(select.selectedOptions[0].textContent, '2.5 seconds (custom)');
+  assert.equal(select.querySelector('option[value="0"]').textContent, 'Immediately');
+  assert.equal(c.win.document.querySelector('#timing-stable option[value="1000"]').textContent, '1 second');
+  assert.equal(c.win.document.querySelector('#timing-cooldown option[value="0"]').textContent, 'Off');
+  assert.equal(c.win.document.querySelector('#timing-cooldown option[value="15000"]').textContent, '15 seconds');
+  c.win.KVMFlowI18n.setPreference('zh-CN');
+  assert.equal(select.selectedOptions[0].textContent, '2.5 秒（自定义）');
+  assert.equal(c.requests.filter(entry => entry.method === 'config.set').length, beforeWrites);
+});
+
 test('language changes during USB identification preserve the active calibration and translated status', async t => {
   const c = await client(t, { config: null });
   c.win.navigate('guide');

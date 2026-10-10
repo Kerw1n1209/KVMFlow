@@ -32,6 +32,8 @@ jobs:
       - name: Check versions and release tag
         id: version
         run: node desktop/scripts/release-metadata.cjs validate
+      - name: Verify diagnostics layout in headless Chrome
+        run: node desktop/scripts/verify-diagnostics-layout.cjs
 
   build:
     needs: validate

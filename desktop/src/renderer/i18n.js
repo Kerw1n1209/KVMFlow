@@ -3,6 +3,7 @@
   const storageKey = 'kvmflow-language-v1';
   let config;
   const renderedMessages = new Map();
+  const catalogMessages = new Map();
   let preference = 'auto';
   let locale = 'en';
   const systemLocale = () => {
@@ -47,8 +48,13 @@
   }
   const api = window.KVMFlowI18n = {
     t, apply, setPreference, systemLocale,
-    describe: value => renderedMessages.get(value) || value,
-    format: value => value && typeof value === 'object' && value.id ? t(value.id, value.params) : String(value ?? ''),
+    describe: value => renderedMessages.get(value)
+      || (catalogMessages.has(value) ? { id: catalogMessages.get(value), params: {} } : value),
+    format: value => {
+      const message = api.describe(value);
+      return message && typeof message === 'object' && message.id
+        ? t(message.id, message.params) : String(message ?? '');
+    },
     errorMessage: value => {
       for (const catalog of Object.values(config?.messages || {})) {
         const entry = Object.entries(catalog).find(([, message]) => message === value);
@@ -66,6 +72,14 @@
       return response.json();
     })).then(value => {
       config = value;
+      for (const catalog of Object.values(config.messages)) {
+        for (const [id, text] of Object.entries(catalog)) {
+          if (!/\{[a-zA-Z0-9_]+\}/.test(text)) catalogMessages.set(text, id);
+        }
+      }
+      for (const [text, id] of Object.entries(config.legacyMessages || {})) {
+        if (Object.hasOwn(config.messages[config.fallbackLocale], id)) catalogMessages.set(text, id);
+      }
       setPreference(storedPreference(), { persist: false, notify: false });
     });
   window.addEventListener('languagechange', () => {

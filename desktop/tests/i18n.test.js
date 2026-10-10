@@ -27,6 +27,7 @@ test('catalogs contain all referenced keys and matching interpolation parameters
     assert.doesNotMatch(en[key], /[\u3400-\u9fff]/, key);
   }
   const renderer = path.resolve(__dirname, '../src/renderer');
+  for (const id of Object.values(config.legacyMessages || {})) assert.ok(Object.hasOwn(en, id));
   for (const name of ['shell.js', 'app.js', 'updates.js']) {
     const source = fs.readFileSync(path.join(renderer, name), 'utf8');
     for (const match of source.matchAll(/\b(?:t|message)\(["']([^"']+)["']/g)) {
@@ -38,6 +39,9 @@ test('catalogs contain all referenced keys and matching interpolation parameters
     for (const attribute of element.attributes) {
       if (attribute.name.startsWith('data-i18n')) assert.ok(Object.hasOwn(en, attribute.value), attribute.value);
     }
+  }
+  for (const option of document.querySelectorAll('select option')) {
+    assert.ok(option.dataset.i18n || option.lang || /^\d+$/.test(option.textContent), option.textContent);
   }
 });
 

@@ -8,6 +8,7 @@
 - `fallbackLocale`: fallback catalog for unsupported languages or missing keys (`en`).
 - `supportedLocales`: available catalogs (`zh-CN`, `en`).
 - `messages`: authored text grouped by locale. Parameters such as `{p0}`, `{name}`, and `{changes}` are interpolated literally, without interpreting HTML.
+- `legacyMessages`: exact aliases for older authored event text, mapped to current message keys. Unknown errors and user/device data stay unchanged.
 
 默认跟随系统语言；中文系统使用简体中文，英文系统使用英文，其他系统回退到英文。设置中的语言选择保存于原生用户数据目录的 `ui-preferences.json`，前端缓存 `kvmflow-language-v1` 用于首次加载。原生偏好优先，不会改变 USB/DDC 配置。
 
@@ -16,6 +17,8 @@ The language selector follows the system by default. Chinese system languages us
 Use `t('message.key', { p0: value })` for dynamic UI text. Mark static elements with `data-i18n="message.key"`; use `data-i18n-title`, `data-i18n-aria-label`, or `data-i18n-placeholder` for attributes. Native code uses `tr(&app, "message.key")`. Native messages are compiled from the same JSON catalog, so rebuild the native host after changing them.
 
 动态文案使用 `t()`，静态文本及无障碍属性使用 `data-i18n` 系列属性。原生文案使用同一份 JSON 编译进程序，修改后需要重新构建原生宿主。用户数据通过文本节点或转义后的 HTML 显示，不能当作 HTML 插入。
+
+下拉选项同样需要翻译标记，数值不随语言变化。历史事件里的固定文案按文案键或精确别名重新显示，未知错误和用户填写的内容保持原样。
 
 Run `npm test` in `desktop/` for catalog parity, placeholder checks, language fallback/persistence, editor preservation, update status, and existing UI regressions. Run `npm run test:rust` on a machine with Tauri platform prerequisites to check native preference persistence and host integration.
 

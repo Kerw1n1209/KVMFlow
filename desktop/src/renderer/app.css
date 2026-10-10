@@ -368,6 +368,9 @@ input, select { font-weight: 400; }
 .local-tip, .callout { border-left: 0; border-radius: 3px; padding: 16px; }
 .test-status { padding: 24px; border-color: var(--line); background: var(--surface-raised); }
 .event { padding-top: 18px; padding-bottom: 18px; }
+/* Recent events use the page scroll; short lists must not create a nested scroller. */
+#diagnostics-page .event-box { max-height: none; overflow: visible; }
+#diagnostics-page .event > div { min-width: 0; overflow-wrap: anywhere; }
 .recovery { margin-top: 20px; }
 .recovery-row { padding-top: 14px; padding-bottom: 14px; }
 button:active:not(:disabled) { transform: translateY(1px); }

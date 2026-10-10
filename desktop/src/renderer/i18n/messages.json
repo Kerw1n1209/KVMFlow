@@ -5,6 +5,12 @@
     "zh-CN",
     "en"
   ],
+  "legacyMessages": {
+    "电脑配置组已保存": "computer.group.saved",
+    "初始化完成后，这组电脑配置将用于自动切换。": "this.computer.group.will.be.used.for.automatic.switching.after.setup.is.",
+    "初始化完成后，该组电脑配置将用于自动切换。": "this.computer.group.will.be.used.for.automatic.switching.after.setup.is.",
+    "此设置单独生效，不会保存正在编辑的电脑。": "this.takes.effect.independently.and.does.not.save.the.computer.you.are.e"
+  },
   "messages": {
     "zh-CN": {
       "this.computer": "本机",

@@ -59,10 +59,11 @@
     if (![...select.options].some((option) => option.value === normalized)) {
       const option = document.createElement('option');
       option.value = normalized;
-      option.textContent = t("value.seconds.custom", {
-  p0: value / 1000
-});
+      option.dataset.customTiming = 'true';
       select.appendChild(option);
+    }
+    for (const option of select.querySelectorAll('[data-custom-timing]')) {
+      option.textContent = t('value.seconds.custom', { p0: Number(option.value) / 1000 });
     }
     select.value = normalized;
   };
