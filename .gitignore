@@ -58,6 +58,8 @@ cloudflare/api/.dev.vars
 /docs/*
 !/docs/building.md
 !/docs/auto-updates.md
+!/docs/screenshots/
+!/docs/screenshots/**
 
 # Credentials, signing material, and local tool state.
 .dev.vars

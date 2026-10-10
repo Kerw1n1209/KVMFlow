@@ -51,6 +51,14 @@ You need monitors that support DDC/CI input switching. KVMFlow does not transmit
 
 Change the interface language under **Settings → Language**: follow the system, 简体中文, or English. The preference also applies to the tray, notifications, and native confirmation dialogs.
 
+## Screenshots
+
+KVMFlow v0.2.7, using example device data. Input values are examples, not presets for your monitors.
+
+![KVMFlow v0.2.7 status page](docs/screenshots/v0.2.7/en/status.png)
+
+[Setup, settings and diagnostics screenshots](docs/screenshots/README.md)
+
 ## How it works
 
 ```mermaid

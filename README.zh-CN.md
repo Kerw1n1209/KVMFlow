@@ -51,6 +51,14 @@
 
 在**设置 → 语言**选择跟随系统、简体中文或 English。语言偏好也会用于托盘、系统通知和原生确认弹窗。
 
+## 应用截图
+
+截图来自 KVMFlow v0.2.7，使用示例设备数据。输入值仅作演示，请按自己的显示器读取结果填写。
+
+![KVMFlow v0.2.7 状态页面](docs/screenshots/v0.2.7/zh-CN/status.png)
+
+[查看初始化、设置和诊断页面](docs/screenshots/README.md)
+
 ## 如何工作
 
 ```mermaid
