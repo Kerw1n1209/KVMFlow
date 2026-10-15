@@ -36,7 +36,6 @@ pub const REQUEST_METHODS: &[&str] = &[
     "wizard.end",
     "wizard.candidates",
     "state.get",
-    "switch.pushNow",
     "diagnostics.collect",
     "shutdown",
 ];

@@ -83,7 +83,7 @@ impl Drop for Client {
 /// Schema v2 persists, uses the synchronized physical route on departure, and
 /// never falls through to the legacy v1 manual-push path.
 #[test]
-fn e2e_v2_config_persists_and_blocks_legacy_manual_push() {
+fn e2e_v2_config_persists_and_has_no_manual_push() {
     let tmp = tempfile::tempdir().unwrap();
     let config = tmp.path().join("config.json");
     let log_dir = tmp.path().join("logs");
@@ -173,15 +173,16 @@ fn e2e_v2_config_persists_and_blocks_legacy_manual_push() {
             .iter()
             .all(|outcome| outcome["requested"].is_number()));
 
-        client.send(r#"{"v":1,"id":3,"method":"switch.pushNow","params":{"reason":"must_not_use_v1_away_input"}}"#);
+        // Switching only follows the physical USB trigger; there is no
+        // manual push that could bypass the switch group.
+        client.send(
+            r#"{"v":1,"id":3,"method":"switch.pushNow","params":{"reason":"must_not_exist"}}"#,
+        );
         let push = client
             .wait_for(|value| value["id"] == 3, Duration::from_secs(5))
-            .expect("v2 push response");
+            .expect("manual push response");
         assert_eq!(push["ok"], false);
-        assert!(push["error"]["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("physical USB trigger"));
+        assert_eq!(push["error"]["code"], "E_UNKNOWN_METHOD");
     }
 
     let mut reloaded = Client::spawn(&[
@@ -728,10 +729,11 @@ fn e2e_v2_pause_blocks_physical_trigger_writes() {
     assert_eq!(state["result"]["enabled"], false);
 }
 
-/// End-to-end over the real binary + real protocol: wizard flow, config,
-/// trigger, push, report - all on the simulated backend.
+/// End-to-end over the real binary + real protocol: a v1 config is migrated
+/// on save, then the wizard flow, arming, diagnostics and protocol errors -
+/// all on the simulated backend.
 #[test]
-fn e2e_clean_roundtrip_pushes_monitors_and_reports_commanded() {
+fn e2e_clean_roundtrip_migrates_v1_and_runs_the_wizard() {
     let tmp = tempfile::tempdir().unwrap();
     let config = tmp.path().join("config.json");
     let log_dir = tmp.path().join("logs");
@@ -806,7 +808,14 @@ fn e2e_clean_roundtrip_pushes_monitors_and_reports_commanded() {
         .wait_for(|v| v["id"] == 3, Duration::from_secs(5))
         .expect("config.set");
     assert_eq!(saved["ok"], true, "config accepted: {saved}");
+    assert_eq!(saved["result"]["mode"], "multi_device_armed");
     assert!(config.exists(), "config persisted to disk");
+    let on_disk: Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+    assert_eq!(on_disk["schema_version"], 2, "v1 is saved as a v2 group");
+    assert_eq!(
+        on_disk["switch_group"]["devices"].as_array().unwrap().len(),
+        2
+    );
 
     // wizard flow smoke: begin -> candidates on leave -> end
     c.send(r#"{"v":1,"id":4,"method":"wizard.begin"}"#);
@@ -853,47 +862,8 @@ fn e2e_clean_roundtrip_pushes_monitors_and_reports_commanded() {
         "armed after config + wizard.end"
     );
 
-    // The scenario: group left at t=8s (already elapsed during wizard);
-    // with the SHORT debounce the GroupLeft already fired while in Learning
-    // (suppressed - learning never pushes). Re-trigger via manual push to
-    // exercise the write path deterministically.
-    c.send(r#"{"v":1,"id":8,"method":"switch.pushNow","params":{"reason":"wizard_final_test"}}"#);
-    let push = c
-        .wait_for(|v| v["id"] == 8, Duration::from_secs(10))
-        .expect("pushNow");
-    assert_eq!(push["ok"], true, "manual push accepted");
-
-    // switch.report notification: both monitors commanded, honest note
-    let report = c
-        .wait_for(
-            |v| v["notification"].as_str() == Some("switch.report"),
-            Duration::from_secs(10),
-        )
-        .expect("switch.report after push");
-    let per = report["data"]["per_monitor"].as_array().unwrap();
-    assert_eq!(per.len(), 2);
-    assert!(per.iter().all(|m| m["commanded"] == true));
-    assert!(per.iter().any(|m| m["requested"] == 16));
-    assert!(per.iter().any(|m| m["requested"] == 8));
-    assert!(per.iter().any(|m| m["previous"] == 15));
-    assert!(per.iter().any(|m| m["previous"] == 7));
-    // Automatic switching never waits for a read from the input it just left.
-    assert!(per
-        .iter()
-        .all(|m| m["readback"].is_null() && m["readback_error"].is_null()));
-    assert!(report["data"]["note"]
-        .as_str()
-        .unwrap()
-        .contains("machine_observed_only"));
-
-    // after push, reads degrade (control matrix) - readInput must fail honestly
-    c.send(r#"{"v":1,"id":9,"method":"display.readInput","params":{"edid_id":"SAC-2763-S:0000000000001"}}"#);
-    let read = c
-        .wait_for(|v| v["id"] == 9, Duration::from_secs(5))
-        .expect("readInput");
-    assert_eq!(read["ok"], false);
-    assert_eq!(read["error"]["code"], "E_DDC_NOT_READABLE");
-
+    // The group left at t=8s while the wizard was learning; learning never
+    // switches. The write path is covered by the migrated-v1 test below.
     // diagnostics
     c.send(r#"{"v":1,"id":10,"method":"diagnostics.collect","params":{"tail":50}}"#);
     let diag = c
@@ -964,12 +934,11 @@ fn e2e_ddc_failure_reports_per_monitor() {
     c.send(&req);
     let _ = c.wait_for(|v| v["id"] == 1, Duration::from_secs(5));
 
-    c.send(r#"{"v":1,"id":2,"method":"switch.pushNow","params":{"reason":"test"}}"#);
-    let _ = c.wait_for(|v| v["id"] == 2, Duration::from_secs(10));
+    // The group leaves at t=8s; t_absent 1s triggers the switch.
     let report = c
         .wait_for(
             |v| v["notification"].as_str() == Some("switch.report"),
-            Duration::from_secs(10),
+            Duration::from_secs(20),
         )
         .expect("switch.report");
     let per = report["data"]["per_monitor"].as_array().unwrap();
@@ -1043,7 +1012,7 @@ fn e2e_replug_yields_unexpected_return() {
             Duration::from_secs(20),
         )
         .expect("automatic push on group leave");
-    assert_eq!(report["data"]["manual"], false);
+    assert_eq!(report["data"]["phase"], "source_fast_path");
 
     // group returns at scenario t=4s -> UnexpectedReturn
     let ur = c.wait_for(
@@ -1196,4 +1165,52 @@ fn e2e_v2_target_with_no_following_monitor_reports_a_skip_instead_of_a_failure()
         .unwrap_or_else(|| panic!("skip event: {events:?}"));
     assert_eq!(skipped["fields"]["reason"], "no_following_monitors");
     assert_eq!(skipped["fields"]["target_device_id"], "windows");
+}
+
+/// A v1 config keeps switching exactly as v1 did: leaving this computer
+/// writes every monitor's v1 away_input.
+#[test]
+fn e2e_migrated_v1_config_writes_the_v1_away_inputs() {
+    let v1 = serde_json::json!({
+        "schema_version": 1,
+        "host_label": "v1-host",
+        "monitors": [
+            {"edid_id": "SAC-2763-S:0000000000001", "label": "G73", "here_input": 15, "away_input": 16,
+             "here_input_source": "learned_active_read", "away_input_source": "heuristic_prefill"},
+            {"edid_id": "SAC-2466-S:0000000000000", "label": "G52plus", "here_input": 7, "away_input": 8,
+             "here_input_source": "learned_active_read", "away_input_source": "heuristic_prefill"}
+        ],
+        "trigger": {
+            "anchor": {"vid_pid": "1a40:0101"},
+            "members": [{"vid_pid": "3837:303c"}],
+            "debounce": {"t_stable_ms": 500, "t_absent_ms": 1000, "t_cooldown_ms": 1500}
+        },
+        "advanced": {"ddc_retry": {"attempts": 2, "delay_ms": 50}, "usb_poll_ms": 100}
+    });
+    let (report, _) = fast_path_outcome(v1);
+    let report = report.expect("migrated v1 config switches on departure");
+    let per = report["data"]["per_monitor"].as_array().unwrap();
+    assert_eq!(per.len(), 2);
+    assert!(per.iter().all(|m| m["commanded"] == true));
+    let requested = |id: &str| {
+        per.iter()
+            .find(|m| m["edid_id"] == id)
+            .map(|m| (m["requested"].clone(), m["previous"].clone()))
+    };
+    assert_eq!(
+        requested("SAC-2763-S:0000000000001"),
+        Some((Value::from(16), Value::from(15)))
+    );
+    assert_eq!(
+        requested("SAC-2466-S:0000000000000"),
+        Some((Value::from(8), Value::from(7)))
+    );
+    // Automatic switching never waits for a read from the input it just left.
+    assert!(per
+        .iter()
+        .all(|m| m["readback"].is_null() && m["readback_error"].is_null()));
+    assert!(report["data"]["note"]
+        .as_str()
+        .unwrap()
+        .contains("machine_observed_only"));
 }

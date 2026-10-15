@@ -298,14 +298,14 @@ fn sidecar_fixture_replay_no_false_switch_report() {
     // real-time; the capture's max gap is ~6.3s < T_absent 10s, so scaled
     // gaps of ~1.3s are far below it - no trigger expected either way).
     let cfg = serde_json::json!({
-        "schemaVersion": 1,
+        "schema_version": 1,
         "monitors": [
-            {"edidId": "SAC-2763-S:0000000000001", "hereInput": 15, "awayInput": 16, "awayInputSource": "heuristic_prefill"}
+            {"edid_id": "SAC-2763-S:0000000000001", "here_input": 15, "away_input": 16, "away_input_source": "heuristic_prefill"}
         ],
         "trigger": {
-            "anchor": {"vidPid": "067b:2586"},
-            "members": [{"vidPid": "001f:0b26", "serial": "fixture-composite-1"}],
-            "debounce": {"tStableMs": 5000, "tAbsentMs": 10000, "tCooldownMs": 15000}
+            "anchor": {"vid_pid": "067b:2586"},
+            "members": [{"vid_pid": "001f:0b26", "serial": "fixture-composite-1"}],
+            "debounce": {"t_stable_ms": 5000, "t_absent_ms": 10000, "t_cooldown_ms": 15000}
         }
     });
     let req = format!(
@@ -321,10 +321,14 @@ fn sidecar_fixture_replay_no_false_switch_report() {
 
     // Watch the full replay (77.1s * 0.2 = ~16s) and assert no switch.report.
     let mut saw_report = false;
+    let mut armed = false;
     let deadline = std::time::Instant::now() + Duration::from_secs(25);
     while std::time::Instant::now() < deadline {
         match rx.recv_timeout(Duration::from_secs(1)) {
             Ok(v) => {
+                if v["id"] == 1 {
+                    armed = v["ok"] == true && v["result"]["mode"] == "multi_device_armed";
+                }
                 if v["notification"].as_str() == Some("switch.report") {
                     saw_report = true;
                 }
@@ -335,6 +339,8 @@ fn sidecar_fixture_replay_no_false_switch_report() {
     }
     let _ = child.kill();
     let _ = child.wait();
+    // Without an armed config the replay proves nothing.
+    assert!(armed, "the replay ran against an armed switch group");
     assert!(
         !saw_report,
         "no false switch.report during the real bounce fixture replay"

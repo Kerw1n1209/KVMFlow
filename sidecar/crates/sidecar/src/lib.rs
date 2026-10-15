@@ -5,7 +5,9 @@ mod backends;
 mod session;
 
 use backends::{Backend, UsbDevice};
-use kvmflow_core::config::{Config, ConfigDocument, MultiDeviceConfig, TriggerConfig};
+use kvmflow_core::config::{
+    Config, ConfigDocument, LegacyMigration, MultiDeviceConfig, TriggerConfig,
+};
 use kvmflow_core::debounce::{DeviceKey, GroupTracker, TrackerEvent};
 use kvmflow_core::errors::*;
 use kvmflow_core::events::kinds;
@@ -14,7 +16,7 @@ use kvmflow_core::protocol::{
     encode, parse_client_line, NotificationLine, ResponseLine, NOTIFICATION_KINDS,
     PROTOCOL_VERSION, REQUEST_METHODS,
 };
-use kvmflow_core::statemachine::{Action, Input, MonitorOutcome, SwitchFsm};
+use kvmflow_core::statemachine::{Action, Input, MonitorOutcome, SwitchFsm, REPORT_NOTE};
 use kvmflow_core::transaction::local_arrival_correction;
 use serde_json::{json, Value};
 use session::{now_ms, SessionLog};
@@ -74,14 +76,11 @@ struct Runtime {
     backend: Box<dyn Backend>,
     tracker: Option<GroupTracker>,
     fsm: SwitchFsm,
-    /// Explicit legacy mode. It remains runnable during the v1 → v2 migration
-    /// window so a previously working two-computer setup is never silently
-    /// reinterpreted as a switch group.
-    config: Option<Config>,
-    /// Schema v2 group configuration. It can be detected, synchronized and
-    /// inspected before the group transaction runtime is switched on.
-    multi_device_config: Option<MultiDeviceConfig>,
-    multi_device_enabled: bool,
+    /// The switch group configuration. A schema v1 file is migrated into it
+    /// when it is loaded or saved; there is no separate legacy runtime.
+    config: Option<MultiDeviceConfig>,
+    /// Tray pause. While false, USB triggers write nothing.
+    enabled: bool,
     /// Last v2 write attempt. It is deliberately separate from the legacy
     /// state-machine report because v2 has source and arrival-correction
     /// phases rather than a single "push away" action.
@@ -143,16 +142,7 @@ impl Runtime {
         let path = self.config_path.clone();
         match std::fs::read_to_string(&path) {
             Ok(text) => match ConfigDocument::parse_json(&text) {
-                Ok(ConfigDocument::LegacyV1(cfg)) => {
-                    if let Err(e) = cfg.validate() {
-                        self.emit_event(
-                            kinds::CONFIG_SAVED,
-                            Level::Warn,
-                            json!({"loaded": "invalid", "error": e.to_string()}),
-                        );
-                    }
-                    self.apply_config(cfg);
-                }
+                Ok(ConfigDocument::LegacyV1(cfg)) => self.migrate_loaded_legacy_config(cfg, &text),
                 Ok(ConfigDocument::MultiDeviceV2(cfg)) => {
                     if let Err(e) = cfg.validate() {
                         self.emit_event(
@@ -161,7 +151,7 @@ impl Runtime {
                             json!({"loaded": "invalid_v2", "error": e.to_string()}),
                         );
                     }
-                    self.apply_multi_device_config(cfg);
+                    self.apply_config(cfg);
                 }
                 Err(e) => {
                     // The next save would overwrite the only copy of the
@@ -195,33 +185,51 @@ impl Runtime {
         }
     }
 
-    fn apply_config(&mut self, cfg: Config) {
-        let mut tracker = GroupTracker::new(
-            cfg.trigger.anchor.clone(),
-            cfg.trigger.members.clone(),
-            cfg.trigger.debounce.clone(),
-        );
-        // Seed with the current bus state so a group that is already present
-        // counts toward stability instead of starting from an unknown state.
-        let keys: Vec<DeviceKey> = self
-            .last_snapshot
-            .iter()
-            .map(|d| DeviceKey {
-                vid_pid: d.vid_pid.clone(),
-                serial: d.serial.clone(),
-            })
-            .collect();
-        tracker.update(now_ms(), &keys);
-        self.tracker = Some(tracker);
-        self.bounce_watch = None;
-        let actions = self.fsm.handle(Input::ConfigUpdated(cfg.clone()), now_ms());
-        self.config = Some(cfg);
-        self.multi_device_config = None;
-        self.multi_device_enabled = true;
-        self.run_actions(actions);
+    /// An armed v1 file becomes a runnable two-computer group and is
+    /// rewritten as v2 (the original is kept as `<name>.v1-backup`). An
+    /// incomplete one is only converted in memory, so nothing on disk is lost
+    /// before the user completes setup.
+    fn migrate_loaded_legacy_config(&mut self, cfg: Config, original: &str) {
+        match MultiDeviceConfig::migrate_legacy(cfg) {
+            LegacyMigration::Runnable(config) => {
+                let backup = self.config_path.with_file_name(format!(
+                    "{}.v1-backup",
+                    self.config_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                ));
+                let text = serde_json::to_string_pretty(&config).unwrap_or_default();
+                let persisted = write_atomically(&backup, original.as_bytes())
+                    .and_then(|()| write_atomically(&self.config_path, text.as_bytes()));
+                self.emit_event(
+                    kinds::CONFIG_SAVED,
+                    if persisted.is_ok() {
+                        Level::Info
+                    } else {
+                        Level::Warn
+                    },
+                    json!({
+                        "loaded": "migrated_from_v1",
+                        "runnable": true,
+                        "backup": backup.to_string_lossy(),
+                        "error": persisted.err().map(|error| error.to_string()),
+                    }),
+                );
+                self.apply_config(config);
+            }
+            LegacyMigration::NeedsSetup(config) => {
+                self.emit_event(
+                    kinds::CONFIG_SAVED,
+                    Level::Warn,
+                    json!({"loaded": "migrated_from_v1", "runnable": false}),
+                );
+                self.apply_config(config);
+            }
+        }
     }
 
-    fn apply_multi_device_config(&mut self, cfg: MultiDeviceConfig) {
+    fn apply_config(&mut self, cfg: MultiDeviceConfig) {
         let mut tracker = GroupTracker::new(
             cfg.trigger.anchor.clone(),
             cfg.trigger.members.clone(),
@@ -237,46 +245,37 @@ impl Runtime {
             .collect();
         tracker.update(now_ms(), &keys);
         self.tracker = Some(tracker);
-        self.config = None;
-        self.multi_device_config = Some(cfg);
-        self.multi_device_enabled = true;
-        // V2 owns its own source/arrival transaction paths. A fresh legacy FSM
-        // prevents an old v1 away-input from firing after a migration.
-        self.fsm = SwitchFsm::new();
+        let ready = cfg.ready_for_group_switch();
+        self.config = Some(cfg);
+        self.enabled = true;
         self.last_multi_device_report = None;
         self.bounce_watch = None;
-        let mode = if self
-            .multi_device_config
-            .as_ref()
-            .is_some_and(MultiDeviceConfig::ready_for_group_switch)
-        {
-            "multi_device_armed"
-        } else {
-            "multi_device_setup"
-        };
-        self.notify("state", json!({"state": self.fsm.state(), "mode": mode}));
+        let mut actions = self.fsm.handle(Input::SetDisabled(false), now_ms());
+        actions.extend(self.fsm.handle(Input::ConfigReady(ready), now_ms()));
+        let state_changed = actions
+            .iter()
+            .any(|action| matches!(action, Action::Notify { kind: "state", .. }));
+        self.run_actions(actions);
+        // The mode may change without a state change (setup -> armed while
+        // learning); announce it once either way.
+        if !state_changed {
+            let data = self.state_notification();
+            self.notify("state", data);
+        }
+    }
+
+    fn state_notification(&self) -> Value {
+        json!({"state": self.fsm.state(), "mode": self.config_mode(), "enabled": self.enabled})
     }
 
     fn active_trigger(&self) -> Option<TriggerConfig> {
-        self.config
-            .as_ref()
-            .map(|config| config.trigger.clone())
-            .or_else(|| {
-                self.multi_device_config
-                    .as_ref()
-                    .map(|config| config.trigger.clone())
-            })
+        self.config.as_ref().map(|config| config.trigger.clone())
     }
 
     fn active_monitor_count(&self) -> usize {
         self.config
             .as_ref()
-            .map(|config| config.monitors.len())
-            .or_else(|| {
-                self.multi_device_config
-                    .as_ref()
-                    .map(|config| config.local_device.monitors.len())
-            })
+            .map(|config| config.local_device.monitors.len())
             .unwrap_or(0)
     }
 
@@ -284,18 +283,10 @@ impl Runtime {
         self.config
             .as_ref()
             .map(|config| config.advanced.ddc_retry.to_policy())
-            .or_else(|| {
-                self.multi_device_config
-                    .as_ref()
-                    .map(|config| config.advanced.ddc_retry.to_policy())
-            })
             .unwrap_or_default()
     }
 
     fn active_config_value(&self) -> Value {
-        if let Some(config) = &self.multi_device_config {
-            return serde_json::to_value(config).unwrap_or(Value::Null);
-        }
         self.config
             .as_ref()
             .and_then(|config| serde_json::to_value(config).ok())
@@ -303,36 +294,21 @@ impl Runtime {
     }
 
     fn config_mode(&self) -> &'static str {
-        if let Some(config) = &self.multi_device_config {
-            if config.ready_for_group_switch() {
-                "multi_device_armed"
-            } else {
-                "multi_device_setup"
-            }
-        } else if self.config.is_some() {
-            "legacy_v1"
-        } else {
-            "none"
+        match &self.config {
+            Some(config) if config.ready_for_group_switch() => "multi_device_armed",
+            Some(_) => "multi_device_setup",
+            None => "none",
         }
     }
 
-    fn persist_and_apply_legacy_config(&mut self, id: u64, config: Config) {
-        let text = serde_json::to_string_pretty(&config).unwrap_or_default();
-        self.persist_config_text(id, text, "legacy_v1", move |runtime| {
-            runtime.apply_config(config)
-        });
-    }
-
-    fn persist_and_apply_multi_device_config(&mut self, id: u64, config: MultiDeviceConfig) {
+    fn persist_and_apply_config(&mut self, id: u64, config: MultiDeviceConfig) {
         let text = serde_json::to_string_pretty(&config).unwrap_or_default();
         let mode = if config.ready_for_group_switch() {
             "multi_device_armed"
         } else {
             "multi_device_setup"
         };
-        self.persist_config_text(id, text, mode, move |runtime| {
-            runtime.apply_multi_device_config(config)
-        });
+        self.persist_config_text(id, text, mode, move |runtime| runtime.apply_config(config));
     }
 
     fn persist_config_text<F>(&mut self, id: u64, text: String, mode: &'static str, apply: F)
@@ -361,39 +337,20 @@ impl Runtime {
     }
 
     fn run_actions(&mut self, actions: Vec<Action>) {
-        let mut outcomes: Vec<MonitorOutcome> = Vec::new();
-        let mut has_writes = false;
         for action in actions {
             match action {
                 Action::Event {
                     kind,
                     level,
                     fields,
-                } => {
-                    self.emit_event(kind, level, fields);
+                } => self.emit_event(kind, level, fields),
+                // State changes always carry the config mode and pause flag.
+                Action::Notify { kind: "state", .. } => {
+                    let data = self.state_notification();
+                    self.notify("state", data);
                 }
-                Action::Notify { kind, data } => {
-                    self.notify(kind, data);
-                }
-                Action::WriteInput {
-                    edid_id,
-                    value,
-                    policy,
-                } => {
-                    has_writes = true;
-                    let outcome = self.write_with_retry(&edid_id, value, &policy, false);
-                    outcomes.push(outcome);
-                }
+                Action::Notify { kind, data } => self.notify(kind, data),
             }
-        }
-        if has_writes {
-            let actions = self.fsm.handle(
-                Input::PushOutcomes {
-                    per_monitor: outcomes,
-                },
-                now_ms(),
-            );
-            self.run_actions(actions);
         }
     }
 
@@ -485,7 +442,7 @@ impl Runtime {
             "target_device_id": target_device_id,
             "per_monitor": outcomes,
             "commanded": all_commanded,
-            "note": kvmflow_core::statemachine::REPORT_NOTE,
+            "note": REPORT_NOTE,
         });
         self.emit_event(
             kinds::SWITCH_PUSH_REPORT,
@@ -643,10 +600,10 @@ impl Runtime {
     }
 
     fn handle_multi_device_tracker_event(&mut self, event: &TrackerEvent) {
-        if !self.multi_device_enabled {
+        if !self.enabled {
             return;
         }
-        let Some(config) = self.multi_device_config.clone() else {
+        let Some(config) = self.config.clone() else {
             return;
         };
         if !config.ready_for_group_switch() {
@@ -857,9 +814,7 @@ impl Runtime {
             .collect();
         let evs = tracker.update(now_ms(), &keys);
         for ev in evs {
-            if self.multi_device_config.is_some() {
-                self.handle_multi_device_tracker_event(&ev);
-            }
+            self.handle_multi_device_tracker_event(&ev);
             let actions = self.fsm.handle(Input::Tracker(ev), now_ms());
             self.run_actions(actions);
         }
@@ -914,7 +869,10 @@ impl Runtime {
                             ));
                             return true;
                         }
-                        self.persist_and_apply_legacy_config(id, cfg);
+                        let (LegacyMigration::Runnable(config)
+                        | LegacyMigration::NeedsSetup(config)) =
+                            MultiDeviceConfig::migrate_legacy(cfg);
+                        self.persist_and_apply_config(id, config);
                     }
                     Ok(ConfigDocument::MultiDeviceV2(cfg)) => {
                         if let Err(error) = cfg.validate() {
@@ -925,7 +883,7 @@ impl Runtime {
                             ));
                             return true;
                         }
-                        self.persist_and_apply_multi_device_config(id, cfg);
+                        self.persist_and_apply_config(id, cfg);
                     }
                     Err(error) => {
                         self.respond(ResponseLine::err(id, E_CONFIG_INVALID, error.to_string()))
@@ -1049,7 +1007,7 @@ impl Runtime {
                     json!({
                         "edid_id": edid, "value": value, "reason": reason,
                         "commanded": outcome.commanded, "attempts": outcome.attempts,
-                        "note": kvmflow_core::statemachine::REPORT_NOTE,
+                        "note": REPORT_NOTE,
                     }),
                 );
                 self.respond(ResponseLine::ok(
@@ -1100,25 +1058,16 @@ impl Runtime {
                     .get("enabled")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true);
-                if self.multi_device_config.is_some() {
-                    self.multi_device_enabled = enabled;
-                    if !enabled {
-                        self.bounce_watch = None;
-                    }
-                    let state = if enabled { "armed" } else { "disabled" };
-                    self.notify(
-                        "state",
-                        json!({"state": state, "mode": self.config_mode(), "enabled": enabled}),
-                    );
-                    self.respond(ResponseLine::ok(
-                        id,
-                        json!({"state": state, "enabled": enabled}),
-                    ));
-                    return true;
+                self.enabled = enabled;
+                if !enabled {
+                    self.bounce_watch = None;
                 }
                 let actions = self.fsm.handle(Input::SetDisabled(!enabled), now_ms());
                 self.run_actions(actions);
-                self.respond(ResponseLine::ok(id, json!({"state": self.fsm.state()})));
+                self.respond(ResponseLine::ok(
+                    id,
+                    json!({"state": self.fsm.state(), "enabled": enabled}),
+                ));
             }
             "wizard.begin" => {
                 self.wizard_active = true;
@@ -1147,48 +1096,14 @@ impl Runtime {
                     "state": self.fsm.state(),
                     "groupPresent": self.tracker.as_ref().map(|t| t.group_present()).unwrap_or(false),
                     "groupStable": self.tracker.as_ref().map(|t| t.group_stable()).unwrap_or(false),
-                    "lastReport": self.fsm.last_report(),
                     "lastMultiDeviceReport": self.last_multi_device_report,
                     "monitors": self.active_monitor_count(),
                     "configMode": self.config_mode(),
-                    "groupReady": self.multi_device_config.as_ref().map(|c| c.ready_for_group_switch()).unwrap_or(false),
-                    "enabled": if self.multi_device_config.is_some() { self.multi_device_enabled } else { self.fsm.state() != kvmflow_core::statemachine::FsmState::Disabled },
+                    "groupReady": self.config.as_ref().map(|c| c.ready_for_group_switch()).unwrap_or(false),
+                    "enabled": self.enabled,
                     "configRecovery": self.config_recovery,
                 });
                 self.respond(ResponseLine::ok(id, result));
-            }
-            "switch.pushNow" => {
-                if self.multi_device_config.is_some() {
-                    self.respond(ResponseLine::err(
-                        id,
-                        E_TRIGGER_NOT_ARMED,
-                        "multi-device switching is driven by the physical USB trigger; manual push is unavailable",
-                    ));
-                    return true;
-                }
-                let reason = req
-                    .params
-                    .get("reason")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("manual")
-                    .to_string();
-                let actions = self.fsm.handle(Input::ManualPush { reason }, now_ms());
-                let started = actions
-                    .iter()
-                    .any(|a| matches!(a, Action::WriteInput { .. }));
-                self.run_actions(actions);
-                if started {
-                    self.respond(ResponseLine::ok(
-                        id,
-                        json!({"started": true, "state": self.fsm.state(), "report": self.fsm.last_report()}),
-                    ));
-                } else {
-                    self.respond(ResponseLine::err(
-                        id,
-                        E_TRIGGER_NOT_ARMED,
-                        format!("push rejected in state {:?}", self.fsm.state()),
-                    ));
-                }
             }
             "diagnostics.collect" => {
                 let tail = req
@@ -1610,8 +1525,7 @@ fn run_runtime(
         tracker: None,
         fsm: SwitchFsm::new(),
         config: None,
-        multi_device_config: None,
-        multi_device_enabled: true,
+        enabled: true,
         last_multi_device_report: None,
         bounce_watch: None,
         usb_snapshot_initialized: false,
@@ -1646,15 +1560,13 @@ fn run_runtime(
     rt.load_config();
 
     while !stopped.load(Ordering::Acquire) {
-        // Idle tick path: drain with timeout so cooldown expiry is observed.
+        // Idle tick path: drain with timeout so time-based tracker windows advance.
         let msg = match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(m) => m,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Time-based tracker windows (T_stable / T_absent) advance on
                 // a quiet bus too - pump before the FSM tick.
                 rt.pump_tracker();
-                let actions = rt.fsm.handle(Input::Tick { now_ms: now_ms() }, now_ms());
-                rt.run_actions(actions);
                 rt.check_bounce_watch();
                 continue;
             }

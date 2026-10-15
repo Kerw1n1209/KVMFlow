@@ -23,8 +23,8 @@ fn config() -> Value {
     json!({
         "schema_version": 1, "host_label": "embedded-test",
         "monitors": [
-            { "edid_id": "SAC-2763-S:0000000000001", "here_input": 15, "away_input": 16 },
-            { "edid_id": "SAC-2466-S:0000000000000", "here_input": 7, "away_input": 8 }
+            { "edid_id": "SAC-2763-S:0000000000001", "here_input": 15, "away_input": 16, "away_input_source": "heuristic_prefill" },
+            { "edid_id": "SAC-2466-S:0000000000000", "here_input": 7, "away_input": 8, "away_input_source": "heuristic_prefill" }
         ],
         "trigger": {
             "anchor": { "vid_pid": "1a40:0101" },
@@ -36,35 +36,70 @@ fn config() -> Value {
 }
 
 #[test]
-fn loads_existing_config_and_sends_events_without_stdio() {
+fn loads_a_v1_config_migrates_it_on_disk_and_sends_events_without_stdio() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("config.json"),
-        serde_json::to_vec(&config()).unwrap(),
-    )
-    .unwrap();
+    let original = serde_json::to_vec(&config()).unwrap();
+    std::fs::write(dir.path().join("config.json"), &original).unwrap();
     let (runtime, rx) = start(dir.path(), "config.json");
     let loaded = runtime.request("config.get", json!({})).unwrap();
-    assert_eq!(loaded["host_label"], "embedded-test");
+    assert_eq!(loaded["schema_version"], 2);
+    assert_eq!(loaded["local_device"]["host_label"], "embedded-test");
+    assert_eq!(
+        loaded["switch_group"]["devices"].as_array().unwrap().len(),
+        2
+    );
     let ready = rx.recv_timeout(Duration::from_secs(2)).unwrap();
     assert_eq!(ready.0, "ready");
     assert_eq!(ready.1["simulated"], true);
+    let state = runtime.request("state.get", json!({})).unwrap();
+    assert_eq!(state["configMode"], "multi_device_armed");
+    assert_eq!(state["state"], "idle");
+    let on_disk: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap()).unwrap();
+    assert_eq!(on_disk["schema_version"], 2);
+    assert_eq!(
+        std::fs::read(dir.path().join("config.json.v1-backup")).unwrap(),
+        original
+    );
     let displays = runtime.request("display.list", json!({})).unwrap();
     assert_eq!(displays["displays"].as_array().unwrap().len(), 2);
-    let report = runtime
-        .request("switch.pushNow", json!({ "reason": "embedding-smoke" }))
-        .unwrap();
-    assert!(report["report"]["per_monitor"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|entry| entry["commanded"] == true));
-    assert!(!report["report"]["note"]
-        .as_str()
-        .unwrap()
-        .contains("human_verified"));
+    assert_eq!(
+        runtime
+            .request("switch.pushNow", json!({ "reason": "embedding-smoke" }))
+            .unwrap_err()
+            .code,
+        "E_UNKNOWN_METHOD"
+    );
     runtime.shutdown();
     assert!(runtime.request("state.get", json!({})).is_err());
+}
+
+#[test]
+fn an_incomplete_v1_config_is_converted_in_memory_without_touching_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut incomplete = config();
+    incomplete["monitors"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("away_input_source");
+    let original = serde_json::to_vec(&incomplete).unwrap();
+    std::fs::write(dir.path().join("config.json"), &original).unwrap();
+    let (runtime, _) = start(dir.path(), "config.json");
+    let loaded = runtime.request("config.get", json!({})).unwrap();
+    assert_eq!(loaded["schema_version"], 2);
+    assert!(loaded["switch_group"].is_null());
+    assert_eq!(
+        loaded["local_device"]["monitors"][0]["legacy_remote_preset"]["value"],
+        16
+    );
+    let state = runtime.request("state.get", json!({})).unwrap();
+    assert_eq!(state["configMode"], "multi_device_setup");
+    assert_eq!(state["state"], "unconfigured");
+    assert_eq!(
+        std::fs::read(dir.path().join("config.json")).unwrap(),
+        original
+    );
+    assert!(!dir.path().join("config.json.v1-backup").exists());
 }
 
 #[test]
@@ -164,5 +199,5 @@ fn unreadable_config_is_set_aside_before_a_new_save() {
     );
     let saved: Value =
         serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap()).unwrap();
-    assert_eq!(saved["host_label"], "embedded-test");
+    assert_eq!(saved["local_device"]["host_label"], "embedded-test");
 }

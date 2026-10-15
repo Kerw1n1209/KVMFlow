@@ -4,7 +4,7 @@
 
 use crate::debounce::DebounceParams;
 use crate::errors::{CoreError, E_CONFIG_INVALID};
-use crate::multidevice::SwitchGroupSnapshot;
+use crate::multidevice::{GroupDevice, MonitorInput, SwitchGroupSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -121,14 +121,83 @@ impl ConfigDocument {
     }
 }
 
+/// Result of converting a schema v1 document. A v1 config described exactly
+/// two computers: this one (`here_input`) and the other (`away_input`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum LegacyMigration {
+    /// The v1 config was armed; the two-computer group switches exactly as
+    /// v1 did.
+    Runnable(MultiDeviceConfig),
+    /// The v1 config was incomplete; the other computer's inputs are kept
+    /// as a local preset for the setup screens and must be confirmed there.
+    NeedsSetup(MultiDeviceConfig),
+}
+
+pub const LEGACY_LOCAL_DEVICE_ID: &str = "legacy-local";
+pub const LEGACY_REMOTE_DEVICE_ID: &str = "legacy-remote";
+
 impl MultiDeviceConfig {
+    /// Convert a v1 config. An armed v1 config becomes a two-computer switch
+    /// group in which leaving this computer writes the v1 `away_input`
+    /// values; anything else falls back to [`MultiDeviceConfig::from_legacy`].
+    pub fn migrate_legacy(config: Config) -> LegacyMigration {
+        let armed = config.validate().is_ok() && config.armed_ready();
+        let group = SwitchGroupSnapshot {
+            group_id: "legacy-switch-group".into(),
+            revision: 1,
+            devices: vec![
+                GroupDevice {
+                    device_id: LEGACY_LOCAL_DEVICE_ID.into(),
+                    name: config.host_label.clone(),
+                    port_index: 1,
+                    monitors: config
+                        .monitors
+                        .iter()
+                        .map(|monitor| MonitorInput {
+                            fingerprint: monitor.edid_id.clone(),
+                            label: monitor.label.clone(),
+                            local_input: monitor.here_input,
+                            follow: true,
+                        })
+                        .collect(),
+                },
+                GroupDevice {
+                    device_id: LEGACY_REMOTE_DEVICE_ID.into(),
+                    name: String::new(),
+                    port_index: 2,
+                    monitors: config
+                        .monitors
+                        .iter()
+                        .map(|monitor| MonitorInput {
+                            fingerprint: monitor.edid_id.clone(),
+                            label: monitor.label.clone(),
+                            local_input: monitor.away_input,
+                            follow: true,
+                        })
+                        .collect(),
+                },
+            ],
+        };
+        let fallback = Self::from_legacy(config);
+        let mut migrated = fallback.clone();
+        migrated.switch_group = Some(group);
+        for monitor in &mut migrated.local_device.monitors {
+            monitor.legacy_remote_preset = None;
+        }
+        if armed && migrated.ready_for_group_switch() {
+            LegacyMigration::Runnable(migrated)
+        } else {
+            LegacyMigration::NeedsSetup(fallback)
+        }
+    }
+
     /// Lossless migration: no v1 `away_input` is assigned to an invented peer
     /// device. It remains an explicitly legacy, local-only preset.
     pub fn from_legacy(config: Config) -> Self {
         Self {
             schema_version: MULTI_DEVICE_SCHEMA_VERSION,
             local_device: LocalDeviceProfile {
-                device_id: "legacy-local".into(),
+                device_id: LEGACY_LOCAL_DEVICE_ID.into(),
                 host_label: config.host_label,
                 monitors: config
                     .monitors
@@ -548,6 +617,68 @@ mod tests {
 
     fn valid() -> Config {
         example_config()
+    }
+
+    #[test]
+    fn armed_legacy_config_migrates_to_a_runnable_two_computer_group() {
+        let legacy = valid();
+        let LegacyMigration::Runnable(config) = MultiDeviceConfig::migrate_legacy(legacy.clone())
+        else {
+            panic!("an armed v1 config must stay runnable");
+        };
+        assert!(config.ready_for_group_switch(), "{:?}", config.validate());
+        assert_eq!(config.trigger, legacy.trigger);
+        assert_eq!(config.advanced, legacy.advanced);
+        assert_eq!(config.local_device.host_label, "example-host");
+        let group = config.switch_group.as_ref().unwrap();
+        assert_eq!(group.devices.len(), 2);
+        // Leaving this computer writes exactly the v1 away inputs.
+        let route = group
+            .route_after_departure(&config.local_device.device_id)
+            .unwrap();
+        let expected: Vec<(String, u16)> = legacy
+            .monitors
+            .iter()
+            .map(|monitor| (monitor.edid_id.clone(), monitor.away_input))
+            .collect();
+        let written: Vec<(String, u16)> = route
+            .writes
+            .iter()
+            .map(|write| (write.fingerprint.clone(), write.value))
+            .collect();
+        assert_eq!(written, expected);
+        assert_eq!(
+            config.local_device.monitors[0].local_input,
+            legacy.monitors[0].here_input
+        );
+    }
+
+    #[test]
+    fn unarmed_legacy_config_needs_setup_instead_of_guessing_a_peer() {
+        let mut legacy = valid();
+        legacy.monitors[0].away_input_source = AwayInputSource::Unknown;
+        let LegacyMigration::NeedsSetup(config) = MultiDeviceConfig::migrate_legacy(legacy) else {
+            panic!("an unarmed v1 config must not become runnable");
+        };
+        assert!(config.switch_group.is_none());
+        assert_eq!(
+            config.local_device.monitors[0]
+                .legacy_remote_preset
+                .as_ref()
+                .unwrap()
+                .value,
+            16
+        );
+    }
+
+    #[test]
+    fn legacy_config_with_identical_inputs_needs_setup() {
+        let mut legacy = valid();
+        legacy.monitors[0].away_input = legacy.monitors[0].here_input;
+        assert!(matches!(
+            MultiDeviceConfig::migrate_legacy(legacy),
+            LegacyMigration::NeedsSetup(_)
+        ));
     }
 
     #[test]

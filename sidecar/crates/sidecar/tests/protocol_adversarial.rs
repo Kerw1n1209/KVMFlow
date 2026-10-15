@@ -212,7 +212,7 @@ fn full_request_catalog_returns_wellformed_responses() {
     c.send(r#"{"v":1,"id":13,"method":"wizard.end","params":{}}"#);
     c.send(r#"{"v":1,"id":14,"method":"app.setEnabled","params":{"enabled":false}}"#);
     c.send(r#"{"v":1,"id":15,"method":"app.setEnabled","params":{"enabled":true}}"#);
-    c.send(r#"{"v":1,"id":16,"method":"switch.pushNow","params":{"reason":"catalog_sweep"}}"#);
+    c.send(r#"{"v":1,"id":16,"method":"hello","params":{}}"#);
     c.send(r#"{"v":1,"id":17,"method":"state.get","params":{}}"#);
     c.send(r#"{"v":1,"id":18,"method":"diagnostics.collect","params":{"tail":10}}"#);
     c.send(r#"{"v":1,"id":19,"method":"usb.watch.stop","params":{}}"#);
@@ -249,11 +249,14 @@ fn full_request_catalog_returns_wellformed_responses() {
                 "display.writeInput",
                 "usb.watch.start",
                 "app.setEnabled",
-                "switch.pushNow",
                 "shutdown",
             ] {
                 assert!(requests.contains(&m), "catalog missing {m}");
             }
+            assert!(
+                !requests.contains(&"switch.pushNow"),
+                "manual push was removed with the v1 runtime"
+            );
             let notes: Vec<&str> = resp["result"]["notifications"]
                 .as_array()
                 .unwrap()
