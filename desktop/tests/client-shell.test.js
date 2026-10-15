@@ -683,3 +683,28 @@ test('each computer chooses which monitors follow when switching to it', async t
   assert.match(reopened.win.document.querySelector('#computer-editor').textContent, /When switching to this computer/);
   assert.equal(reopened.win.hasUnsavedComputerEditor(), false);
 });
+
+test('a config migrated from v1 opens with both computers and keeps its device ids', async t => {
+  const migrated = {
+    schema_version: 2,
+    local_device: { device_id: 'legacy-local', host_label: 'Old Mac', monitors: [
+      { fingerprint: 'display-a', label: '主屏', local_input: 15, source: 'learned_active_read' },
+    ] },
+    switch_group: { group_id: 'legacy-switch-group', revision: 1, devices: [
+      { device_id: 'legacy-local', name: 'Old Mac', port_index: 1, monitors: [{ fingerprint: 'display-a', label: '主屏', local_input: 15 }] },
+      { device_id: 'legacy-remote', name: '', port_index: 2, monitors: [{ fingerprint: 'display-a', label: '主屏', local_input: 16 }] },
+    ] },
+    trigger: v2.trigger,
+    advanced: v2.advanced,
+  };
+  const { win, requests } = await client(t, { config: migrated, computerName: 'Old Mac' });
+  win.navigate('settings');
+  assert.equal(win.document.querySelectorAll('.computer-row').length, 2);
+  win.editComputer('legacy-remote');
+  assert.notEqual(win.document.querySelector('#edit-name').value.trim(), '');
+  assert.equal(win.document.querySelector('#edit-0').value, '16');
+  await win.saveSettings();
+  const saved = requests.findLast(entry => entry.method === 'config.set').params.config;
+  assert.equal(saved.local_device.device_id, 'legacy-local');
+  assert.equal(JSON.stringify(saved.switch_group.devices.map(device => device.device_id).sort()), '["legacy-local","legacy-remote"]');
+});
