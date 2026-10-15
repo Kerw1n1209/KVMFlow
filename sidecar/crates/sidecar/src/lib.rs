@@ -97,6 +97,9 @@ struct Runtime {
     learning_baseline: Option<Vec<UsbDevice>>,
     last_candidates: Option<Value>,
     wizard_active: bool,
+    /// Set when the saved config could not be parsed at startup, so the UI
+    /// can explain why setup is required again. Cleared by the next save.
+    config_recovery: Option<Value>,
 }
 
 impl Runtime {
@@ -171,6 +174,10 @@ impl Runtime {
                     let preserved_as = std::fs::rename(&path, &preserved)
                         .ok()
                         .map(|()| preserved.to_string_lossy().into_owned());
+                    self.config_recovery = Some(json!({
+                        "preservedAs": preserved_as.as_ref().and(preserved.file_name()).map(|name| name.to_string_lossy()),
+                        "error": e.to_string(),
+                    }));
                     self.emit_event(
                         kinds::CONFIG_SAVED,
                         Level::Warn,
@@ -337,6 +344,7 @@ impl Runtime {
         }
         match write_atomically(&self.config_path, text.as_bytes()) {
             Ok(()) => {
+                self.config_recovery = None;
                 apply(self);
                 self.emit_event(
                     kinds::CONFIG_SAVED,
@@ -1134,6 +1142,7 @@ impl Runtime {
                     "configMode": self.config_mode(),
                     "groupReady": self.multi_device_config.as_ref().map(|c| c.ready_for_group_switch()).unwrap_or(false),
                     "enabled": if self.multi_device_config.is_some() { self.multi_device_enabled } else { self.fsm.state() != kvmflow_core::statemachine::FsmState::Disabled },
+                    "configRecovery": self.config_recovery,
                 });
                 self.respond(ResponseLine::ok(id, result));
             }
@@ -1604,6 +1613,7 @@ fn run_runtime(
         learning_baseline: None,
         last_candidates: None,
         wizard_active: false,
+        config_recovery: None,
     };
 
     rt.notify(

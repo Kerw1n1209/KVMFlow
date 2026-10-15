@@ -294,7 +294,10 @@
       "native.runtime.timeout": "后台操作超时或已停止，请查看诊断后重试。",
       "native.runtime.failed": "后台操作失败。",
       "native.runtime.restart": "后台组件不可用，请重启应用并查看诊断。",
-      "no.switch.records.yet": "还没有切换记录。"
+      "no.switch.records.yet": "还没有切换记录。",
+      "saved.configuration.could.not.be.read": "配置文件无法读取",
+      "the.original.file.was.kept.as.value.complete.setup.again": "原文件已另存为 {p0}，请重新完成设置。",
+      "complete.setup.again": "请重新完成设置。"
     },
     "en": {
       "this.computer": "This computer",
@@ -578,7 +581,10 @@
       "native.runtime.timeout": "The background operation timed out or stopped. Check Diagnostics and try again.",
       "native.runtime.failed": "The background operation failed.",
       "native.runtime.restart": "Background component unavailable. Restart the app and check Diagnostics.",
-      "no.switch.records.yet": "No switch records yet."
+      "no.switch.records.yet": "No switch records yet.",
+      "saved.configuration.could.not.be.read": "Saved configuration could not be read",
+      "the.original.file.was.kept.as.value.complete.setup.again": "The original file was kept as {p0}. Complete setup again.",
+      "complete.setup.again": "Complete setup again."
     }
   }
 }

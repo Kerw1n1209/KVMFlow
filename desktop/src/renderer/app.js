@@ -745,6 +745,12 @@
     navState();
     updateFinalStepUi();
     renderStatus();
+    const recovery = state?.configRecovery;
+    if (recovery) {
+      log(t("saved.configuration.could.not.be.read"), recovery.preservedAs
+        ? t("the.original.file.was.kept.as.value.complete.setup.again", { p0: recovery.preservedAs })
+        : t("complete.setup.again"));
+    }
   }).catch((error) => {
     window.__kvmflowRuntimeState = 'error'; navState();
     log(t("background.component.unavailable"), error?.message || t("restart.the.app"));

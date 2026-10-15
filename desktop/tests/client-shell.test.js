@@ -32,7 +32,7 @@ const v2 = {
 };
 
 async function client(t, options = {}) {
-  const { config = v2, failSave = false, displays = [], storage = {} } = options;
+  const { config = v2, failSave = false, displays = [], storage = {}, state = { state: 'idle', enabled: true } } = options;
   const computerName = Object.hasOwn(options, 'computerName') ? options.computerName : config?.local_device?.host_label;
   const dom = new JSDOM(read('src/renderer/index.html'), { url: 'http://tauri.localhost', runScripts: 'outside-only' });
   t.after(() => dom.window.close());
@@ -49,7 +49,7 @@ async function client(t, options = {}) {
     request: async (method, params) => {
       requests.push({ method, params });
       if (method === 'config.get') return structuredClone(config);
-      if (method === 'state.get') return { state: 'idle', enabled: true };
+      if (method === 'state.get') return structuredClone(state);
       if (method === 'display.list') return { displays };
       if (method === 'config.set' && failSave) throw new Error('保存失败');
       if (method === 'diagnostics.collect') return { events: [], backend: 'test' };
@@ -635,4 +635,18 @@ test('language changes during USB identification preserve the active calibration
   assert.equal(doc.querySelector('#guide-content .primary').disabled, true);
   assert.equal(c.requests.filter(entry => entry.method === 'wizard.begin').length, 1);
   assert.equal(c.requests.some(entry => entry.method === 'wizard.end'), false);
+});
+
+test('an unreadable saved configuration is explained after startup in both languages', async t => {
+  const state = { state: 'unconfigured', enabled: true, configRecovery: { preservedAs: 'config.json.corrupt-1792035104000', error: 'EOF while parsing' } };
+  const zh = await client(t, { config: null, state });
+  const zhEvents = zh.win.document.querySelector('#event-list').textContent;
+  assert.match(zhEvents, /配置文件无法读取/);
+  assert.match(zhEvents, /config\.json\.corrupt-1792035104000/);
+  const en = await client(t, { config: null, state, language: 'en' });
+  assert.match(en.win.document.querySelector('#event-list').textContent, /Saved configuration could not be read[\s\S]*config\.json\.corrupt-1792035104000/);
+  const unpreserved = await client(t, { config: null, state: { ...state, configRecovery: { preservedAs: null, error: 'x' } } });
+  assert.match(unpreserved.win.document.querySelector('#event-list').textContent, /配置文件无法读取[\s\S]*重新完成设置/);
+  const healthy = await client(t);
+  assert.doesNotMatch(healthy.win.document.querySelector('#event-list').textContent, /配置文件无法读取/);
 });

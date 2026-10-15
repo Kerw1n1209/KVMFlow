@@ -132,9 +132,17 @@ fn unreadable_config_is_set_aside_before_a_new_save() {
     std::fs::write(dir.path().join("config.json"), truncated).unwrap();
     let (runtime, _) = start(dir.path(), "config.json");
     assert!(runtime.request("config.get", json!({})).unwrap().is_null());
+    let recovery = runtime.request("state.get", json!({})).unwrap()["configRecovery"].clone();
+    let preserved_name = recovery["preservedAs"].as_str().unwrap().to_string();
+    assert!(
+        preserved_name.starts_with("config.json.corrupt-"),
+        "{recovery}"
+    );
+    assert!(!recovery["error"].as_str().unwrap().is_empty());
     runtime
         .request("config.set", json!({ "config": config() }))
         .unwrap();
+    assert!(runtime.request("state.get", json!({})).unwrap()["configRecovery"].is_null());
 
     let names: Vec<String> = std::fs::read_dir(dir.path())
         .unwrap()
@@ -145,6 +153,7 @@ fn unreadable_config_is_set_aside_before_a_new_save() {
         .filter(|name| name.starts_with("config.json.corrupt-"))
         .collect();
     assert_eq!(preserved.len(), 1, "files: {names:?}");
+    assert_eq!(preserved[0], &preserved_name);
     assert_eq!(
         std::fs::read_to_string(dir.path().join(preserved[0])).unwrap(),
         truncated
