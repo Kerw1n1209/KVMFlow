@@ -63,6 +63,7 @@ async function client(t, options = {}) {
   };
   await initializeI18n(win, options.language || 'zh-CN');
   vm.runInContext(read('src/renderer/shell.js'), dom.getInternalVMContext());
+  vm.runInContext(read('src/renderer/redact.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/app.js'), dom.getInternalVMContext());
   await new Promise(resolve => setTimeout(resolve, 10));
   return { win, requests, subscriptions, export: () => exported };
@@ -471,6 +472,10 @@ test('diagnostics use the native save bridge once with UI and backend evidence',
   assert.equal(payload.sidecar.backend, 'test');
   assert.ok(payload.ui.computers);
   assert.equal(instance.requests.filter(entry => entry.method === 'diagnostics.collect').length, 1);
+  assert.equal(payload.redacted, true);
+  const text = JSON.stringify(payload);
+  for (const name of ['第三台', 'Windows']) assert.equal(text.includes(name), false, `${name} leaked`);
+  assert.deepEqual(payload.config.switch_group.devices.map(device => device.name), ['Computer 1', 'Computer 2', 'Computer 3']);
 });
 
 test('paused and failed backend states stay visible and do not claim picture success', async t => {

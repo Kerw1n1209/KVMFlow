@@ -14,7 +14,7 @@
   let languageSaveFailed = false;
   try { await window.kvmflow.language.set(window.KVMFlowI18n.preference, window.KVMFlowI18n.systemLocale()); }
   catch { languageSaveFailed = true; }
-  for (const source of ['shell.js', 'app.js', 'updates.js']) await load(source);
+  for (const source of ['shell.js', 'redact.js', 'app.js', 'updates.js']) await load(source);
   if (languageSaveFailed) document.getElementById('language-save-status').textContent = window.KVMFlowI18n.t('language.failed');
 })().catch(error => {
   console.error('KVMFlow startup failed', error);

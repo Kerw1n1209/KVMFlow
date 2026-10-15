@@ -81,7 +81,7 @@ The desktop client embeds the Rust runtime. Each monitor has its own input mappi
 | **Windows timing** | Device-removal notifications can arrive after the physical button press. Latency depends on the system and drivers. |
 | **Picture confirmation** | A successful DDC call means the command was sent. Confirm the actual picture yourself. |
 
-If switching fails, recover the correct input with the monitor menu first, then check KVMFlow’s mappings and diagnostics. Remove device serial numbers, computer names, local paths, and other personal information before sharing diagnostic files.
+If switching fails, recover the correct input with the monitor menu first, then check KVMFlow’s mappings and diagnostics. Exported diagnostics replace device serial numbers, computer names, and home folder paths with placeholders; still review the file for anything else personal before sharing it.
 
 ## Development
 

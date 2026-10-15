@@ -705,13 +705,13 @@
         S.request('diagnostics.collect', { tail: 200 }),
         S.request('config.get'),
       ]);
-      const payload = {
+      const payload = window.KVMFlowRedact.redactDiagnostics({
         exported_at: new Date().toISOString(),
         ui: model,
         config: configResult.status === 'fulfilled' ? configResult.value : null,
         sidecar: diagnosticsResult.status === 'fulfilled' ? diagnosticsResult.value : null,
         errors: [diagnosticsResult, configResult].filter((result) => result.status === 'rejected').map((result) => String(result.reason?.message || result.reason)),
-      };
+      }, { computerName });
       if (await S.exportDiagnostics(payload)) log(t("diagnostics.exported"), t("diagnostics.saved.to.the.selected.location"));
     } catch (error) { log(t("export.failed"), String(error?.message || t("unable.to.export.records"))); }
   }, true);
