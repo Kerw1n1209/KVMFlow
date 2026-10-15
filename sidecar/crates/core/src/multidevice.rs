@@ -17,6 +17,19 @@ pub struct MonitorInput {
     pub label: String,
     /// The VCP 0x60 value that selects this device on this physical monitor.
     pub local_input: u16,
+    /// Whether this monitor moves to this device when it becomes the switch
+    /// target. Off keeps the monitor on whichever device it already shows,
+    /// e.g. a second screen that stays on the Mac while gaming on Windows.
+    #[serde(default = "follows", skip_serializing_if = "is_true")]
+    pub follow: bool,
+}
+
+fn follows() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -220,6 +233,7 @@ impl SwitchGroupSnapshot {
         let mut writes: Vec<RouteWrite> = target
             .monitors
             .iter()
+            .filter(|monitor| monitor.follow)
             .map(|monitor| RouteWrite {
                 fingerprint: monitor.fingerprint.clone(),
                 value: monitor.local_input,
@@ -247,6 +261,7 @@ mod tests {
             fingerprint: fingerprint.into(),
             label: fingerprint.into(),
             local_input: value,
+            follow: true,
         }
     }
 
@@ -336,6 +351,39 @@ mod tests {
                 value: 15
             })
         );
+    }
+
+    #[test]
+    fn monitors_that_do_not_follow_the_target_are_left_alone() {
+        let mut snapshot = group();
+        // Switching to Windows leaves LG-B on the previous computer.
+        snapshot.devices[1].monitors[1].follow = false;
+        let route = snapshot.route_after_departure("mac-work").unwrap();
+        assert_eq!(route.target_device_id, "windows");
+        assert_eq!(
+            route.writes,
+            vec![RouteWrite {
+                fingerprint: "DELL-A".into(),
+                value: 17
+            }]
+        );
+        // The flag belongs to the target: leaving Windows still moves LG-B.
+        let back = snapshot.route_after_departure("windows").unwrap();
+        assert_eq!(back.writes.len(), 2);
+    }
+
+    #[test]
+    fn follow_defaults_to_true_and_is_only_written_when_off() {
+        let parsed: MonitorInput =
+            serde_json::from_str(r#"{"fingerprint":"DELL-A","local_input":15}"#).unwrap();
+        assert!(parsed.follow);
+        let written = serde_json::to_value(&parsed).unwrap();
+        assert!(written.get("follow").is_none(), "{written}");
+        let off = MonitorInput {
+            follow: false,
+            ..parsed
+        };
+        assert_eq!(serde_json::to_value(&off).unwrap()["follow"], false);
     }
 
     #[test]

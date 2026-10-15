@@ -1125,3 +1125,75 @@ fn e2e_display_list_writes_session_event() {
         .expect("display.list record persisted");
     assert_eq!(record["fields"]["count"], 2);
 }
+
+/// Runs a clean round trip with `config` and returns the source fast-path
+/// report (if any) plus every event seen while waiting for it.
+fn fast_path_outcome(config: Value) -> (Option<Value>, Vec<Value>) {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("config.json");
+    let log_dir = tmp.path().join("logs");
+    let mut client = Client::spawn(&[
+        "--backend",
+        "simulated",
+        "--scenario",
+        "fast_clean_roundtrip",
+        "--config",
+        config_path.to_str().unwrap(),
+        "--log-dir",
+        log_dir.to_str().unwrap(),
+    ]);
+    assert!(client
+        .wait_for(|v| v["notification"] == "ready", Duration::from_secs(5))
+        .is_some());
+    client.send(&format!(
+        r#"{{"v":1,"id":1,"method":"config.set","params":{{"config":{config}}}}}"#
+    ));
+    assert_eq!(
+        client
+            .wait_for(|v| v["id"] == 1, Duration::from_secs(5))
+            .unwrap()["ok"],
+        true
+    );
+    let report = client.wait_for(
+        |v| v["notification"] == "switch.report" && v["data"]["phase"] == "source_fast_path",
+        Duration::from_secs(6),
+    );
+    let events = client
+        .held
+        .iter()
+        .filter(|v| v["notification"] == "event")
+        .map(|v| v["data"].clone())
+        .collect();
+    (report, events)
+}
+
+#[test]
+fn e2e_v2_monitor_that_does_not_follow_the_target_is_not_written() {
+    let mut config = two_monitor_source_config();
+    config["switch_group"]["devices"][1]["monitors"][1]["follow"] = Value::Bool(false);
+    let (report, _) = fast_path_outcome(config);
+    let report = report.expect("source fast-path report");
+    let per_monitor = report["data"]["per_monitor"].as_array().unwrap();
+    assert_eq!(per_monitor.len(), 1, "{report}");
+    assert_eq!(per_monitor[0]["edid_id"], "SAC-2763-S:0000000000001");
+    assert_eq!(per_monitor[0]["requested"], 16);
+}
+
+#[test]
+fn e2e_v2_target_with_no_following_monitor_reports_a_skip_instead_of_a_failure() {
+    let mut config = two_monitor_source_config();
+    for monitor in config["switch_group"]["devices"][1]["monitors"]
+        .as_array_mut()
+        .unwrap()
+    {
+        monitor["follow"] = Value::Bool(false);
+    }
+    let (report, events) = fast_path_outcome(config);
+    assert!(report.is_none(), "no monitor was written: {report:?}");
+    let skipped = events
+        .iter()
+        .find(|event| event["kind"] == "switch.push.skipped")
+        .unwrap_or_else(|| panic!("skip event: {events:?}"));
+    assert_eq!(skipped["fields"]["reason"], "no_following_monitors");
+    assert_eq!(skipped["fields"]["target_device_id"], "windows");
+}

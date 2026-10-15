@@ -274,6 +274,8 @@ input, select { font-weight: 400; }
   min-height: var(--settings-control-height);
 }
 #settings-page .settings-empty { margin: 0; color: var(--sub); font-size: 13px; }
+#settings-page .follow-fields { display: grid; gap: var(--settings-item-gap); margin-top: var(--settings-item-gap); }
+#settings-page .form-section > .hint { margin: 6px 0 0; font-size: 13px; }
 #settings-page .response-panel { overflow: visible; }
 #settings-page .settings-section > .panel-title { padding: 0; margin: 0 0 var(--settings-item-gap); border: 0; }
 #settings-page .response-list { display: grid; gap: var(--settings-item-gap); }

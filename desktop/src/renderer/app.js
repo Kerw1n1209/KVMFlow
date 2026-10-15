@@ -157,8 +157,10 @@
   p0: index + 1
 }));
     for (const computer of model.computers) {
-      if (computer.local) continue;
       const device = groupDevices.find(entry => entry.device_id === computer.id);
+      computer.follow = displayFingerprints.map(fingerprint =>
+        device?.monitors?.find(monitor => monitor.fingerprint === fingerprint)?.follow !== false);
+      if (computer.local) continue;
       if (device) computer.sources = displayFingerprints.map(fingerprint =>
         device.monitors.find(monitor => monitor.fingerprint === fingerprint)?.local_input ?? null);
     }
@@ -220,7 +222,10 @@
           device_id: computer.local ? localDeviceId : computer.id,
           name: computer.name,
           port_index: Number(computer.port),
-          monitors: monitors.map((monitor, index) => ({ fingerprint: monitor.fingerprint, label: monitor.label, local_input: Number(inputFor(computer, index)) })),
+          monitors: monitors.map((monitor, index) => ({
+            fingerprint: monitor.fingerprint, label: monitor.label, local_input: Number(inputFor(computer, index)),
+            ...(computer.follow?.[index] === false ? { follow: false } : {}),
+          })),
         })),
       },
       trigger: { ...(learnedTrigger || previous.trigger || { anchor: { vid_pid: '' }, members: [] }), debounce: { ...debounceSettings } },

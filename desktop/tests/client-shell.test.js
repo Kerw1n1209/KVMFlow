@@ -650,3 +650,31 @@ test('an unreadable saved configuration is explained after startup in both langu
   const healthy = await client(t);
   assert.doesNotMatch(healthy.win.document.querySelector('#event-list').textContent, /配置文件无法读取/);
 });
+
+test('each computer chooses which monitors follow when switching to it', async t => {
+  const { win, requests } = await client(t);
+  win.navigate('settings');
+  win.editComputer('host-mac');
+  const follow = win.document.querySelector('#edit-follow-0');
+  assert.equal(follow.checked, true);
+  assert.match(win.document.querySelector('#computer-editor').textContent, /切换到这台电脑时[\s\S]*副屏[\s\S]*跟随/);
+  follow.checked = false;
+  follow.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.match(follow.closest('.toggle-control').textContent, /保持/);
+  assert.equal(win.hasUnsavedComputerEditor(), true);
+  await win.saveSettings();
+  const config = requests.findLast(entry => entry.method === 'config.set').params.config;
+  const mac = config.switch_group.devices.find(device => device.device_id === 'host-mac');
+  assert.equal(mac.monitors.find(monitor => monitor.fingerprint === 'display-b').follow, false);
+  assert.equal(Object.hasOwn(mac.monitors.find(monitor => monitor.fingerprint === 'display-a'), 'follow'), false);
+  for (const device of config.switch_group.devices.filter(device => device.device_id !== 'host-mac')) {
+    assert.equal(device.monitors.some(monitor => Object.hasOwn(monitor, 'follow')), false);
+  }
+  const reopened = await client(t, { config, language: 'en' });
+  reopened.win.navigate('settings');
+  reopened.win.editComputer('host-mac');
+  assert.equal(reopened.win.document.querySelector('#edit-follow-0').checked, false);
+  assert.equal(reopened.win.document.querySelector('#edit-follow-1').checked, true);
+  assert.match(reopened.win.document.querySelector('#computer-editor').textContent, /When switching to this computer/);
+  assert.equal(reopened.win.hasUnsavedComputerEditor(), false);
+});

@@ -171,7 +171,19 @@ function renderEditor(id) {
   const value = source(c.sources[i]) === t("not.set") ? '' : source(c.sources[i]);
   return `<div class="field settings-input-row"><label for="edit-${i}">${escapeHtml(display)}</label>
           <input id="edit-${i}" type="number" required min="0" max="255" step="1" data-confirmed-value="${escapeHtml(value)}" value="${escapeHtml(value)}"></div>`;
-}).join('') || `<p class="settings-empty" role="status">${t("no.monitor.input.values.were.read")}</p>`}</div></div>`;
+}).join('') || `<p class="settings-empty" role="status">${t("no.monitor.input.values.were.read")}</p>`}</div></div>
+      ${model.displays.length ? `<div class="form-section"><div class="settings-editor-heading"><h3>${t("when.switching.to.this.computer")}</h3></div>
+      <p class="hint">${t("turn.off.to.keep.a.monitor.on.its.current.picture")}</p>
+      <div class="follow-fields">${model.displays.map((display, i) => {
+  const follows = c.follow?.[i] !== false;
+  return `<div class="response-row"><div class="response-copy"><label for="edit-follow-${i}">${escapeHtml(display)}</label></div>
+          <label class="toggle-control"><input id="edit-follow-${i}" type="checkbox" data-confirmed-value="${follows}" ${follows ? 'checked' : ''}><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label">${t(follows ? "follows" : "stays")}</span></label></div>`;
+}).join('')}</div></div>` : ''}`;
+  for (const toggle of document.querySelectorAll('#computer-editor .follow-fields input')) {
+    toggle.addEventListener('change', () => {
+      toggle.parentElement.querySelector('.toggle-label').textContent = t(toggle.checked ? "follows" : "stays");
+    });
+  }
 }
 window.hasUnsavedComputerEditor = () => {
   const computer = model.computers.find(item => item.id === editingId);
@@ -181,6 +193,8 @@ window.hasUnsavedComputerEditor = () => {
   const fields = [...document.querySelectorAll('#computer-editor .input-fields input')];
   if (!name || !port) return false;
   if ((name.value.trim() || computer.name) !== computer.name || Number(port.value) !== computer.port) return true;
+  const toggles = [...document.querySelectorAll('#computer-editor .follow-fields input')];
+  if (toggles.some((toggle, index) => toggle.checked !== (computer.follow?.[index] !== false))) return true;
   return fields.some((field, index) => {
     const current = source(computer.sources[index]);
     if (!field.validity.valid) return true;
@@ -281,6 +295,7 @@ function saveSettings() {
   const name = $('#edit-name').value.trim() || c.name;
   if (name !== c.name) delete c.nameKey;
   c.name = name; c.sources = values;
+  c.follow = model.displays.map((_, i) => $(`#edit-follow-${i}`)?.checked !== false);
   const queue = model.computers.filter(item => item.id !== c.id).sort((a, b) => a.port - b.port);
   queue.splice(Math.max(0, Math.min(queue.length, requestedPort - 1)), 0, c);
   queue.forEach((item, i) => { item.port = i + 1; });

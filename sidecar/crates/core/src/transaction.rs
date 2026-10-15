@@ -112,6 +112,7 @@ pub fn local_arrival_correction(
     let mut writes = device
         .monitors
         .iter()
+        .filter(|monitor| monitor.follow)
         .map(|monitor| RouteWrite {
             fingerprint: monitor.fingerprint.clone(),
             value: monitor.local_input,
@@ -208,6 +209,7 @@ mod tests {
             fingerprint: fingerprint.into(),
             label: fingerprint.into(),
             local_input: input,
+            follow: true,
         }
     }
 
@@ -245,6 +247,20 @@ mod tests {
         assert_eq!(target.phase, TransactionPhase::TargetArrivalCorrection);
         assert_eq!(target.writes[0].value, 17);
         assert_eq!(target.writes[1].value, 18);
+    }
+
+    #[test]
+    fn arrival_correction_skips_monitors_that_do_not_follow() {
+        let mut snapshot = group();
+        snapshot.devices[1].monitors[1].follow = false;
+        let correction = local_arrival_correction(&snapshot, "windows").unwrap();
+        let tx = SwitchTransaction::begin(&snapshot, "mac", "txn-1", 1).unwrap();
+        assert_eq!(correction.writes.len(), 1);
+        assert_eq!(correction.writes[0].fingerprint, "left");
+        assert_eq!(
+            correction.writes,
+            tx.target_arrival_correction_plan("windows").unwrap().writes
+        );
     }
 
     #[test]

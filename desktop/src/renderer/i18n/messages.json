@@ -297,7 +297,11 @@
       "no.switch.records.yet": "还没有切换记录。",
       "saved.configuration.could.not.be.read": "配置文件无法读取",
       "the.original.file.was.kept.as.value.complete.setup.again": "原文件已另存为 {p0}，请重新完成设置。",
-      "complete.setup.again": "请重新完成设置。"
+      "complete.setup.again": "请重新完成设置。",
+      "when.switching.to.this.computer": "切换到这台电脑时",
+      "turn.off.to.keep.a.monitor.on.its.current.picture": "关闭后，这台显示器保持当前画面，不跟随切换。",
+      "follows": "跟随",
+      "stays": "保持"
     },
     "en": {
       "this.computer": "This computer",
@@ -584,7 +588,11 @@
       "no.switch.records.yet": "No switch records yet.",
       "saved.configuration.could.not.be.read": "Saved configuration could not be read",
       "the.original.file.was.kept.as.value.complete.setup.again": "The original file was kept as {p0}. Complete setup again.",
-      "complete.setup.again": "Complete setup again."
+      "complete.setup.again": "Complete setup again.",
+      "when.switching.to.this.computer": "When switching to this computer",
+      "turn.off.to.keep.a.monitor.on.its.current.picture": "Turn off to keep a monitor on its current picture instead of switching.",
+      "follows": "Follows",
+      "stays": "Stays"
     }
   }
 }

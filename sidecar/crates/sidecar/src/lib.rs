@@ -660,6 +660,16 @@ impl Runtime {
         }
         match event {
             TrackerEvent::GroupLeft { .. } => match group.route_after_departure(&config.local_device.device_id) {
+                Ok(route) if route.writes.is_empty() => self.emit_event(
+                    "switch.push.skipped",
+                    Level::Info,
+                    json!({
+                        "mode": "multi_device",
+                        "phase": "source_fast_path",
+                        "reason": "no_following_monitors",
+                        "target_device_id": route.target_device_id,
+                    }),
+                ),
                 Ok(route) => {
                     let outcomes = self.run_multi_device_writes(
                         "source_fast_path",
@@ -684,6 +694,7 @@ impl Runtime {
                 ),
             },
             TrackerEvent::GroupArrived { .. } if config.advanced.arrival_correction_enabled => match local_arrival_correction(group, &config.local_device.device_id) {
+                Ok(correction) if correction.writes.is_empty() => {}
                 Ok(correction) => {
                     self.run_multi_device_writes(
                         "target_arrival_correction",
