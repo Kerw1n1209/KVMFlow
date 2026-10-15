@@ -23,8 +23,8 @@ npm run smoke
 npm start
 ```
 
-Tauri 的准备脚本会同步品牌素材。macOS 上还会构建或复用 m1ddc，
-源码已包含在仓库中。
+`npm start`、`npm run test:rust` 和打包前会自动运行 Tauri 准备脚本，同步品牌素材。
+macOS 上还会构建或复用 m1ddc，源码已包含在仓库中。
 
 ## 无更新签名的本地构建
 

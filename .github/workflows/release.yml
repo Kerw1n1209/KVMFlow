@@ -75,6 +75,9 @@ jobs:
         run: npm test
       - name: Verify hardware runtime with isolated scenarios
         run: cargo test --locked --manifest-path sidecar/Cargo.toml --workspace
+      - name: Verify Tauri host
+        working-directory: desktop
+        run: npm run test:rust
       - name: Build signed release artifacts
         working-directory: desktop
         env:

@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kvmflow-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Check the three desktop version numbers agree
+        # Branch and pull request refs are not release refs; only compare versions here.
+        run: GITHUB_REF= node desktop/scripts/release-metadata.cjs validate
+      - name: Verify diagnostics layout in headless Chrome
+        run: node desktop/scripts/verify-diagnostics-layout.cjs
+      - name: Check Rust formatting
+        run: |
+          cargo fmt --manifest-path sidecar/Cargo.toml --all --check
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
+
+  test:
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            os: macos-15
+          - platform: win
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Verify desktop logic
+        working-directory: desktop
+        run: npm test
+      - name: Verify hardware runtime with isolated scenarios
+        run: cargo test --locked --manifest-path sidecar/Cargo.toml --workspace
+      - name: Verify Tauri host
+        working-directory: desktop
+        run: npm run test:rust

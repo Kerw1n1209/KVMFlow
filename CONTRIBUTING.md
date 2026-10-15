@@ -41,6 +41,7 @@ npm test
 npm run test:rust
 ```
 
+推送到 `main` 和提交 PR 时，CI 会在 macOS 和 Windows 上运行同一组检查。
 硬件探针测试见 `probes/README.md`。模拟测试通过后，涉及 USB/DDC 行为的改动仍需真机验证。
 
 提交前检查暂存文件和敏感信息：
