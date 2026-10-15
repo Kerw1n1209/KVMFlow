@@ -19,7 +19,7 @@ use kvmflow_core::transaction::local_arrival_correction;
 use serde_json::{json, Value};
 use session::{now_ms, SessionLog};
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -161,10 +161,24 @@ impl Runtime {
                     self.apply_multi_device_config(cfg);
                 }
                 Err(e) => {
+                    // The next save would overwrite the only copy of the
+                    // user's learned input values, so move it aside first.
+                    let preserved = path.with_file_name(format!(
+                        "{}.corrupt-{}",
+                        path.file_name().unwrap_or_default().to_string_lossy(),
+                        now_ms()
+                    ));
+                    let preserved_as = std::fs::rename(&path, &preserved)
+                        .ok()
+                        .map(|()| preserved.to_string_lossy().into_owned());
                     self.emit_event(
                         kinds::CONFIG_SAVED,
                         Level::Warn,
-                        json!({"loaded": "parse_error", "error": e.to_string()}),
+                        json!({
+                            "loaded": "parse_error",
+                            "error": e.to_string(),
+                            "preserved_as": preserved_as,
+                        }),
                     );
                 }
             },
@@ -321,7 +335,7 @@ impl Runtime {
         if let Some(parent) = self.config_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        match std::fs::write(&self.config_path, text) {
+        match write_atomically(&self.config_path, text.as_bytes()) {
             Ok(()) => {
                 apply(self);
                 self.emit_event(
@@ -1187,6 +1201,26 @@ impl Runtime {
         }
         true
     }
+}
+
+/// Write to a sibling temp file, flush it to disk, then rename over the
+/// target, so a crash or power loss leaves either the old or the new config,
+/// never a truncated one. `rename` replaces an existing file on Windows too.
+fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_file_name(format!(
+        "{}.tmp",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let result = (|| {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 fn default_config_path() -> PathBuf {

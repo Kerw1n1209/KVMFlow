@@ -124,3 +124,36 @@ fn backend_initialization_failure_returns_instead_of_hanging() {
     assert_eq!(kind, "runtime.error");
     assert!(runtime.request("config.get", json!({})).is_err());
 }
+
+#[test]
+fn unreadable_config_is_set_aside_before_a_new_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let truncated = r#"{ "schema_version": 1, "host_label": "embedded-te"#;
+    std::fs::write(dir.path().join("config.json"), truncated).unwrap();
+    let (runtime, _) = start(dir.path(), "config.json");
+    assert!(runtime.request("config.get", json!({})).unwrap().is_null());
+    runtime
+        .request("config.set", json!({ "config": config() }))
+        .unwrap();
+
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    let preserved: Vec<&String> = names
+        .iter()
+        .filter(|name| name.starts_with("config.json.corrupt-"))
+        .collect();
+    assert_eq!(preserved.len(), 1, "files: {names:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(preserved[0])).unwrap(),
+        truncated
+    );
+    assert!(
+        !names.iter().any(|name| name.ends_with(".tmp")),
+        "files: {names:?}"
+    );
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap()).unwrap();
+    assert_eq!(saved["host_label"], "embedded-test");
+}
