@@ -24,7 +24,10 @@ npm start
 ```
 
 `npm start`、`npm run test:rust` 和打包前会自动运行 Tauri 准备脚本，同步品牌素材。
-macOS 上还会构建或复用 m1ddc，源码已包含在仓库中。
+Rust 单元测试使用已有 PNG，不重新导出 icns、ico 和托盘图标，因此不依赖 Swift 或
+`iconutil`；开发启动和正式打包仍执行完整原生图标导出。macOS 上还会构建或复用
+m1ddc，源码已包含在仓库中；默认编译缓存位于 `probes/mac/.build/clang-module-cache`，
+可通过 `CLANG_MODULE_CACHE_PATH` 覆盖。
 
 ## 无更新签名的本地构建
 
