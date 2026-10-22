@@ -500,3 +500,36 @@ fn one_sided_record_undone_on_member_refusal() {
     drop(refuse);
     victim.shutdown_and_join().unwrap();
 }
+
+/// Shutdown must cancel even a peer stalled inside the SAS transcript, before
+/// PairReady exists. Restore uses the injected fake; no native display calls.
+#[test]
+fn shutdown_cancels_unfinished_pairing_transcript_and_restores_displays() {
+    std::env::set_var("KVMFLOW_LAN_ALLOW_LOOPBACK", "1");
+    let dir = tempfile::tempdir().unwrap();
+    let (victim, _rx) = start_victim(dir.path());
+    open_pair_window(&victim);
+    let port = victim.request("lan.status", json!({})).unwrap()["listen_port"]
+        .as_u64()
+        .unwrap() as u16;
+    let mut channel = SecureChannel::handshake(
+        TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap(),
+        &Identity::generate().unwrap(),
+        Role::Initiator,
+    )
+    .unwrap();
+    let mut hello = Hello::new("dev-stalled");
+    hello.caps = vec!["pair.request.v1".into()];
+    channel.send(&hello.envelope().unwrap()).unwrap();
+    assert_eq!(channel.receive(Duration::from_secs(5)).unwrap().t, "hello");
+    // Reading the commitment proves the worker is inside the 120s transcript.
+    assert_eq!(
+        channel.receive(Duration::from_secs(5)).unwrap().t,
+        "pair.commit"
+    );
+    let result = victim.shutdown_and_join_timeout(Duration::from_secs(2));
+    // Clean up a regressed worker without waiting for its transcript deadline.
+    channel.close();
+    victim.shutdown_and_join().unwrap();
+    assert!(result.is_ok(), "shutdown waited for peer: {result:?}");
+}

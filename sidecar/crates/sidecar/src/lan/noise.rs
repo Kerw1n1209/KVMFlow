@@ -10,7 +10,10 @@ use serde_json::json;
 use std::{
     io::{Read, Write},
     net::{Shutdown, TcpStream},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 use subtle::ConstantTimeEq;
@@ -31,11 +34,20 @@ pub struct SecureChannel {
     pub(super) transport: Arc<Mutex<snow::TransportState>>,
     handshake_hash: [u8; 32],
     remote_key: [u8; 32],
+    cancellation: Option<Arc<AtomicBool>>,
 }
 impl SecureChannel {
     /// Unauthenticated until MemberStore::check OR both pairing approvals.
     /// This function never changes a trust store.
-    pub fn handshake(mut stream: TcpStream, identity: &Identity, role: Role) -> Result<Self> {
+    pub fn handshake(stream: TcpStream, identity: &Identity, role: Role) -> Result<Self> {
+        Self::handshake_cancellable(stream, identity, role, None)
+    }
+    pub(super) fn handshake_cancellable(
+        mut stream: TcpStream,
+        identity: &Identity,
+        role: Role,
+        cancellation: Option<Arc<AtomicBool>>,
+    ) -> Result<Self> {
         // macOS accepted sockets can inherit the nonblocking listener flag.
         // Per-session readers use blocking I/O with explicit deadlines.
         stream.set_nonblocking(false)?;
@@ -60,7 +72,7 @@ impl SecureChannel {
                 let n = noise.write_message(&[], &mut output)?;
                 write_frame(&mut stream, &output[..n])?;
             } else {
-                let frame = read_frame(&mut stream, deadline)?;
+                let frame = read_frame_cancellable(&mut stream, deadline, cancellation.as_deref())?;
                 let n = noise.read_message(&frame, &mut output)?;
                 if n != 0 {
                     return Err(LanError::new("E_LAN_PROTO", "unexpected handshake payload"));
@@ -81,7 +93,11 @@ impl SecureChannel {
             transport: Arc::new(Mutex::new(noise.into_transport_mode()?)),
             handshake_hash,
             remote_key,
+            cancellation,
         })
+    }
+    pub(super) fn set_cancellation(&mut self, cancellation: Arc<AtomicBool>) {
+        self.cancellation = Some(cancellation);
     }
     pub fn remote_key(&self) -> [u8; 32] {
         self.remote_key
@@ -94,7 +110,12 @@ impl SecureChannel {
         send_message(&mut self.stream, &self.transport, message)
     }
     pub fn receive(&mut self, timeout: Duration) -> Result<Envelope> {
-        let result = receive_message(&mut self.stream, &self.transport, Instant::now() + timeout);
+        let result = receive_message_cancellable(
+            &mut self.stream,
+            &self.transport,
+            Instant::now() + timeout,
+            self.cancellation.as_deref(),
+        );
         if result.is_err() {
             self.close();
         }
@@ -201,12 +222,13 @@ pub(super) fn send_message(
         .write_message(&plain, &mut encrypted)?;
     write_frame(stream, &encrypted[..n])
 }
-pub(super) fn receive_message(
+fn receive_message_cancellable(
     stream: &mut TcpStream,
     transport: &Mutex<snow::TransportState>,
     deadline: Instant,
+    cancellation: Option<&AtomicBool>,
 ) -> Result<Envelope> {
-    let encrypted = read_frame(stream, deadline)?;
+    let encrypted = read_frame_cancellable(stream, deadline, cancellation)?;
     let mut plain = vec![0; encrypted.len()];
     let n = transport
         .lock()
@@ -226,29 +248,59 @@ fn read_exact_deadline(
     stream: &mut TcpStream,
     mut bytes: &mut [u8],
     deadline: Instant,
+    cancellation: Option<&AtomicBool>,
 ) -> Result<()> {
     while !bytes.is_empty() {
-        stream.set_read_timeout(Some(remaining(deadline)?))?;
+        if cancellation.is_some_and(|stop| stop.load(Ordering::Acquire)) {
+            return Err(LanError::new("E_LAN_CLOSED", "LAN read cancelled"));
+        }
+        let remaining = remaining(deadline)?;
+        // A shutdown on a cloned Winsock handle need not wake an existing
+        // blocking recv. Poll cancellation without losing partial frame bytes
+        // or extending the original whole-frame deadline.
+        let timeout = if cancellation.is_some() {
+            remaining.min(Duration::from_millis(100))
+        } else {
+            remaining
+        };
+        stream.set_read_timeout(Some(timeout))?;
         match stream.read(bytes) {
             Ok(0) => return Err(LanError::new("E_LAN_IO", "peer closed connection")),
             Ok(n) => {
                 bytes = &mut bytes[n..];
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e)
+                if cancellation.is_some()
+                    && matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+            {
+                continue
+            }
             Err(e) => return Err(e.into()),
         }
     }
     Ok(())
 }
-pub(super) fn read_frame(stream: &mut TcpStream, deadline: Instant) -> Result<Vec<u8>> {
+#[cfg(test)]
+fn read_frame(stream: &mut TcpStream, deadline: Instant) -> Result<Vec<u8>> {
+    read_frame_cancellable(stream, deadline, None)
+}
+fn read_frame_cancellable(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    cancellation: Option<&AtomicBool>,
+) -> Result<Vec<u8>> {
     let mut length = [0; 2];
-    read_exact_deadline(stream, &mut length, deadline)?;
+    read_exact_deadline(stream, &mut length, deadline, cancellation)?;
     let n = u16::from_be_bytes(length) as usize;
     if n == 0 || n > MAX_FRAME {
         return Err(LanError::new("E_LAN_FRAME", "invalid or oversized frame"));
     }
     let mut bytes = vec![0; n];
-    read_exact_deadline(stream, &mut bytes, deadline)?;
+    read_exact_deadline(stream, &mut bytes, deadline, cancellation)?;
     Ok(bytes)
 }
 fn write_frame(stream: &mut TcpStream, bytes: &[u8]) -> Result<()> {
@@ -284,6 +336,71 @@ mod tests {
         .unwrap();
         (a, job.join().unwrap())
     }
+    // Model Winsock's pending recv not waking after another handle shuts down:
+    // cancel only the token, keep the peer and both sockets open throughout.
+    #[test]
+    fn cancellation_interrupts_partial_frame_without_socket_shutdown() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let mut stream = listener.accept().unwrap().0;
+        peer.write_all(&[0]).unwrap(); // Incomplete frame-length prefix.
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader_stop = stop.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            tx.send(read_frame_cancellable(
+                &mut stream,
+                Instant::now() + Duration::from_secs(3),
+                Some(&reader_stop),
+            ))
+            .unwrap();
+        });
+        stop.store(true, Ordering::Release);
+        let outcome = rx.recv_timeout(Duration::from_secs(1));
+        // Always join, including on regression, with the finite frame deadline.
+        reader.join().unwrap();
+        assert_eq!(
+            outcome
+                .expect("read ignored cancellation")
+                .unwrap_err()
+                .code,
+            "E_LAN_CLOSED"
+        );
+        drop(peer);
+    }
+
+    #[test]
+    fn cancellation_poll_keeps_partial_bytes_and_the_whole_frame_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let mut stream = listener.accept().unwrap().0;
+        let stop = AtomicBool::new(false);
+        let writer = std::thread::spawn(move || {
+            peer.write_all(&[0]).unwrap();
+            std::thread::sleep(Duration::from_millis(250)); // Cross read polls.
+            peer.write_all(&[2, 7, 8]).unwrap();
+            peer
+        });
+        assert_eq!(
+            read_frame_cancellable(
+                &mut stream,
+                Instant::now() + Duration::from_secs(2),
+                Some(&stop)
+            )
+            .unwrap(),
+            [7, 8]
+        );
+        let _peer = writer.join().unwrap();
+        let start = Instant::now();
+        assert_eq!(
+            read_frame_cancellable(&mut stream, start + Duration::from_millis(250), Some(&stop))
+                .unwrap_err()
+                .code,
+            "E_LAN_TIMEOUT"
+        );
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
     #[test]
     fn loopback_pairing_and_pinning() {
         let (mut a, mut b) = pair();

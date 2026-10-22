@@ -865,12 +865,13 @@ fn run_runtime(
         }
     }
 
-    rt.stop_lan();
+    // Display recovery must not wait for network teardown or peer deadlines.
     let restored = if abandoned.load(Ordering::Acquire) {
         Ok(())
     } else {
         rt.restore_displays("shutdown")
     };
+    rt.stop_lan();
     rt.emit_event(kinds::SIDECAR_SHUTDOWN, Level::Info, json!({}));
     stopped.store(true, Ordering::Release);
     restored

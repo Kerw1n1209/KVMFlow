@@ -82,6 +82,7 @@ impl PairLink {
         let mut write_socket = channel.stream.try_clone()?;
         let transport = channel.transport.clone();
         let stop = Arc::new(AtomicBool::new(false));
+        channel.set_cancellation(stop.clone());
         let deadline = start.deadline;
         let (writer, writer_rx) = mpsc::sync_channel::<Envelope>(32);
         let (message_tx, messages) = mpsc::sync_channel(32);

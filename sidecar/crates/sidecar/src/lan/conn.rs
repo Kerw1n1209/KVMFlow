@@ -457,6 +457,7 @@ struct AttemptWorker {
     token: u64,
     addr: SocketAddr,
     join: JoinHandle<AttemptResult>,
+    cancellation: Arc<AtomicBool>,
 }
 enum Internal {
     Received {
@@ -856,6 +857,10 @@ impl Supervisor {
         for (_, live) in self.live.drain() {
             live.close();
         }
+        // Cancel every handshake/transcript before joining any of them.
+        for worker in &self.workers {
+            worker.cancellation.store(true, Ordering::Release);
+        }
         for worker in self.workers {
             let _ = worker.join.join();
         }
@@ -1015,9 +1020,12 @@ impl Supervisor {
         let pairing_window = self.pairing_window.clone();
         let pair_cooldowns = self.pair_cooldowns.clone();
         let token = self.begin_attempt(candidate.clone());
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let worker_cancellation = cancellation.clone();
         self.workers.push(AttemptWorker {
             token,
             addr,
+            cancellation,
             join: thread::spawn(move || {
                 let outbound = stream.is_none();
                 let mut refusal_key = None;
@@ -1031,7 +1039,12 @@ impl Supervisor {
                     } else {
                         Role::Responder
                     };
-                    let mut channel = SecureChannel::handshake(stream, &identity, role)?;
+                    let mut channel = SecureChannel::handshake_cancellable(
+                        stream,
+                        &identity,
+                        role,
+                        Some(worker_cancellation),
+                    )?;
                     // Inbound attempts learn the pairing intent from the
                     // dialer's hello. Admission is checked BEFORE sending our
                     // own hello so a refusal is the dialer's first frame (an
@@ -1413,6 +1426,7 @@ fn spawn_reader(
     stop: Arc<AtomicBool>,
     idle: Duration,
 ) -> JoinHandle<()> {
+    channel.set_cancellation(stop.clone());
     thread::spawn(move || {
         let result = (|| -> Result<()> {
             while !stop.load(Ordering::Relaxed) {
@@ -2091,7 +2105,12 @@ mod attempt_regression_tests {
         while !join.is_finished() {
             thread::yield_now();
         }
-        s.workers.push(AttemptWorker { token, addr, join });
+        s.workers.push(AttemptWorker {
+            token,
+            addr,
+            join,
+            cancellation: Arc::new(AtomicBool::new(false)),
+        });
         let results = s.reap_workers();
         assert_eq!(
             s.pending.get("peer"),
