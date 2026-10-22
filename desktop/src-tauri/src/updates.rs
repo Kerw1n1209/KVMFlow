@@ -558,7 +558,11 @@ mod override_tests {
 mod channel_tests {
     use super::*;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
     use tauri::test::{mock_builder, mock_context, noop_assets};
 
     #[test]
@@ -574,6 +578,85 @@ mod channel_tests {
         }
     }
 
+    struct UpdateServer {
+        address: std::net::SocketAddr,
+        stop: Arc<AtomicBool>,
+        worker: Option<std::thread::JoinHandle<Vec<String>>>,
+    }
+
+    impl UpdateServer {
+        fn start(remote: &str) -> Self {
+            // Blocking accept/read: accepted sockets cannot inherit O_NONBLOCK.
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let stopping = stop.clone();
+            let remote = remote.to_owned();
+            let worker = std::thread::spawn(move || {
+                let mut paths = Vec::new();
+                loop {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    if stopping.load(Ordering::Acquire) {
+                        return paths;
+                    }
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    // TCP can split the request anywhere, including its first
+                    // line. Wait for the complete header before responding.
+                    let mut request = Vec::new();
+                    while !request.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        stream.read_exact(&mut byte).unwrap();
+                        request.push(byte[0]);
+                        assert!(request.len() < 16 * 1024, "oversized request header");
+                    }
+                    let request = String::from_utf8(request).unwrap();
+                    let path = request.split_whitespace().nth(1).unwrap();
+                    paths.push(path.to_owned());
+                    let (status, body) = if matches!(path, "/beta" | "/stable") {
+                        (
+                            "200 OK",
+                            json!({
+                                "version": remote,
+                                "url": "https://example.invalid/update.tar.gz",
+                                "signature": "not-downloaded"
+                            })
+                            .to_string(),
+                        )
+                    } else {
+                        ("503 Service Unavailable", String::new())
+                    };
+                    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                }
+            });
+            Self {
+                address,
+                stop,
+                worker: Some(worker),
+            }
+        }
+
+        fn finish(&mut self) -> Vec<String> {
+            self.stop.store(true, Ordering::Release);
+            // Wake blocking accept explicitly, including if updater.check failed.
+            let _ = TcpStream::connect(self.address);
+            self.worker.take().unwrap().join().unwrap()
+        }
+    }
+
+    impl Drop for UpdateServer {
+        fn drop(&mut self) {
+            if self.worker.is_some() {
+                self.finish();
+            }
+        }
+    }
+
     // Exercise the pinned updater itself, including endpoint selection and its
     // default SemVer comparator, with loopback HTTP and no hardware or installer.
     fn check_versions(
@@ -582,47 +665,8 @@ mod channel_tests {
         beta_first: bool,
         fallback: bool,
     ) -> Option<String> {
-        let server = TcpListener::bind("127.0.0.1:0").unwrap();
-        server.set_nonblocking(true).unwrap();
-        let address = server.local_addr().unwrap();
-        let remote = remote.to_owned();
-        let worker = std::thread::spawn(move || {
-            let deadline = std::time::Instant::now() + Duration::from_secs(10);
-            loop {
-                match server.accept() {
-                    Ok((mut stream, _)) => {
-                        stream
-                            .set_read_timeout(Some(Duration::from_secs(5)))
-                            .unwrap();
-                        let mut request = [0; 4096];
-                        let size = stream.read(&mut request).unwrap();
-                        assert!(String::from_utf8_lossy(&request[..size]).starts_with(
-                            if beta_first {
-                                "GET /beta "
-                            } else {
-                                "GET /stable "
-                            }
-                        ));
-                        let body = json!({
-                            "version": remote,
-                            "url": "https://example.invalid/update.tar.gz",
-                            "signature": "not-downloaded"
-                        })
-                        .to_string();
-                        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
-                        break;
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        assert!(
-                            std::time::Instant::now() < deadline,
-                            "updater did not request the endpoint"
-                        );
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    Err(error) => panic!("{error}"),
-                }
-            }
-        });
+        let mut server = UpdateServer::start(remote);
+        let address = server.address;
         let mut context = mock_context(noop_assets());
         context.package_info_mut().version = current.parse().unwrap();
         context.config_mut().plugins.0.insert(
@@ -646,21 +690,57 @@ mod channel_tests {
                     format!("http://{address}/beta").parse().unwrap(),
                     // This must never be requested after the valid beta response,
                     // even if the beta version is older than the current app.
-                    "http://127.0.0.1:1/stable".parse().unwrap(),
+                    format!("http://{address}/unexpected").parse().unwrap(),
                 ])
                 .unwrap();
         }
         if fallback {
             builder = builder
                 .endpoints(vec![
-                    "http://127.0.0.1:1/beta".parse().unwrap(),
+                    format!("http://{address}/missing-beta").parse().unwrap(),
                     format!("http://{address}/stable").parse().unwrap(),
                 ])
                 .unwrap();
         }
-        let result = tauri::async_runtime::block_on(builder.build().unwrap().check()).unwrap();
-        worker.join().unwrap();
-        result.map(|update| update.version)
+        let result = tauri::async_runtime::block_on(builder.build().unwrap().check());
+        let paths = server.finish();
+        let expected = if fallback {
+            vec!["/missing-beta", "/stable"]
+        } else if beta_first {
+            vec!["/beta"]
+        } else {
+            vec!["/stable"]
+        };
+        assert_eq!(paths, expected);
+        result.unwrap().map(|update| update.version)
+    }
+
+    #[test]
+    fn http_fixture_waits_for_complete_request_headers() {
+        let mut server = UpdateServer::start("0.4.0");
+        let mut stream = TcpStream::connect(server.address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        stream.write_all(b"GET /sta").unwrap();
+        let mut byte = [0];
+        let error = stream
+            .read(&mut byte)
+            .expect_err("response before complete headers");
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        stream
+            .write_all(b"ble HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert_eq!(server.finish(), ["/stable"]);
     }
 
     #[test]
