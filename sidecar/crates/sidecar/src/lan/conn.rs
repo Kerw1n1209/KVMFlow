@@ -112,6 +112,12 @@ pub struct LanStatus {
 /// handshake hash. Fresh ephemeral keys prevent reuse across handle restarts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SessionGeneration([u8; 32]);
+#[cfg(test)]
+impl SessionGeneration {
+    pub(crate) fn for_test() -> Self {
+        Self([0; 32])
+    }
+}
 struct SessionContext {
     generation: SessionGeneration,
     public_key: [u8; 32],

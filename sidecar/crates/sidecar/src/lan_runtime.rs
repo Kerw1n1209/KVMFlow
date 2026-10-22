@@ -722,12 +722,12 @@ impl Runtime {
                             == Some("E_LAN_NOT_MEMBER")
                         && self.lan_runtime.pair.is_none()
                     {
-                        let record_peer = self.read_pairing_record().and_then(|r| {
-                            r.get("peer_device_id")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned)
+                        let matches_record = self.read_pairing_record().is_some_and(|record| {
+                            record.get("peer_device_id").and_then(Value::as_str)
+                                == Some(source.device_id.as_str())
+                                && Self::record_key_matches(&record, &source.key)
                         });
-                        if record_peer.as_deref() == Some(source.device_id.as_str()) {
+                        if matches_record {
                             self.undo_one_sided_pin(&source.device_id);
                             continue;
                         }
@@ -841,27 +841,9 @@ impl Runtime {
         let id = source.device_id.clone();
         let result = match message.t.as_str() {
             "ack" => {
-                // An ok=false ack carrying E_LAN_NOT_MEMBER over an
-                // established session is the peer refusing US after its own
-                // hello was already sent (the refusal frame lands as the
-                // session's second frame): the definitive one-sided
-                // outcome when a transaction record names this peer (N3).
-                if message.ok == Some(false)
-                    && message.body.get("code").and_then(Value::as_str) == Some("E_LAN_NOT_MEMBER")
-                {
-                    let key_matches = self
-                        .read_pairing_record()
-                        .is_some_and(|r| Self::record_key_matches(&r, &source.key));
-                    let record_peer = self.read_pairing_record().and_then(|r| {
-                        r.get("peer_device_id")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    });
-                    if key_matches && record_peer.as_deref() == Some(source.device_id.as_str()) {
-                        self.undo_one_sided_pin(&source.device_id);
-                        return;
-                    }
-                }
+                // Refusal reconciliation belongs to poll_lan's single guard,
+                // before current-session dispatch. Repeating it here bypasses
+                // the active-pairing protection during the two-phase commit.
                 if let Some(re) = message.re {
                     self.lan_complete_from(&source, re, message.ok == Some(true), message.body);
                 }
@@ -1794,6 +1776,63 @@ mod record_key_tests {
             ]
         });
         assert!(!Runtime::record_key_matches(&removed, &key(2)));
+    }
+
+    /// poll_lan deliberately declines reconciliation during two-phase commit.
+    /// Its current-session ack dispatch must not undo that decision a second
+    /// time. The old inner handler removed even this matching durable record.
+    #[test]
+    fn refusal_ack_inner_dispatch_preserves_the_pairing_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = Runtime {
+            runtime_seq: 0,
+            lan_runtime: lan_runtime::LanRuntime::default(),
+            backend: Box::new(backends::simulated::SimulatedBackend::new("idle")),
+            topology: Box::new(topology::NoopDisplayTopology),
+            released_topology: None,
+            released_enabled: false,
+            mixed_runtime: mixed::MixedRuntime::default(),
+            tracker: None,
+            fsm: SwitchFsm::new(),
+            config: None,
+            enabled: true,
+            last_multi_device_report: None,
+            last_layout_application: None,
+            bounce_watch: None,
+            usb_snapshot_initialized: false,
+            config_path: dir.path().join("config.json"),
+            log: SessionLog::open(dir.path().join("test.jsonl")),
+            stdout: std::io::stdout(),
+            notification: Some(Arc::new(|_, _| {})),
+            reply: None,
+            last_snapshot: Vec::new(),
+            learning_baseline: None,
+            last_candidates: None,
+            wizard_active: false,
+            config_recovery: None,
+        };
+
+        let record_path = dir.path().join("pairing.pending.json");
+        let record = json!({
+            "peer_device_id": "dev-win",
+            "members": [{"device_id": "dev-win", "public_key": public_key_string(&key(2)), "removed": false}]
+        });
+        std::fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+        let mut refusal = Envelope::new("ack", json!({"code": "E_LAN_NOT_MEMBER"}));
+        refusal.ok = Some(false);
+        rt.lan_message(
+            Source {
+                device_id: "dev-win".into(),
+                key: key(2),
+                generation: SessionGeneration::for_test(),
+            },
+            refusal,
+        );
+        assert_eq!(
+            rt.read_pairing_record(),
+            Some(record),
+            "inner ack handler bypassed the outer active-pairing guard"
+        );
     }
 
     #[test]

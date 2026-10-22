@@ -1237,49 +1237,75 @@ fn one_sided_record_confirmed_when_peer_pins_us() {
         (a, b)
     };
     complete_pairing(&mut a, &mut b);
-    // The ghost plant goes through config.set, whose live-restore keeps the
-    // real pins; the record is forged with the REAL member list plus an
-    // extra evolved entry on B's side is what we assert against.
-    let members = a.request("config.get", json!({}))["switch_group"]["sync"]["members"].clone();
+    // A crash-recovery fixture must be planted while BOTH workers are down.
+    // A live worker can still be draining pre-commit refusal frames from the
+    // pairing's automatic dials; those frames must not act on a new fake record.
+    drop(a);
+    drop(b);
+    let a_path = dir.path().join("a/config.json");
+    let b_path = dir.path().join("b/config.json");
+    let a_cfg: Value = serde_json::from_slice(&std::fs::read(&a_path).unwrap()).unwrap();
+    let mut b_cfg: Value = serde_json::from_slice(&std::fs::read(&b_path).unwrap()).unwrap();
+    let members = a_cfg["switch_group"]["sync"]["members"].clone();
+    for (cfg, peer) in [(&a_cfg, "dev-win"), (&b_cfg, "dev-mac")] {
+        assert!(cfg["switch_group"]["sync"]["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["device_id"] == peer && m["removed"] == false));
+    }
     let record = json!({
         "attempt": "0123456789abcdef0123456789abcdef",
+        "session_id": "recovered-pair",
         "peer_device_id": "dev-win",
-        "peer_addr": "127.0.0.1:1",
         "initiator": true,
         "members": members,
     });
-    std::fs::write(
-        dir.path().join("a/pairing.pending.json"),
-        serde_json::to_vec(&record).unwrap(),
-    )
-    .unwrap();
-
-    // Trigger a sync from B (settings save re-broadcasts the snapshot).
-    // B's snapshot pins A (healthy pair) — the record is confirmed and
-    // cleared, nothing is revoked, dev-win stays an active member.
+    let record_path = dir.path().join("a/pairing.pending.json");
+    std::fs::write(&record_path, serde_json::to_vec(&record).unwrap()).unwrap();
+    // The peer really evolved after pairing: its member list has an additional
+    // active pin. A whole-list comparison would incorrectly revoke dev-win.
+    let third = kvmflow_sidecar::lan::identity_store::Identity::generate().unwrap();
+    let key = kvmflow_sidecar::lan::trust::public_key_string(&third.public_key());
+    let b_members = b_cfg["switch_group"]["sync"]["members"]
+        .as_array_mut()
+        .unwrap();
+    b_members.push(json!({
+        "device_id": "dev-third", "public_key": key, "platform": "macos",
+        "introduced_by": "dev-win", "revision": 1,
+        "meta": {"updated_at_ms": 2, "updated_by": "dev-win"}, "removed": false
+    }));
+    b_members.sort_by(|x, y| x["device_id"].as_str().cmp(&y["device_id"].as_str()));
+    std::fs::write(&b_path, serde_json::to_vec(&b_cfg).unwrap()).unwrap();
+    // Both commits were observed above. B has no crash-leftover transaction;
+    // only A's record is under test, with no old transport events in flight.
+    let b_record = dir.path().join("b/pairing.pending.json");
+    if b_record.exists() {
+        std::fs::remove_file(b_record).unwrap();
+    }
+    let mut a = Client::spawn(&a_path, 0, &[]);
+    let mut b = Client::spawn(&b_path, 0, &[]);
     let a_addr = mac_pair_target(&mut a);
     b.request("lan.connect.manual", json!({"addr": a_addr}));
-    let mut b_cfg = b.request("config.get", json!({}));
-    b_cfg["switch_group"]["devices"]
-        .as_array_mut()
-        .unwrap()
-        .iter_mut()
-        .find(|d| d["device_id"] == "dev-win")
-        .unwrap()["name"] = json!("游戏 PC2");
-    b.request("config.set", json!({"config": b_cfg}));
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    loop {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "record never reconciled"
-        );
-        if !dir.path().join("a/pairing.pending.json").exists() {
-            break;
-        }
-        b.request("lan.connect.manual", json!({"addr": a_addr}));
-        thread::sleep(Duration::from_millis(300));
-    }
+    a.wait_for(
+        |v| {
+            v["notification"] == "lan.pair"
+                && v["data"]["phase"] == "peer_committed"
+                && v["data"]["session_id"] == "recovered-pair"
+        },
+        Duration::from_secs(20),
+    )
+    .expect("recovered record was not confirmed by its peer");
+    a.wait_for(
+        |v| {
+            v["notification"] == "lan.sync"
+                && v["data"]["device_id"] == "dev-win"
+                && v["data"]["status"] == "synced"
+        },
+        Duration::from_secs(20),
+    )
+    .expect("evolved peer snapshot was not merged");
+    assert!(!record_path.exists(), "confirmed record must be cleared");
     // The healthy pair survived: dev-win is still an active member on A.
     let a_cfg = a.request("config.get", json!({}));
     let members_now = a_cfg["switch_group"]["sync"]["members"]
@@ -1291,6 +1317,12 @@ fn one_sided_record_confirmed_when_peer_pins_us() {
         .find(|m| m["device_id"] == "dev-win")
         .expect("dev-win must remain a member");
     assert_eq!(dev_win["removed"], json!(false));
+    assert!(
+        members_now
+            .iter()
+            .any(|m| m["device_id"] == "dev-third" && m["removed"] == false),
+        "peer's evolved member list must have been merged"
+    );
 }
 
 /// N3 (true one-sided): the pairing committed only on A; the peer rolled
