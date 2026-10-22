@@ -255,8 +255,10 @@ fn forward_notification(app: &AppHandle, generation: u64, kind: &str, data: Valu
 }
 
 fn opens_pairing_window(method: &str, params: &Value) -> bool {
-    method == "lan.pair.start" || method == "lan.setup.secondary"
-        || (method == "lan.pair.window" && params.get("open").and_then(Value::as_bool).unwrap_or(true))
+    method == "lan.pair.start"
+        || method == "lan.setup.secondary"
+        || (method == "lan.pair.window"
+            && params.get("open").and_then(Value::as_bool).unwrap_or(true))
 }
 
 fn close_pairing_screen<E>(mut request: impl FnMut(&str, Value) -> Result<Value, E>) {
@@ -296,25 +298,32 @@ async fn runtime_request(
     let worker_runtime = runtime.clone();
     let pairing_gate = app.state::<Host>().pairing_gate.clone();
     let worker_app = app.clone();
-    let result =
-        tauri::async_runtime::spawn_blocking(move || {
-            let pairing = method.starts_with("lan.pair.") || method == "lan.setup.secondary";
-            let _gate = pairing.then(|| pairing_gate.lock().unwrap());
-            let opens = opens_pairing_window(&method, &params);
-            if opens && (!worker_app.state::<Host>().wants_visible.load(Ordering::Acquire)
-                || worker_app.state::<Host>().pairing_closing.load(Ordering::Acquire)) {
-                return Err(kvmflow_core::protocol::RpcErrorBody {
-                    code: "E_LAN_PAIR_WINDOW".into(),
-                    message: "The pairing screen is hidden".into(),
-                });
-            }
-            worker_runtime.request(&method, params)
-        })
-            .await
-            .map_err(|_| kvmflow_core::protocol::RpcErrorBody {
-                code: "E_BACKEND".into(),
-                message: tr(app.app_handle(), "native.backend.failed").into(),
-            })?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let pairing = method.starts_with("lan.pair.") || method == "lan.setup.secondary";
+        let _gate = pairing.then(|| pairing_gate.lock().unwrap());
+        let opens = opens_pairing_window(&method, &params);
+        if opens
+            && (!worker_app
+                .state::<Host>()
+                .wants_visible
+                .load(Ordering::Acquire)
+                || worker_app
+                    .state::<Host>()
+                    .pairing_closing
+                    .load(Ordering::Acquire))
+        {
+            return Err(kvmflow_core::protocol::RpcErrorBody {
+                code: "E_LAN_PAIR_WINDOW".into(),
+                message: "The pairing screen is hidden".into(),
+            });
+        }
+        worker_runtime.request(&method, params)
+    })
+    .await
+    .map_err(|_| kvmflow_core::protocol::RpcErrorBody {
+        code: "E_BACKEND".into(),
+        message: tr(app.app_handle(), "native.backend.failed").into(),
+    })?;
     if result.is_ok() && refresh_config {
         if let Ok(Ok(config)) =
             tauri::async_runtime::spawn_blocking(move || runtime.request("config.get", json!({})))
@@ -735,8 +744,14 @@ mod pairing_lifecycle_tests {
         for method in ["lan.pair.start", "lan.setup.secondary", "lan.pair.window"] {
             assert!(opens_pairing_window(method, &json!({})));
         }
-        assert!(opens_pairing_window("lan.pair.window", &json!({"open": true})));
-        assert!(!opens_pairing_window("lan.pair.window", &json!({"open": false})));
+        assert!(opens_pairing_window(
+            "lan.pair.window",
+            &json!({"open": true})
+        ));
+        assert!(!opens_pairing_window(
+            "lan.pair.window",
+            &json!({"open": false})
+        ));
         assert!(!opens_pairing_window("lan.pair.cancel", &json!({})));
     }
 
@@ -747,8 +762,10 @@ mod pairing_lifecycle_tests {
             calls.push((method.to_string(), params));
             Err::<Value, _>("closed")
         });
-        assert_eq!(calls.iter().map(|(m, _)| m.as_str()).collect::<Vec<_>>(),
-            vec!["lan.pair.window", "lan.pair.cancel", "lan.test.stop"]);
+        assert_eq!(
+            calls.iter().map(|(m, _)| m.as_str()).collect::<Vec<_>>(),
+            vec!["lan.pair.window", "lan.pair.cancel", "lan.test.stop"]
+        );
         assert_eq!(calls[0].1, json!({"open": false}));
     }
 }
