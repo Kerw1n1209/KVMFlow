@@ -28,6 +28,9 @@ artifacts/admin/
 
 # local environment files
 .env
+
+# generated redistributable license bundle (tools/generate-third-party-licenses.js)
+/third-party-licenses/
 .env.*
 !.env.example
 

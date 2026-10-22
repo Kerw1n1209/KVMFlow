@@ -103,6 +103,50 @@ fn an_incomplete_v1_config_is_converted_in_memory_without_touching_the_file() {
 }
 
 #[test]
+fn incomplete_v1_identity_survives_restart_and_first_explicit_save_backs_up_original() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    let mut incomplete = config();
+    incomplete["monitors"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("away_input_source");
+    let original = serde_json::to_vec(&incomplete).unwrap();
+    std::fs::write(&path, &original).unwrap();
+    let (rt, _) = start(dir.path(), "config.json");
+    let first = rt.request("config.get", json!({})).unwrap();
+    let id = first["local_device"]["device_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(id.starts_with("dev-"));
+    rt.shutdown_and_join().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    let (rt, _) = start(dir.path(), "config.json");
+    let current = rt.request("config.get", json!({})).unwrap();
+    assert_eq!(current["local_device"]["device_id"], id);
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    rt.request("config.set", json!({"config":current})).unwrap();
+    rt.shutdown_and_join().unwrap();
+    let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["local_device"]["device_id"], id);
+    let backup = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("config.json.pre-identity-")
+        })
+        .unwrap();
+    assert_eq!(std::fs::read(backup.path()).unwrap(), original);
+    assert_eq!(
+        saved["local_device"]["monitors"][0]["legacy_remote_preset"]["value"],
+        16
+    );
+}
+
+#[test]
 fn concurrent_callers_receive_their_own_response() {
     let dir = tempfile::tempdir().unwrap();
     let (runtime, _) = start(dir.path(), "config.json");
@@ -200,4 +244,53 @@ fn unreadable_config_is_set_aside_before_a_new_save() {
     let saved: Value =
         serde_json::from_slice(&std::fs::read(dir.path().join("config.json")).unwrap()).unwrap();
     assert_eq!(saved["local_device"]["host_label"], "embedded-test");
+}
+
+#[test]
+fn runtime_snapshots_have_one_monotonic_sequence_across_events_and_responses() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("config.json"),
+        serde_json::to_vec(&config()).unwrap(),
+    )
+    .unwrap();
+    let (runtime, rx) = start(dir.path(), "config.json");
+    let before = runtime.request("state.get", json!({})).unwrap();
+    let first = before["runtime_seq"]
+        .as_u64()
+        .expect("full snapshot sequence");
+    assert_eq!(before["mixed"]["runtime_seq"], first);
+    let paused = runtime
+        .request("app.setEnabled", json!({"enabled":false}))
+        .unwrap();
+    let pause_seq = paused["runtime_seq"]
+        .as_u64()
+        .expect("partial response sequence");
+    assert!(pause_seq > first);
+    let unchanged = runtime
+        .request("mixed.set", json!({"enabled":false}))
+        .unwrap();
+    let mixed_seq = unchanged["runtime_seq"]
+        .as_u64()
+        .expect("mixed response sequence");
+    assert!(mixed_seq > pause_seq);
+    assert_eq!(unchanged["mixed"]["runtime_seq"], mixed_seq);
+    let after = runtime.request("state.get", json!({})).unwrap();
+    assert!(after["runtime_seq"].as_u64().unwrap() > mixed_seq);
+    let mut previous = 0;
+    for (kind, data) in rx.try_iter() {
+        if matches!(
+            kind.as_str(),
+            "state" | "mixed.changed" | "mixed.pending_remote"
+        ) {
+            let sequence = data["runtime_seq"].as_u64().expect("event sequence");
+            assert!(sequence > previous);
+            previous = sequence;
+            if data["mixed"].is_object() {
+                assert_eq!(data["mixed"]["runtime_seq"], sequence);
+            }
+        }
+    }
+    assert!(previous > 0);
+    runtime.shutdown_and_join().unwrap();
 }

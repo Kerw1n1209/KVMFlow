@@ -2,16 +2,43 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '../..');
-const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/;
+const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+function parseVersion(version) {
+  const match = typeof version === 'string' && version.match(semver);
+  if (!match || match[4]?.split('.').some(id => /^0\d+$/.test(id))) throw Error('Invalid release version');
+  return { core: match.slice(1, 4).map(BigInt), pre: match[4]?.split('.') || [] };
+}
+function compareVersions(left, right) {
+  const a = parseVersion(left), b = parseVersion(right);
+  const compare = (x, y) => x === y ? 0 : x > y ? 1 : -1;
+  for (let i = 0; i < 3; i++) {
+    const result = compare(a.core[i], b.core[i]);
+    if (result) return result;
+  }
+  if (!a.pre.length || !b.pre.length) return compare(!a.pre.length, !b.pre.length);
+  for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+    if (a.pre[i] === undefined) return -1;
+    if (b.pre[i] === undefined) return 1;
+    if (a.pre[i] === b.pre[i]) continue;
+    const numericA = /^\d+$/.test(a.pre[i]), numericB = /^\d+$/.test(b.pre[i]);
+    if (numericA && numericB) return compare(BigInt(a.pre[i]), BigInt(b.pre[i]));
+    if (numericA !== numericB) return numericA ? -1 : 1;
+    return compare(a.pre[i], b.pre[i]);
+  }
+  return 0;
+}
 
 function readVersion(base = root) {
   const version = JSON.parse(fs.readFileSync(path.join(base, 'desktop/package.json'))).version;
   const config = JSON.parse(fs.readFileSync(path.join(base, 'desktop/src-tauri/tauri.conf.json')));
   const cargo = fs.readFileSync(path.join(base, 'desktop/src-tauri/Cargo.toml'), 'utf8').match(/^version = "([^"]+)"/m)?.[1];
-  if (!semver.test(version) || config.version !== version || cargo !== version) throw Error('The three desktop version numbers must be valid and identical');
+  parseVersion(version);
+  if (config.version !== version || cargo !== version) throw Error('The three desktop version numbers must be valid and identical');
   return version;
 }
 function validateRef(version, ref = '') {
+  parseVersion(version);
   if (!ref || ref === 'refs/heads/main') return { version, tag: `v${version}`, publish: false };
   if (ref !== `refs/tags/v${version}`) throw Error('Release tag must exactly match the desktop version; manual runs must use main');
   return { version, tag: `v${version}`, publish: true };
@@ -23,13 +50,14 @@ function signature(file, version) {
   return encoded;
 }
 function readReleaseNotes(version, base = root) {
-  if (!semver.test(version)) throw Error('Invalid release version');
+  parseVersion(version);
   const notes = fs.readFileSync(path.join(base, 'desktop/releases', `${version}.md`), 'utf8').trim();
   if (!notes) throw Error('Release notes must not be empty');
   return notes;
 }
 function prepareRelease(directory, version, repository, date = new Date(), notes = readReleaseNotes(version)) {
-  if (!semver.test(version) || !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw Error('Invalid release version or repository');
+  parseVersion(version);
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw Error('Invalid release version or repository');
   if (typeof notes !== 'string' || !notes.trim()) throw Error('Release notes must not be empty');
   const macInstaller = `KVMFlow-${version}-arm64.dmg`;
   const macUpdate = `KVMFlow-${version}-macos-arm64.app.tar.gz`;
@@ -79,4 +107,4 @@ if (require.main === module) {
     console.log('Release assets prepared:', prepareRelease(path.resolve(process.argv[3] || 'release-assets'), version, process.env.GITHUB_REPOSITORY || 'Kerw1n1209/KVMFlow').join(', '));
   } else throw Error('usage: node release-metadata.cjs validate|prepare [asset-directory]');
 }
-module.exports = { readVersion, readReleaseNotes, validateRef, prepareRelease };
+module.exports = { readVersion, readReleaseNotes, validateRef, prepareRelease, compareVersions };

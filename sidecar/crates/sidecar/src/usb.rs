@@ -38,6 +38,7 @@ impl Runtime {
                     .collect();
                 tracker.update(now_ms(), &keys);
                 self.tracker = Some(tracker);
+                self.observe_mixed_holder_baseline();
             }
             return;
         }

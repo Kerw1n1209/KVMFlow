@@ -29,15 +29,15 @@ extern "C" {
 }
 
 #[derive(Debug, Clone, Default)]
-struct M1ddcDisplay {
-    index: u32,
-    cg_id: u32,
-    product_name: String,
-    manufacturer: String,
-    an_serial: String,
-    vendor: u32,
-    model: u32,
-    serial: u32,
+pub(super) struct M1ddcDisplay {
+    pub(super) index: u32,
+    pub(super) cg_id: u32,
+    pub(super) product_name: String,
+    pub(super) manufacturer: String,
+    pub(super) an_serial: String,
+    pub(super) vendor: u32,
+    pub(super) model: u32,
+    pub(super) serial: u32,
 }
 
 pub struct MacDdcBackend {
@@ -78,7 +78,7 @@ pub fn resolve_m1ddc(explicit: Option<&str>) -> Option<PathBuf> {
 
 /// Run m1ddc capturing output, with a hard timeout so a stuck child cannot
 /// wedge the sidecar loop.
-fn run_m1ddc(
+pub(super) fn run_m1ddc(
     binary: &PathBuf,
     args: &[&str],
     timeout: Duration,
@@ -122,7 +122,7 @@ fn run_m1ddc(
     }
 }
 
-fn parse_display_list_detailed(stdout: &str) -> Vec<M1ddcDisplay> {
+pub(super) fn parse_display_list_detailed(stdout: &str) -> Vec<M1ddcDisplay> {
     let mut out: Vec<M1ddcDisplay> = Vec::new();
     for line in stdout.lines() {
         let line = line.trim_end();
@@ -247,7 +247,7 @@ impl MacDdcBackend {
     }
 }
 
-fn edid_of(d: &M1ddcDisplay) -> String {
+pub(super) fn edid_of(d: &M1ddcDisplay) -> String {
     edid_identity(&d.manufacturer, d.model as u16, d.serial, &d.an_serial)
 }
 

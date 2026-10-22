@@ -28,7 +28,7 @@ test('catalogs contain all referenced keys and matching interpolation parameters
   }
   const renderer = path.resolve(__dirname, '../src/renderer');
   for (const id of Object.values(config.legacyMessages || {})) assert.ok(Object.hasOwn(en, id));
-  for (const name of ['shell.js', 'app.js', 'updates.js']) {
+  for (const name of ['shell.js', 'app.js', 'updates.js', 'mixed.js', 'mixed-view.js', 'lan-pairing.js', 'lan-pairing-view.js']) {
     const source = fs.readFileSync(path.join(renderer, name), 'utf8');
     for (const match of source.matchAll(/\b(?:t|message)\(["']([^"']+)["']/g)) {
       assert.ok(Object.hasOwn(en, match[1]), `${name}: ${match[1]}`);

@@ -5,13 +5,22 @@
   <title>KVMFlow</title>
   <link rel="stylesheet" href="shell.css">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="mixed.css">
+  <link rel="stylesheet" href="pairing.css">
   <link rel="stylesheet" href="updates.css">
 </head>
 <body>
   <div class="shell"><aside class="nav" aria-label="主导航" data-i18n-aria-label="main.navigation"><div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"></path></svg></span><span>KVMFlow</span></div><nav class="nav-list"><button class="nav-item active" data-page="status"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"></path></svg><span data-i18n="status">状态</span></button><button class="nav-item" data-page="guide"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5"></path></svg><span data-i18n="setup">初始化</span></button><button class="nav-item" data-page="diagnostics"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 16l3-4 3 2 5-7"></path></svg><span data-i18n="diagnostics">诊断</span></button></nav><div class="nav-bottom"><span id="nav-dot" class="dot"></span><span id="nav-state" class="nav-state" data-i18n="setup.required">需要初始化</span><button class="gear" title="设置" aria-label="设置" data-page="settings" data-i18n-title="settings" data-i18n-aria-label="settings"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16M8 4v4M16 10v4M11 16v4"></path></svg></button></div></aside>
     <main><div class="page">
       <div id="update-toolbar" class="update-toolbar hidden"><span id="update-status" class="hint" role="status" aria-live="polite"></span><button id="update-action" class="secondary" data-i18n="update">更新</button></div>
-      <section id="status-page"><header class="header"><div><h1 data-i18n="status">状态</h1><p class="sub" data-i18n="view.the.current.connections.and.computer.queue">查看电脑、USB 切换器和显示器。</p></div></header><section class="panel route"><div class="route-cell"><div class="label" data-i18n="this.computer.201">这台电脑</div><div id="home-computer" class="route-value"></div></div><div class="route-cell"><div class="label" data-i18n="usb.switch.port">USB Switch 端口</div><div id="home-port" class="route-value"></div></div><div class="route-cell"><div class="label" data-i18n="switch.to">切换到</div><div id="home-next" class="route-value"></div></div></section><section class="panel"><div class="panel-title"><h2 data-i18n="monitor.input.sources">显示器输入源</h2><span id="mapping-state" class="status"></span></div><table class="monitor-table"><thead><tr><th data-i18n="monitor">显示器</th><th data-i18n="this.computer.201">这台电脑</th><th data-i18n="switch.to">切换到</th></tr></thead><tbody id="display-table"></tbody></table></section><section class="panel"><div class="last"><div><h2 id="last-title" data-i18n="waiting.for.setup">等待初始化</h2><p id="last-copy" class="sub" data-i18n="start.with.identify.usb.switch">先识别 USB 切换器，再记录显示器输入值。</p></div><button class="secondary" data-page="diagnostics" data-i18n="view.diagnostics">查看诊断</button></div></section></section>
+      <section id="status-page"><header class="header"><div><h1 data-i18n="status">状态</h1><p class="sub" data-i18n="status.subtitle">键鼠在哪台电脑，每台显示器正在显示什么。</p></div></header>
+        <section id="topology" class="panel setup-prompt" aria-label="设置" data-i18n-aria-label="settings"></section>
+        <div id="mixed-status" hidden>
+          <section id="mode-bar" class="mode-bar"></section>
+          <section class="desktop-map" aria-label="桌面" data-i18n-aria-label="mixed.desktop.map"><div id="screen-row" class="screen-row"></div><div id="computer-row" class="computer-row-map"></div><p id="next-switch" class="next-switch"></p></section>
+          <div id="status-banners"></div>
+        </div>
+        <section class="last-switch"><div class="last"><div><h2 id="last-title" data-i18n="waiting.for.setup">等待初始化</h2><p id="last-copy" class="sub"></p></div><button class="secondary" data-page="diagnostics" data-i18n="view.diagnostics">查看诊断</button></div></section></section>
       <section id="guide-page" class="hidden"><header class="header"><h1 data-i18n="setup">初始化</h1><span id="guide-count" class="hint"></span></header><div id="steps" class="steps"></div><section id="guide-content" class="panel wizard"></section></section>
       <section id="settings-page" class="hidden">
         <header class="header"><h1 data-i18n="settings">设置</h1></header><section class="settings-section language-panel"><div class="panel-title"><h2 data-i18n="language.title">语言</h2><span id="language-save-status" class="hint" role="status" aria-live="polite"></span></div><div class="response-row"><div class="response-copy"><label for="language-select" data-i18n="language.title">语言</label><span data-i18n="language.description">选择界面语言，跟随系统时将自动匹配。</span></div><select id="language-select" class="response-select"><option value="auto" data-i18n="language.auto">跟随系统</option><option value="zh-CN" lang="zh-CN">简体中文</option><option value="en" lang="en">English</option></select></div></section>
@@ -21,6 +30,12 @@
             <section class="settings-computers" aria-labelledby="computer-list-title"><div class="panel-title"><h3 id="computer-list-title" data-i18n="saved.computers">电脑列表</h3><button id="add-computer" class="settings-text-button" data-i18n="add.computer">＋ 添加电脑</button></div><div id="computer-list"></div></section>
             <section id="computer-editor" class="settings-editor" aria-label="电脑配置" data-i18n-aria-label="computer.settings"></section>
           </div>
+        </section>
+        <section id="mixed-settings" class="settings-section mixed-settings" aria-labelledby="mixed-settings-title" hidden>
+          <div class="panel-title"><h2 id="mixed-settings-title" data-i18n="mixed.mode">混屏模式</h2></div>
+          <div class="response-list"><div class="response-row"><div class="response-copy"><strong data-i18n="mixed.mode">混屏模式</strong><span id="mixed-description"></span></div><label class="toggle-control" for="mixed-toggle"><input id="mixed-toggle" type="checkbox" aria-label="混屏模式" data-i18n-aria-label="mixed.mode" aria-describedby="mixed-description"><span class="toggle-track" aria-hidden="true"></span><span id="mixed-toggle-label" class="toggle-label" data-i18n="off">关闭</span></label></div></div>
+          <div id="mixed-screens-block" class="mixed-assign"><h3 data-i18n="mixed.assign.title">显示器分配</h3><p class="hint" data-i18n="mixed.assign.hint">为每台显示器选一台电脑。混屏时，每台电脑只使用分配给自己的显示器，窗口和鼠标不会跑到另一块屏幕上。</p><div id="mixed-screens" class="assign-row"></div></div>
+          <div id="mixed-notes"></div>
         </section>
         <section class="settings-section response-panel" aria-labelledby="response-title">
           <div class="panel-title"><h2 id="response-title" data-i18n="switch.timing">切换响应</h2><span class="hint settings-tag" data-i18n="saved.automatically">自动保存</span></div>
@@ -44,6 +59,9 @@
     <h2 id="local-input-confirmation-title" data-i18n="change.this.computer.s.monitor.input.values">修改本机显示器输入值？</h2>
     <p id="local-input-confirmation-copy"></p>
     <div class="confirmation-actions"><button id="cancel-local-input" autofocus="" data-i18n="cancel">取消</button><button id="confirm-local-input" class="primary" data-i18n="confirm.change">确认修改</button></div>
+  </dialog>
+  <dialog id="pairing-dialog" aria-labelledby="pairing-title">
+    <div id="pairing-body"></div>
   </dialog>
   <script src="branding.js"></script>
 

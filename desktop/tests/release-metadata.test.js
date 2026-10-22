@@ -53,3 +53,30 @@ test('release notes are versioned and missing, empty or unsafe versions are reje
   fs.writeFileSync(path.join(releases, '0.2.3.md'), ' \n');
   assert.throws(() => readReleaseNotes('0.2.3', dir), /empty/);
 });
+
+test('desktop Rust test command uses locked dependency resolution', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8'));
+  for (const name of ['test:rust', 'smoke']) {
+    assert.match(pkg.scripts[name], /(?:^|\s)--locked(?:\s|$)/, name);
+  }
+});
+
+test('beta release tags, notes, signatures and all seven assets are supported', t => {
+  const dir = fixture(t);
+  const version = '0.4.0-beta.1';
+  for (const name of fs.readdirSync(dir)) {
+    const file = path.join(dir, name);
+    if (name.endsWith('.sig')) fs.writeFileSync(file, Buffer.from(`trusted comment: timestamp:1\tversion:${version}\n`).toString('base64'));
+    fs.renameSync(file, path.join(dir, name.replaceAll('0.2.3', version)));
+  }
+  assert.equal(validateRef(version, `refs/tags/v${version}`).publish, true);
+  assert.throws(() => validateRef(version, 'refs/tags/v0.4.0'));
+  const releases = path.join(dir, 'desktop/releases');
+  fs.mkdirSync(releases, { recursive: true });
+  fs.writeFileSync(path.join(releases, `${version}.md`), '混屏模式和局域网同步内测版。');
+  const notes = readReleaseNotes(version, dir);
+  assert.equal(prepareRelease(dir, version, 'Kerw1n1209/KVMFlow', new Date(), notes).length, 7);
+  const result = JSON.parse(fs.readFileSync(path.join(dir, 'latest.json')));
+  assert.equal(result.version, version);
+  assert.match(result.platforms['windows-x86_64'].url, /v0\.4\.0-beta\.1\/KVMFlow\.Setup\.0\.4\.0-beta\.1\.exe$/);
+});

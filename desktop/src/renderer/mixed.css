@@ -1,0 +1,99 @@
+/* Mixed mode: status page desktop map and the settings assignment section. */
+.setup-prompt{padding:18px 0}
+#last-copy:empty{display:none}
+.setup-prompt[hidden],#mixed-status[hidden],.mixed-settings[hidden],.mixed-assign[hidden],.next-switch[hidden]{display:none}
+.mode-bar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:16px 0;padding:16px 20px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.mode-bar.mixed{border-color:var(--line-strong)}
+.mode-title{display:flex;align-items:center;gap:8px;font-size:15px}
+.mode-copy .hint{margin-top:3px;font-size:13px}
+.mode-bar button{flex:0 0 auto;white-space:nowrap}
+.desktop-map{margin:16px 0;padding:34px 28px 24px;border:1px solid var(--line);border-radius:12px;background:var(--surface-muted)}
+.screen-row{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:28px;padding-bottom:24px;border-bottom:1px solid var(--line-strong)}
+.desk-screen-cell{display:grid;justify-items:center;gap:8px}
+.desk-screen{display:grid;align-content:center;justify-items:center;gap:4px;width:220px;height:128px;padding:10px;border:2px solid var(--ink);border-radius:8px;background:var(--surface);text-align:center}
+.desk-screen.builtin{width:180px;height:112px}
+.desk-screen-name{font-size:15px;font-weight:650}
+.desk-screen-note{color:var(--sub);font-size:12px}
+.desk-screen.detached,.desk-screen.offline{border-color:var(--line-strong);background:var(--surface-raised)}
+.desk-screen.offline{border-style:dashed;color:var(--muted)}
+.desk-stand{width:44px;height:4px;border-radius:2px;background:var(--line-strong)}
+.desk-screen-label{display:flex;align-items:center;gap:6px;color:var(--sub);font-size:13px}
+.computer-row-map{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;padding-top:24px}
+.desk-computer{display:grid;gap:6px;justify-items:start;width:240px;min-height:112px;padding:16px 18px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface)}
+.desk-computer.holder{border:2px solid var(--ink);padding:15px 17px}
+.desk-computer-head{display:flex;align-items:center;gap:8px;font-size:15px}
+.desk-computer p{margin:0}
+.desk-lan{display:flex;align-items:center;gap:6px;color:var(--sub);font-size:13px}
+.lan-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--ink)}
+.desk-lan.disconnected .lan-dot,.mixed-sync.warn .lan-dot{background:transparent;border:1px solid var(--ink)}
+.holder-tag{padding:3px 8px;border-radius:4px;background:var(--ink);color:var(--surface);font-size:12px;font-weight:650}
+.next-switch{margin:20px 0 0;color:var(--sub);text-align:center;font-size:13px}
+.status-banner{margin:12px 0;padding:11px 16px;border-radius:var(--radius);background:var(--surface-raised);font-size:13px}
+.last-switch{margin-top:20px;padding-top:6px;border-top:1px solid var(--line)}
+.last-switch .last{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.mixed-assign{padding:18px 20px 4px}
+.mixed-assign .hint{margin:4px 0 0;font-size:12px}
+.assign-row{display:flex;flex-wrap:wrap;gap:24px;padding:18px 0}
+.assign-cell{display:grid;justify-items:center;gap:6px;width:176px}
+.assign-screen{display:grid;place-items:center;width:100%;height:100px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);font-weight:650;text-align:center}
+.assign-screen.empty{color:var(--muted);font-weight:400}
+.assign-cell.absent .assign-screen{border-style:dashed;opacity:.7}
+.assign-cell.unavailable .assign-screen{background:var(--surface-muted)}
+.assign-label{color:var(--sub);font-size:12px}
+.assign-select{width:100%;min-height:38px}
+.assign-fixed{margin-top:4px;font-size:13px}
+.mixed-note,.mixed-sync{margin:0 20px 14px;padding:10px 14px;border-radius:var(--radius);background:var(--surface-muted);font-size:13px}
+.mixed-sync{display:flex;align-items:center;gap:8px;background:transparent;padding-left:0;color:var(--sub)}
+#mixed-notes{padding-top:2px}
+/* Match the established paper components and Figma geometry. */
+.mode-bar{flex-wrap:wrap;column-gap:16px;row-gap:8px;margin:0 0 28px;border-radius:8px;background:var(--surface-raised)}
+.mode-copy{flex:1;min-width:160px}
+.mode-title{font-size:14px}
+.mode-blocked{flex-basis:100%;margin:0}
+.desktop-map{margin:0 0 28px;padding:36px 28px 32px;border-radius:8px;background:transparent}
+.screen-row{padding-bottom:28px;border-color:var(--line)}
+.desk-screen{border-radius:6px;background:var(--surface-raised)}
+.desk-screen-name,.assign-screen{font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.desk-screen.detached,.desk-screen.offline,.desk-screen.closed{border:1px solid var(--line);background:var(--surface-muted)}
+.desk-screen.offline,.desk-screen.closed{border-style:dashed}
+.desk-stand{background:var(--line)}
+.computer-row-map{align-items:flex-start;gap:24px;padding-top:28px}
+.desk-computer{border-color:var(--line);background:var(--surface-raised)}
+.desk-computer-head{flex-wrap:wrap;font-size:14px}
+.desk-computer.holder{border-color:var(--ink)}
+.holder-tag{font-size:13px;font-weight:400;color:var(--bg)}
+.next-switch{margin-top:28px}
+.status-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--surface-muted)}
+.dismiss-notice{flex:none;min-height:28px;padding:0 6px;border:0;background:transparent;font-size:20px;line-height:1}
+.last-switch{margin-top:28px;padding-top:20px}
+.last-switch h2{font-size:14px;line-height:20px}
+.last-switch .last .sub{margin-top:4px;max-width:none;font-size:13px}
+#mixed-settings{scroll-margin-top:116px}
+#mixed-settings>.response-list{margin-bottom:24px}
+.mixed-assign{padding:0}
+.assign-row{gap:32px;padding:22px 0 24px}
+.assign-cell{width:168px}
+.assign-screen{height:100px;border-radius:3px;background:var(--surface-raised)}
+.assign-select{min-height:44px;margin-top:6px}
+.assign-cell.builtin .assign-screen{width:144px;height:88px}
+.mixed-note,.mixed-sync{margin:0 0 14px}
+.desk-screen-cell,.desk-computer,.assign-cell{max-width:100%}
+@media(max-width:900px){.screen-row{gap:18px}.desk-screen{width:190px;height:116px}.desk-computer{width:210px}.desktop-map{padding-inline:20px}}
+
+#mixed-status .settings-tag{padding:2px 8px;border-radius:3px;background:var(--surface-muted);color:var(--sub);font-size:12px;font-weight:400}
+.mode-bar .mode-title .settings-tag{white-space:nowrap}
+.desk-screen.builtin-unavailable{border:1px dashed var(--line);background:var(--surface-muted)}
+
+.computer-peer{display:flex;align-items:center;gap:6px;color:var(--sub);font-size:12px}
+.computer-peer:empty{display:none}
+
+.screen-row.many .desk-screen-cell{width:calc((100% - 56px)/3)}
+.screen-row.many .desk-screen{width:100%;height:auto;min-height:100px;aspect-ratio:220/128}
+@media(max-width:900px){.screen-row.many .desk-screen-cell{width:calc((100% - 36px)/3)}.assign-row.many{gap:20px}.assign-row.many .assign-cell{width:calc((100% - 40px)/3);max-width:168px}}
+
+/* The laptop base is wider than its panel; external stands stay short. */
+.desk-screen.builtin+.desk-stand{width:200px;height:6px;max-width:100%}
+.assign-cell.builtin{width:200px}
+.assign-cell.builtin .assign-screen{width:180px;height:112px;max-width:100%}
+.assign-cell.builtin .desk-stand{width:200px;height:6px;max-width:100%}
+.screen-row.many .desk-screen.builtin{width:min(180px,100%);height:auto;min-height:0;aspect-ratio:180/112}

@@ -8,73 +8,7 @@ const { initializeI18n } = require('./i18n-helper');
 const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 
-const v2 = {
-  schema_version: 2,
-  local_device: { device_id: 'host-win', host_label: 'Windows', monitors: [
-    { fingerprint: 'display-b', label: '副屏', local_input: 8 },
-    { fingerprint: 'display-a', label: '主屏', local_input: 16 },
-  ] },
-  switch_group: { group_id: 'preserved-group', revision: 4, devices: [
-    { device_id: 'host-mac', name: 'Mac', port_index: 1, monitors: [
-      { fingerprint: 'display-a', local_input: 15 }, { fingerprint: 'display-b', local_input: 7 },
-    ] },
-    { device_id: 'host-win', name: 'Windows', port_index: 2, monitors: [
-      { fingerprint: 'display-b', local_input: 8 }, { fingerprint: 'display-a', local_input: 16 },
-    ] },
-    { device_id: 'host-linux', name: '第三台', port_index: 3, monitors: [
-      { fingerprint: 'display-a', local_input: 17 }, { fingerprint: 'display-b', local_input: 9 },
-    ] },
-  ] },
-  trigger: { anchor: { vid_pid: '1a40:0101' }, members: [{ vid_pid: '3837:303c' }], debounce: {
-    t_stable_ms: 0, t_absent_ms: 0, t_cooldown_ms: 1000, quorum_peripherals: 1,
-  } },
-  advanced: { ddc_retry: { attempts: 3, delay_ms: 200 }, usb_poll_ms: 300, arrival_correction_enabled: false },
-};
-
-async function client(t, options = {}) {
-  const { config = v2, failSave = false, displays = [], storage = {}, state = { state: 'idle', enabled: true } } = options;
-  const computerName = Object.hasOwn(options, 'computerName') ? options.computerName : config?.local_device?.host_label;
-  const dom = new JSDOM(read('src/renderer/index.html'), { url: 'http://tauri.localhost', runScripts: 'outside-only' });
-  t.after(() => dom.window.close());
-  const win = dom.window, requests = [], subscriptions = new Map();
-  for (const [key, value] of Object.entries(storage)) win.localStorage.setItem(key, value);
-  let exported = null;
-  win.structuredClone = structuredClone;
-  // jsdom does not implement modal dialogs; keep their open/close lifecycle real.
-  win.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
-  win.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new win.Event('close')); };
-  win.kvmflow = {
-    ready: Promise.resolve(), info: Promise.resolve({ platform: 'windows', version: '0.2.0', computerName, initialPage: config ? 'status' : 'wizard' }),
-    clientReady: async () => {},
-    request: async (method, params) => {
-      requests.push({ method, params });
-      if (method === 'config.get') return structuredClone(config);
-      if (method === 'state.get') return structuredClone(state);
-      if (method === 'display.list') return { displays };
-      if (method === 'config.set' && failSave) throw new Error('保存失败');
-      if (method === 'diagnostics.collect') return { events: [], backend: 'test' };
-      return {};
-    },
-    onNotification: (kind, cb) => { subscriptions.set(kind, cb); return () => subscriptions.delete(kind); },
-    onClientNavigate: () => () => {},
-    startup: { get: async () => false, set: async enabled => enabled },
-    confirmDelete: async () => true,
-    exportDiagnostics: async payload => { exported = payload; return true; },
-  };
-  await initializeI18n(win, options.language || 'zh-CN');
-  vm.runInContext(read('src/renderer/shell.js'), dom.getInternalVMContext());
-  vm.runInContext(read('src/renderer/redact.js'), dom.getInternalVMContext());
-  vm.runInContext(read('src/renderer/app.js'), dom.getInternalVMContext());
-  await new Promise(resolve => setTimeout(resolve, 10));
-  return { win, requests, subscriptions, export: () => exported };
-}
-
-const tick = () => new Promise(resolve => setTimeout(resolve, 10));
-const automaticConfig = () => {
-  const config = structuredClone(v2);
-  config.local_device.monitors.forEach(monitor => { monitor.source = 'learned_active_read'; });
-  return config;
-};
+const { client, v2, tick, automaticConfig } = require('./client-helper');
 
 test('settings save belongs to computer configuration, with startup separate from timing', async t => {
   const { win } = await client(t);
@@ -445,7 +379,9 @@ test('the system name replaces a stale saved name without changing input mapping
   const { win } = await client(t, { computerName: '系统的新名称' });
   win.navigate('settings');
   assert.equal(win.document.querySelector('#edit-name').value, '系统的新名称');
-  assert.equal(win.document.querySelector('#display-table').textContent, '副屏89主屏1617');
+  assert.equal(win.document.querySelector('#display-table'), null);
+  assert.equal(win.document.querySelector('#edit-0').value, '8');
+  assert.equal(win.document.querySelector('#edit-1').value, '16');
 });
 
 test('hidden host mode retains its saved value and is not cleared by saving settings', async t => {
@@ -483,7 +419,8 @@ test('paused and failed backend states stay visible and do not claim picture suc
   subscriptions.get('state')({ state: 'armed', enabled: false });
   assert.match(win.document.querySelector('#nav-state').textContent, /自动切换已暂停/);
   subscriptions.get('switch.report')({ per_monitor: [{ commanded: true }] });
-  assert.equal(win.document.querySelector('#last-title').textContent, '切换指令已发送');
+  assert.equal(win.document.querySelector('#last-title').textContent, '最近一次切换');
+  assert.match(win.document.querySelector('#last-copy').textContent, /已向.*发送显示器切换命令/);
   subscriptions.get('runtime.error')({ message: '请重启' });
   assert.equal(win.document.querySelector('#nav-state').textContent, '后台组件不可用');
 });
@@ -511,7 +448,7 @@ test('English renders dynamic status, setup, timing and local-input confirmation
   const c = await client(t, { language: 'en', config: automaticConfig(), computerName: '工作电脑' });
   const doc = c.win.document;
   assert.equal(doc.documentElement.lang, 'en');
-  assert.equal(doc.querySelector('#home-computer').textContent, '工作电脑');
+  assert.equal(doc.querySelector('[data-computer="host-win"] strong').textContent, '工作电脑');
   assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB Switch');
   c.win.navigate('guide');
   assert.equal(doc.querySelector('#steps .active').textContent, '1 Identify USB Switch');
@@ -604,7 +541,8 @@ test('stored legacy diagnostic events follow language without changing unknown e
   assert.match(list.textContent, /Detect the monitors before saving settings/);
   assert.match(list.textContent, /用户设备名称 工作电脑/);
   assert.equal(list.querySelector('script'), null);
-  assert.equal(c.win.document.querySelector('#home-computer').textContent, '工作电脑');
+  c.win.navigate('settings');
+  assert.equal(c.win.document.querySelector('#edit-name').value, '工作电脑');
   c.win.KVMFlowI18n.setPreference('zh-CN');
   assert.match(list.textContent, /电脑配置已保存/);
   assert.match(list.textContent, /本地配置未保存/);
@@ -656,32 +594,24 @@ test('an unreadable saved configuration is explained after startup in both langu
   assert.doesNotMatch(healthy.win.document.querySelector('#event-list').textContent, /配置文件无法读取/);
 });
 
-test('each computer chooses which monitors follow when switching to it', async t => {
-  const { win, requests } = await client(t);
+test('computer editor removes follow controls and preserves archived policies and mixed assignment', async t => {
+  const configured = structuredClone(v2);
+  configured.switch_group.devices[0].monitors[0].follow = false;
+  configured.switch_group.devices[0].arrival_layout_id = 'archived';
+  configured.switch_group.layouts = [{layout_id:'archived',name:'Archive',monitors:[]}];
+  configured.switch_group.mixed = {enabled:false,revision:7,assignment:[{fingerprint:'display-a',device_id:'host-mac'}]};
+  const { win, requests } = await client(t, {config:configured});
   win.navigate('settings');
   win.editComputer('host-mac');
-  const follow = win.document.querySelector('#edit-follow-0');
-  assert.equal(follow.checked, true);
-  assert.match(win.document.querySelector('#computer-editor').textContent, /切换到这台电脑时[\s\S]*副屏[\s\S]*跟随/);
-  follow.checked = false;
-  follow.dispatchEvent(new win.Event('change', { bubbles: true }));
-  assert.match(follow.closest('.toggle-control').textContent, /保持/);
-  assert.equal(win.hasUnsavedComputerEditor(), true);
+  assert.equal(win.document.querySelector('#edit-follow-0'), null);
+  assert.doesNotMatch(win.document.querySelector('#computer-editor').textContent, /切换到这台电脑时/);
+  win.document.querySelector('#edit-name').value = 'My Mac';
   await win.saveSettings();
-  const config = requests.findLast(entry => entry.method === 'config.set').params.config;
-  const mac = config.switch_group.devices.find(device => device.device_id === 'host-mac');
-  assert.equal(mac.monitors.find(monitor => monitor.fingerprint === 'display-b').follow, false);
-  assert.equal(Object.hasOwn(mac.monitors.find(monitor => monitor.fingerprint === 'display-a'), 'follow'), false);
-  for (const device of config.switch_group.devices.filter(device => device.device_id !== 'host-mac')) {
-    assert.equal(device.monitors.some(monitor => Object.hasOwn(monitor, 'follow')), false);
-  }
-  const reopened = await client(t, { config, language: 'en' });
-  reopened.win.navigate('settings');
-  reopened.win.editComputer('host-mac');
-  assert.equal(reopened.win.document.querySelector('#edit-follow-0').checked, false);
-  assert.equal(reopened.win.document.querySelector('#edit-follow-1').checked, true);
-  assert.match(reopened.win.document.querySelector('#computer-editor').textContent, /When switching to this computer/);
-  assert.equal(reopened.win.hasUnsavedComputerEditor(), false);
+  const saved = requests.findLast(entry => entry.method === 'config.set').params.config;
+  assert.equal(saved.switch_group.devices[0].monitors.find(m=>m.fingerprint==='display-a').follow, false);
+  assert.equal(saved.switch_group.devices[0].arrival_layout_id, 'archived');
+  assert.deepEqual(saved.switch_group.layouts, configured.switch_group.layouts);
+  assert.deepEqual(saved.switch_group.mixed.assignment, configured.switch_group.mixed.assignment);
 });
 
 test('a config migrated from v1 opens with both computers and keeps its device ids', async t => {

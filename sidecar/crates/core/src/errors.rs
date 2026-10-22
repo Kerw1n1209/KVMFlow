@@ -10,9 +10,23 @@ pub const E_DDC_FAILED: &str = "E_DDC_FAILED";
 pub const E_DDC_NOT_READABLE: &str = "E_DDC_NOT_READABLE";
 pub const E_CONFIG_INVALID: &str = "E_CONFIG_INVALID";
 pub const E_CONFIG_IO: &str = "E_CONFIG_IO";
+pub const E_NOT_OWNER: &str = "E_NOT_OWNER";
+pub const E_LAN_GROUP_CONFLICT: &str = "E_LAN_GROUP_CONFLICT";
+pub const E_LAN_NOT_MEMBER: &str = "E_LAN_NOT_MEMBER";
+pub const E_LAN_KEY_CHANGED: &str = "E_LAN_KEY_CHANGED";
 pub const E_TRIGGER_NOT_ARMED: &str = "E_TRIGGER_NOT_ARMED";
 pub const E_NOT_LEARNING: &str = "E_NOT_LEARNING";
 pub const E_BACKEND: &str = "E_BACKEND";
+pub const E_TOPOLOGY_ONLY_DISPLAY: &str = "E_TOPOLOGY_ONLY_DISPLAY";
+pub const E_TOPOLOGY_LAST_ACTIVE: &str = "E_TOPOLOGY_LAST_ACTIVE";
+pub const E_TOPOLOGY_NOT_FOUND: &str = "E_TOPOLOGY_NOT_FOUND";
+pub const E_TOPOLOGY_UNSUPPORTED: &str = "E_TOPOLOGY_UNSUPPORTED";
+pub const E_TOPOLOGY_LIST: &str = "E_TOPOLOGY_LIST";
+pub const E_TOPOLOGY_ATTACH: &str = "E_TOPOLOGY_ATTACH";
+pub const E_TOPOLOGY_DETACH: &str = "E_TOPOLOGY_DETACH";
+pub const E_TOPOLOGY_ENUMERATION: &str = "E_TOPOLOGY_ENUMERATION";
+pub const E_TOPOLOGY_RESTORE: &str = "E_TOPOLOGY_RESTORE";
+pub const E_TOPOLOGY_FAILED: &str = "E_TOPOLOGY_FAILED";
 pub const E_INTERNAL: &str = "E_INTERNAL";
 
 #[derive(Debug, Clone)]

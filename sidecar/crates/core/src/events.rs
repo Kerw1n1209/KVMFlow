@@ -46,8 +46,12 @@ pub mod kinds {
     pub const SWITCH_MONITOR_COMMANDED: &str = "switch.monitor.commanded";
     pub const SWITCH_MONITOR_FAILED: &str = "switch.monitor.failed";
     pub const SWITCH_PUSH_REPORT: &str = "switch.push.report";
+    pub const LAYOUT_APPLY_BEGIN: &str = "layout.apply.begin";
+    pub const LAYOUT_MONITOR_RESULT: &str = "layout.monitor.result";
+    pub const LAYOUT_APPLY_REPORT: &str = "layout.apply.report";
     pub const DDC_GET: &str = "ddc.get";
     pub const DDC_SET: &str = "ddc.set";
     pub const DISPLAY_LIST: &str = "display.list";
     pub const BACKEND_ERROR: &str = "backend.error";
+    pub const DISPLAY_RESTORE: &str = "display.restore";
 }

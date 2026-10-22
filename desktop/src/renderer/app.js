@@ -13,6 +13,8 @@
     return result;
   };
   let sidecarConfig = null;
+  let pairingConfigStale = false;
+  let appliedModel = null;
   let computerName = t("this.computer");
   let computerNameIsFallback = true;
   let learnedTrigger = null;
@@ -111,6 +113,13 @@
     readableDisplayCount = readableDisplays.length;
     const groupDevices = Array.isArray(config?.switch_group?.devices) ? [...config.switch_group.devices].sort((a, b) => Number(a.port_index) - Number(b.port_index)) : [];
     const localDeviceId = config?.local_device?.device_id;
+    if (localDeviceId && !groupDevices.length) {
+      const previousLocal = current();
+      model.localId = localDeviceId;
+      model.nextId = localDeviceId;
+      model.computers = [{ ...previousLocal, id: localDeviceId, local: true, port: 1, name: config.local_device.host_label }];
+      editingId = localDeviceId;
+    }
     if (groupDevices.length && localDeviceId) {
       model.localId = localDeviceId;
       model.computers = groupDevices.map(device => ({
@@ -153,13 +162,14 @@
     if (localGroupDevice) localComputer.port = Number(localGroupDevice.port_index) || localComputer.port;
     if (remoteGroupDevice) remoteComputer.port = Number(remoteGroupDevice.port_index) || remoteComputer.port;
     displayFingerprints = localMonitors.map((monitor, index) => monitor.edid_id || monitor.fingerprint || `local-display-${index + 1}`);
+    // The pairing wizard matches the peer's reported monitor fingerprints
+    // against this machine's display labels.
+    window.__kvmflowDisplayFingerprints = displayFingerprints;
     model.displays = localMonitors.map((monitor, index) => monitor.label || monitor.model_name || t("monitor.value", {
   p0: index + 1
 }));
     for (const computer of model.computers) {
       const device = groupDevices.find(entry => entry.device_id === computer.id);
-      computer.follow = displayFingerprints.map(fingerprint =>
-        device?.monitors?.find(monitor => monitor.fingerprint === fingerprint)?.follow !== false);
       if (computer.local) continue;
       if (device) computer.sources = displayFingerprints.map(fingerprint =>
         device.monitors.find(monitor => monitor.fingerprint === fingerprint)?.local_input ?? null);
@@ -182,6 +192,8 @@
     model.usbConfirmed = validTrigger(config?.trigger);
     renderTimingSettings();
     storePrototypeModel();
+    window.KVMFlowMixed?.setConfig(config);
+    appliedModel = structuredClone(model);
   }
 
   function localConfigFromModel() {
@@ -222,11 +234,16 @@
           device_id: computer.local ? localDeviceId : computer.id,
           name: computer.name,
           port_index: Number(computer.port),
+          // The old per-computer "follow" setting is archived by the runtime;
+          // keep whatever is saved instead of editing it.
           monitors: monitors.map((monitor, index) => ({
+            ...previous.switch_group?.devices?.find(device => device.device_id === computer.id)
+              ?.monitors?.find(entry => entry.fingerprint === monitor.fingerprint),
             fingerprint: monitor.fingerprint, label: monitor.label, local_input: Number(inputFor(computer, index)),
-            ...(computer.follow?.[index] === false ? { follow: false } : {}),
           })),
         })),
+        // mixed.set / mixed.assign change this behind the cached config.
+        ...(window.KVMFlowMixed?.groupMixed() ? { mixed: window.KVMFlowMixed.groupMixed() } : {}),
       },
       trigger: { ...(learnedTrigger || previous.trigger || { anchor: { vid_pid: '' }, members: [] }), debounce: { ...debounceSettings } },
       advanced: {
@@ -247,14 +264,18 @@
         }));
         return;
       }
+      if (pairingConfigStale) await reloadPairingConfig();
       const next = localConfigFromModel();
       if (computerGroupOnly) {
         next.trigger = structuredClone(sidecarConfig.trigger);
         next.advanced = structuredClone(sidecarConfig.advanced);
       }
       if ('host_label' in next) next.host_label = current().name;
+      const writtenModel = structuredClone(model);
       await S.request('config.set', { config: next });
+      appliedModel = writtenModel;
       sidecarConfig = next;
+      window.KVMFlowMixed?.setConfig(next);
       recalibrationNeedsPersist = false;
       localStorage.removeItem(computerGroupDraftKey);
       if (!computerGroupOnly && next.trigger?.anchor?.vid_pid && next.trigger?.members?.length) await S.request('usb.watch.start');
@@ -262,6 +283,100 @@
   }
 
   const redrawAll = () => { navState(); renderStatus(); renderDiagnostics(); if (!byId('guide-page').classList.contains('hidden')) renderGuide(); if (!byId('settings-page').classList.contains('hidden')) { renderComputers(); renderTimingSettings(); } };
+  // Configuration writes and LAN reloads share a queue: a settings save can
+  // never race a committed snapshot and write the pre-pairing topology back.
+  async function reloadPairingConfig() {
+    const config = await S.request('config.get');
+    if (!config && sidecarConfig?.schema_version === 2) throw new Error(t('lan.error.config.refresh'));
+    // Read drafts AFTER the await: Save may already have copied form edits
+    // into model while waiting behind this reload in the write queue.
+    const draft = structuredClone(model), baseline = appliedModel;
+    const fingerprints = [...displayFingerprints], selected = editingId;
+    const editorComputer = model.computers.find(c => c.id === selected);
+    const focused = document.activeElement?.id;
+    const fields = [...document.querySelectorAll('#computer-editor input, #computer-editor select')].map(field => {
+      const index = /^edit-(\d+)$/.exec(field.id)?.[1];
+      const original = field.id === 'edit-name' ? editorComputer?.name : field.id === 'edit-port' ? editorComputer?.port : editorComputer?.sources[index];
+      return { id: field.id, fingerprint: index == null ? null : fingerprints[index], value: field.value,
+        confirmed: field.dataset.confirmedValue, dirty: field.value !== String(original ?? '') };
+    });
+    const confirmationOpen = byId('local-input-confirmation')?.open;
+    const editorNodes = confirmationOpen ? [...byId('computer-editor').childNodes] : null;
+    if (config) applySidecarConfig(config, null);
+    if (baseline) {
+      const removed = baseline.computers.filter(c => !draft.computers.some(d => d.id === c.id) && !c.local).map(c => c.id);
+      model.computers = model.computers.filter(c => !removed.includes(c.id));
+      for (const computer of draft.computers) {
+        const before = baseline.computers.find(c => c.id === computer.id);
+        const fresh = model.computers.find(c => c.id === computer.id);
+        if (!before) { if (!fresh) model.computers.push(computer); continue; }
+        if (!fresh) continue;
+        if (computer.name !== before.name) { fresh.name = computer.name; delete fresh.nameKey; }
+        if (computer.port !== before.port) fresh.port = computer.port;
+        computer.sources.forEach((value, index) => {
+          if (value === before.sources[index]) return;
+          const nextIndex = displayFingerprints.indexOf(fingerprints[index]);
+          if (nextIndex < 0) return;
+          fresh.sources[nextIndex] = value;
+          if (fresh.local) model.localInputSources[nextIndex] = draft.localInputSources[index];
+        });
+      }
+      model.computers.sort((a, b) => a.port - b.port).forEach((c, index) => { c.port = index + 1; });
+    }
+    const preserveEditor = model.computers.some(c => c.id === selected);
+    if (preserveEditor) editingId = selected;
+    pairingConfigStale = false;
+    redrawAll();
+    // Keep live field references while the local-input consent dialog is open.
+    if (preserveEditor && editorNodes && fingerprints.join() === displayFingerprints.join()) byId('computer-editor').replaceChildren(...editorNodes);
+    for (const field of preserveEditor ? fields : []) {
+      const index = field.fingerprint ? displayFingerprints.indexOf(field.fingerprint) : null;
+      const element = byId(index == null ? field.id : `edit-${index}`);
+      if (!element) continue;
+      if (field.dirty) {
+        element.value = field.value;
+        if (field.confirmed !== undefined) element.dataset.confirmedValue = field.confirmed;
+      } else if (editorNodes && index != null) {
+        const value = model.computers.find(c => c.id === editingId)?.sources[index];
+        element.value = value == null ? '' : String(value);
+        element.dataset.confirmedValue = element.value;
+      }
+    }
+    if (preserveEditor && focused && document.activeElement?.id !== focused) byId(focused)?.focus();
+    storePrototypeModel();
+    return config;
+  }
+  window.KVMFlowPairingConfig = {
+    isTrusted: id => (sidecarConfig?.switch_group?.sync?.members || []).some(member => member.device_id === id && member.removed !== true),
+    refresh: () => {
+      pairingConfigStale = true;
+      return serializeConfigWrite(reloadPairingConfig);
+    },
+    preparePrimary: (identity) => serializeConfigWrite(async () => {
+      if (sidecarConfig?.local_device) return;
+      const self = identity?.device_id ? identity : (await S.request('lan.status'))?.self;
+      // Identity is owned by the runtime. Never use shell defaults or create
+      // a frontend device id when LAN startup could not expose the real one.
+      if (!self?.device_id) throw new Error(t('lan.error.identity'));
+      const trigger = learnedTrigger || sidecarConfig?.trigger;
+      const localComputer = current();
+      const monitors = displayFingerprints.map((fingerprint, index) => ({
+        fingerprint, label: model.displays[index], local_input: localComputer.sources[index], source: model.localInputSources?.[index],
+      }));
+      if (!validTrigger(trigger) || !monitors.length || monitors.some(m =>
+        !m.fingerprint || m.fingerprint.startsWith('local-display-') || !Number.isInteger(m.local_input)
+        || m.local_input < 0 || m.local_input > 65535 || !['learned_active_read', 'manual'].includes(m.source))) {
+        throw new Error(t('lan.error.local.setup'));
+      }
+      const config = { schema_version: 2, local_device: {
+        device_id: self.device_id, host_label: localComputer.name, monitors,
+      }, switch_group: null, trigger: structuredClone(trigger), advanced: {
+        ddc_retry: { attempts: 2, delay_ms: 100 }, usb_poll_ms: 250, arrival_correction_enabled: false,
+      } };
+      await S.request('config.set', { config });
+      applySidecarConfig(config, null);
+    }),
+  };
   const originalConfirmUsb = window.confirmUsb;
   const calibrationUi = (title, detail, buttonLabel, disabled = false) => {
     calibrationSnapshot = [title, detail, buttonLabel].map(value => window.KVMFlowI18n.describe(value));
@@ -666,8 +781,8 @@
   });
   let settingsDetectionActive = false;
   const originalNavigate = window.navigate;
-  window.navigate = (page) => {
-    originalNavigate(page);
+  window.navigate = (page, options) => {
+    originalNavigate(page, options);
     if (page !== 'settings' || model.displays.length || settingsDetectionActive || calibrationActive) return;
     settingsDetectionActive = true;
     void (async () => {
@@ -715,8 +830,15 @@
       if (await S.exportDiagnostics(payload)) log(t("diagnostics.exported"), t("diagnostics.saved.to.the.selected.location"));
     } catch (error) { log(t("export.failed"), String(error?.message || t("unable.to.export.records"))); }
   }, true);
-  S.onClientNavigate((page) => navigate(page === 'wizard' ? 'guide' : page));
+  S.onClientNavigate((target) => {
+    // "settings#mixed" opens the settings page at the mixed mode section.
+    const [page, section] = String(target).split('#');
+    navigate(page === 'wizard' ? 'guide' : page, { section });
+  });
   S.onNotification('state', (state) => {
+    state = window.KVMFlowMixed ? window.KVMFlowMixed.setState(state) : state;
+    if (!state) return;
+    window.KVMFlowPairingStateHook?.(state);
     runtimeState = state?.enabled === false ? 'disabled' : state?.state || runtimeState;
     window.__kvmflowRuntimeState = runtimeState;
     navState();
@@ -728,6 +850,7 @@
   S.onNotification('switch.report', (report) => {
     lastSwitchReport = report || null;
     window.__kvmflowLastSwitchReport = lastSwitchReport;
+    window.KVMFlowMixed?.onSwitchReport(report);
     renderStatus();
     updateFinalStepUi();
     const outcomes = Array.isArray(report?.per_monitor) ? report.per_monitor : [];
@@ -737,12 +860,16 @@
     log(ok ? t("monitor.switch.commands.sent") : t("monitor.switching.failed"), ok ? t("check.the.actual.monitor.picture") : t("check.the.monitor.input.sources.in.diagnostics"));
   });
   S.onNotification('runtime.error', (error) => {
+    if (window.KVMFlowMixed && !window.KVMFlowMixed.markError(error)) return;
     runtimeState = 'error';
     window.__kvmflowRuntimeState = runtimeState;
     navState();
     log(t("background.component.unavailable"), error?.message || t("restart.the.app.and.check.diagnostics"));
   });
   S.request('state.get').then((state) => {
+    state = window.KVMFlowMixed ? window.KVMFlowMixed.setState(state) : state;
+    if (!state) return;
+    window.KVMFlowPairingStateHook?.(state);
     runtimeState = state?.enabled === false ? 'disabled' : state?.state || runtimeState;
     lastSwitchReport = state?.lastMultiDeviceReport || state?.lastReport || null;
     window.__kvmflowLastSwitchReport = lastSwitchReport;
@@ -768,8 +895,8 @@
     const config = await S.request('config.get');
     applySidecarConfig(config, null);
     redrawAll();
-    const initialPage = S.initialPage || info.initialPage;
-    navigate(initialPage === 'wizard' ? 'guide' : initialPage);
+    const [initialPage, initialSection] = String(S.initialPage || info.initialPage).split('#');
+    navigate(initialPage === 'wizard' ? 'guide' : initialPage, { section: initialSection });
     await S.clientReady();
     // Display probes run in setup, where the user has put the physical
     // screen on this host. Loading the saved mappings needs no DDC traffic.

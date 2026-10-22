@@ -1,0 +1,88 @@
+{
+  "schema_version": 2,
+  "local_device": {
+    "device_id": "mac",
+    "host_label": "Mac",
+    "monitors": [
+      {
+        "fingerprint": "SAC-2763-S:0000000000001",
+        "local_input": 15
+      },
+      {
+        "fingerprint": "SAC-2466-S:0000000000000",
+        "local_input": 7
+      }
+    ]
+  },
+  "switch_group": {
+    "group_id": "desk",
+    "revision": 1,
+    "mixed": {
+      "enabled": false,
+      "revision": 4,
+      "assignment": [
+        {
+          "fingerprint": "SAC-2763-S:0000000000001",
+          "device_id": "mac"
+        },
+        {
+          "fingerprint": "SAC-2466-S:0000000000000",
+          "device_id": "windows"
+        }
+      ]
+    },
+    "devices": [
+      {
+        "device_id": "mac",
+        "name": "Mac",
+        "port_index": 1,
+        "monitors": [
+          {
+            "fingerprint": "SAC-2763-S:0000000000001",
+            "local_input": 15
+          },
+          {
+            "fingerprint": "SAC-2466-S:0000000000000",
+            "local_input": 7
+          }
+        ]
+      },
+      {
+        "device_id": "windows",
+        "name": "PC",
+        "port_index": 2,
+        "monitors": [
+          {
+            "fingerprint": "SAC-2763-S:0000000000001",
+            "local_input": 16
+          },
+          {
+            "fingerprint": "SAC-2466-S:0000000000000",
+            "local_input": 8
+          }
+        ]
+      }
+    ]
+  },
+  "trigger": {
+    "anchor": {
+      "vid_pid": "1a40:0101"
+    },
+    "members": [
+      {
+        "vid_pid": "3837:303c"
+      }
+    ],
+    "debounce": {
+      "t_stable_ms": 0,
+      "t_absent_ms": 0,
+      "t_cooldown_ms": 1000
+    }
+  },
+  "advanced": {
+    "ddc_retry": {
+      "attempts": 2,
+      "delay_ms": 0
+    }
+  }
+}

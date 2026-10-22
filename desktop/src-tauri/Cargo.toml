@@ -1,6 +1,6 @@
 [package]
 name = "kvmflow-desktop"
-version = "0.3.0"
+version = "0.4.0-beta.1"
 description = "KVMFlow tray client with an embedded Rust hardware runtime"
 edition = "2021"
 license = "MIT"
@@ -21,6 +21,9 @@ kvmflow-core = { path = "../../sidecar/crates/core" }
 kvmflow-sidecar = { path = "../../sidecar/crates/sidecar" }
 tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 
 [profile.release]
 lto = "thin"

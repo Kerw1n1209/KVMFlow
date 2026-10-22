@@ -1123,6 +1123,26 @@ fn fast_path_outcome(config: Value) -> (Option<Value>, Vec<Value>) {
             .unwrap()["ok"],
         true
     );
+    if config
+        .pointer("/switch_group/mixed/enabled")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        client.send(&serde_json::json!({"v":1,"id":2,"method":"mixed.assign","params":{"assignment":config["switch_group"]["mixed"]["assignment"]}}).to_string());
+        assert_eq!(
+            client
+                .wait_for(|v| v["id"] == 2, Duration::from_secs(5))
+                .unwrap()["ok"],
+            true
+        );
+        client.send(r#"{"v":1,"id":3,"method":"mixed.set","params":{"enabled":true}}"#);
+        assert_eq!(
+            client
+                .wait_for(|v| v["id"] == 3, Duration::from_secs(5))
+                .unwrap()["ok"],
+            true
+        );
+    }
     let report = client.wait_for(
         |v| v["notification"] == "switch.report" && v["data"]["phase"] == "source_fast_path",
         Duration::from_secs(6),
@@ -1137,34 +1157,27 @@ fn fast_path_outcome(config: Value) -> (Option<Value>, Vec<Value>) {
 }
 
 #[test]
-fn e2e_v2_monitor_that_does_not_follow_the_target_is_not_written() {
+fn e2e_legacy_follow_migrates_disabled_so_normal_mode_writes_all() {
     let mut config = two_monitor_source_config();
     config["switch_group"]["devices"][1]["monitors"][1]["follow"] = Value::Bool(false);
     let (report, _) = fast_path_outcome(config);
     let report = report.expect("source fast-path report");
     let per_monitor = report["data"]["per_monitor"].as_array().unwrap();
-    assert_eq!(per_monitor.len(), 1, "{report}");
-    assert_eq!(per_monitor[0]["edid_id"], "SAC-2763-S:0000000000001");
-    assert_eq!(per_monitor[0]["requested"], 16);
+    assert_eq!(per_monitor.len(), 2, "{report}");
+    assert!(per_monitor
+        .iter()
+        .any(|m| m["edid_id"] == "SAC-2763-S:0000000000001" && m["requested"] == 16));
 }
 
 #[test]
-fn e2e_v2_target_with_no_following_monitor_reports_a_skip_instead_of_a_failure() {
+fn e2e_mixed_fixed_monitors_report_a_skip_instead_of_a_failure() {
     let mut config = two_monitor_source_config();
-    for monitor in config["switch_group"]["devices"][1]["monitors"]
-        .as_array_mut()
-        .unwrap()
-    {
-        monitor["follow"] = Value::Bool(false);
-    }
+    config["switch_group"]["mixed"] = serde_json::json!({"enabled":true,"revision":1,"assignment":[{"fingerprint":"SAC-2763-S:0000000000001","device_id":"mac-work"},{"fingerprint":"SAC-2466-S:0000000000000","device_id":"windows"}]});
     let (report, events) = fast_path_outcome(config);
-    assert!(report.is_none(), "no monitor was written: {report:?}");
-    let skipped = events
+    assert!(report.is_none(), "{report:?}");
+    assert!(events
         .iter()
-        .find(|event| event["kind"] == "switch.push.skipped")
-        .unwrap_or_else(|| panic!("skip event: {events:?}"));
-    assert_eq!(skipped["fields"]["reason"], "no_following_monitors");
-    assert_eq!(skipped["fields"]["target_device_id"], "windows");
+        .any(|event| event["kind"] == "switch.push.skipped"));
 }
 
 /// A v1 config keeps switching exactly as v1 did: leaving this computer
@@ -1213,4 +1226,45 @@ fn e2e_migrated_v1_config_writes_the_v1_away_inputs() {
         .as_str()
         .unwrap()
         .contains("machine_observed_only"));
+}
+
+#[test]
+fn e2e_apply_layout_is_no_longer_a_public_jsonl_request() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("config.json");
+    let log_dir = tmp.path().join("logs");
+    let mut config = two_monitor_source_config();
+    config["switch_group"]["layouts"] = serde_json::json!([{
+        "id":"u:other", "name":"Other", "monitors":[
+            {"fingerprint":"SAC-2763-S:0000000000001","target":{"device_id":"windows"}},
+            {"fingerprint":"SAC-2466-S:0000000000000","target":{"device_id":"windows"}}
+        ]
+    }]);
+    std::fs::write(&config_path, config.to_string()).unwrap();
+    let mut client = Client::spawn(&[
+        "--backend",
+        "simulated",
+        "--scenario",
+        "manual_layout",
+        "--config",
+        config_path.to_str().unwrap(),
+        "--log-dir",
+        log_dir.to_str().unwrap(),
+    ]);
+    assert!(client
+        .wait_for(|v| v["notification"] == "ready", Duration::from_secs(5))
+        .is_some());
+    client.send(r#"{"v":1,"id":31,"method":"app.setEnabled","params":{"enabled":false}}"#);
+    assert_eq!(
+        client
+            .wait_for(|v| v["id"] == 31, Duration::from_secs(5))
+            .unwrap()["ok"],
+        true
+    );
+    client.send(r#"{"v":1,"id":32,"method":"apply_layout","params":{"layout_id":"u:other"}}"#);
+    let response = client
+        .wait_for(|v| v["id"] == 32, Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"]["code"], "E_UNKNOWN_METHOD");
 }

@@ -1,0 +1,24 @@
+{
+  "crate": "snow",
+  "version": "0.10.0",
+  "source": "https://crates.io/crates/snow/0.10.0",
+  "upstream_files_sha256": {
+    "Cargo.toml": "009db034d0fb0866cd4147340e2866aabe8c965160536b575d1e7d6dd0e721fa",
+    "src/builder.rs": "ca84b080e75f998e8c8980cb91caa3e50dc90a9335c9afc8afd790ca8f9df9c6",
+    "src/cipherstate.rs": "4f3ac734ea526ce89075d14007ce6b68fc3b8a632e11cad335b72fd041e81a36",
+    "src/constants.rs": "3cc49383d715be9711c5f05df096fb97787524f3af5c3ae9e30b16d1c56e0a90",
+    "src/error.rs": "694b8e143f8ff38da90f387c131a9b0d6595aa26042024f24d7dd1fa15fc27a1",
+    "src/handshakestate.rs": "79f4454155047140088ed284ec9f242dd603c024aacbc76eb42e5521909be859",
+    "src/lib.rs": "410b2563cdfec773d9a6b77ff5ea106f669a535b469324196f22f4f18b3fd0af",
+    "src/params/mod.rs": "3b7a36d499c7c84d22882bfc54f5ef8d0c7dd194bf686640fd022ace3ff06b10",
+    "src/params/patterns.rs": "6297fb84454ef6699edf61679be10da78f5ff31cc163e1b0c69005b14b23d9a2",
+    "src/resolvers/default.rs": "5de965e14f933d216f9a5277bb727b46b6a4ec4f0cf41c94dd7fafbd1c539bfc",
+    "src/resolvers/mod.rs": "4050150d34b543a2d576b9f20f487e6594a6e922cb82a2d0dd6f5430c23025a5",
+    "src/resolvers/ring.rs": "4c9ce8cd2568a588e363244c34fb319118b5dc548565dbe8900fe25631196299",
+    "src/stateless_transportstate.rs": "052772c0913d05805e337b7dfab3caaf12ec03b7f34bf30ae7bc767b14f5f56f",
+    "src/symmetricstate.rs": "eded608c9badd6248481bd0275c2732269d0b1eaaf3a006db6d462ea2da3bd47",
+    "src/transportstate.rs": "c95d795aee244fa72f2ac11b22fd33d4ede0f3724e55437d1509702e176f12d6",
+    "src/types.rs": "baa46313918121d73f55868fd45d614707a0f439f1cd9f479095d04f6a3368a2",
+    "src/utils.rs": "1f16b9605d0b0b5237f6a849067c465be6a6e36610851c9720710a616b4da8fb"
+  }
+}

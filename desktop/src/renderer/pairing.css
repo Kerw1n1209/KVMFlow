@@ -1,0 +1,259 @@
+/* LAN pairing: dialog, discovery cards, SAS compare, conflict choice and
+   the secondary's waiting screens. Shares the paper token set. */
+
+/* ---- pairing dialog ---- */
+#pairing-dialog {
+  width: min(452px, calc(100vw - 48px));
+  padding: 28px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  box-shadow: 0 18px 48px rgba(20, 20, 19, .16);
+}
+/* The modal container gets focus from showModal(); the default user-agent
+   ring is the browser-blue outline. Keyboard focus stays visible on the
+   controls inside instead. */
+#pairing-dialog:focus,
+#pairing-dialog:focus-visible { outline: none; }
+#pairing-dialog.pair-wide { width: min(580px, calc(100vw - 48px)); }
+#pairing-dialog::backdrop { background: rgba(0, 0, 0, .22); }
+#pairing-dialog h2 { font-size: 18px; }
+#pairing-dialog .sub { margin-top: 10px; color: var(--sub); font-size: 13px; line-height: 1.7; }
+#pairing-dialog .hint { overflow-wrap: anywhere; }
+#pairing-dialog .pair-search-hint { margin-top: 12px; }
+#pairing-dialog .confirmation-actions { gap: 10px; }
+#pairing-dialog .confirmation-actions button { white-space: nowrap; }
+
+/* Small status chips (自动推断 / 已读取 / 待读取 / 已通过). The settings page
+   scopes its own copy, so pairing needs the shared chip shape too. */
+.settings-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--surface-muted);
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* Keep keyboard focus on the interactive rows, not the dialog container. */
+.pair-peer:focus-visible,
+.pair-option:focus-visible,
+.pair-role .choice:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+.pair-link { text-decoration: none; }
+
+.sas-code {
+  margin: 22px 0 10px;
+  padding: 18px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-muted);
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: .12em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pair-flags { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.pair-flag { color: var(--muted); font-size: 12px; }
+.pair-flag.done { color: var(--sub); }
+
+.pair-spinner {
+  display: inline-block;
+  width: 22px; height: 22px;
+  margin: 18px 0 6px;
+  border: 2px solid var(--line);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: pair-spin 1s linear infinite;
+}
+@keyframes pair-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pair-spinner { animation: none; } }
+
+.pair-peer-list {
+  display: grid;
+  gap: 0;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.pair-peer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+.pair-peer:last-child { border-bottom: 0; }
+.pair-peer:hover { background: var(--surface-muted); }
+.pair-peer.selected { background: var(--surface-muted); }
+.pair-peer:disabled { cursor: not-allowed; opacity: .55; }
+.pair-peer-copy { display: grid; gap: 3px; min-width: 0; }
+.pair-peer-copy strong { font-weight: 500; overflow-wrap: anywhere; }
+.pair-peer-copy .hint { text-align: left; }
+.pair-empty { padding: 22px 14px; text-align: center; }
+
+.pair-error { margin-top: 14px; padding: 12px 14px; border-radius: 3px; background: var(--surface-muted); color: var(--sub); line-height: 1.7; overflow-wrap: anywhere; }
+
+/* ---- mixed conflict choice ---- */
+.pair-conflict { display: grid; gap: 12px; margin-top: 18px; }
+.pair-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-raised);
+  cursor: pointer;
+}
+.pair-option.selected { border: 2px solid var(--ink); padding: 13px 15px; }
+.pair-option-copy { display: grid; gap: 4px; min-width: 0; }
+.pair-option-copy .hint { text-align: left; }
+.pair-mini-row { display: flex; align-items: flex-end; gap: 12px; flex: 0 0 auto; }
+.pair-mini { display: grid; justify-items: center; gap: 4px; }
+.pair-mini-screen {
+  display: grid;
+  place-items: center;
+  width: 92px; height: 52px;
+  padding: 4px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.pair-mini-label { color: var(--sub); font-size: 11px; }
+.pair-pending { margin-top: 14px; padding: 10px 14px; border-radius: 3px; background: var(--surface-muted); color: var(--sub); font-size: 13px; line-height: 1.7; }
+
+/* ---- wizard: discovery cards ---- */
+.pair-entry { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.pair-entry .hint { line-height: 1.5; }
+.pair-entry-sep { margin: 0 0 20px; }
+.pair-cards { display: grid; gap: 12px; margin-top: 24px; }
+.pair-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface-raised);
+}
+.pair-card.selected { border: 2px solid var(--ink); padding: 17px 19px; }
+.pair-card.empty { border-style: dashed; color: var(--muted); }
+.pair-card > div { display: grid; gap: 4px; min-width: 0; }
+.pair-card strong { font-weight: 500; }
+.pair-card .hint { text-align: left; }
+.pair-search-hint { margin-top: 14px; }
+.pair-manual { margin: 0; font-size: 13px; }
+.pair-manual .link { min-height: 28px; padding: 2px 6px; font-size: 13px; text-decoration: none; }
+.pair-footer-actions { display: flex; align-items: center; gap: 12px; }
+.wizard-footer .pair-manual { flex: 1 1 auto; min-width: 0; }
+
+/* ---- wizard shells ---- */
+.wizard.pair-wizard { margin-top: 0; padding-top: 12px; padding-bottom: 20px; }
+.pair-wizard .wizard-footer { margin-top: 24px; }
+.pair-nowrap { white-space: nowrap; }
+
+/* ---- wizard: primary confirmation ---- */
+.pair-head + .field { margin-top: 32px; }
+.pair-port { margin-top: 14px; }
+.pair-mixed-later { margin-top: 16px; }
+.pair-monitors { display: grid; gap: 12px; margin-top: 16px; }
+.pair-monitor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 60px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-raised);
+}
+.pair-monitor.pending { border-style: solid; }
+.pair-monitor-copy { display: grid; gap: 4px; min-width: 0; }
+.pair-monitor-copy .hint { text-align: left; margin: 0; }
+.pair-monitor .settings-tag { flex: 0 0 auto; }
+
+/* ---- wizard: 试一下 ---- */
+.pair-tests { display: grid; gap: 12px; margin-top: 24px; }
+.pair-test {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 118px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-raised);
+}
+.pair-test.ok { border-color: var(--line-strong); }
+.pair-test.bad { border-color: var(--ink); }
+.pair-test .settings-tag { flex: 0 0 auto; }
+.pair-failure { margin-top: 16px; padding: 12px 16px; border-radius: 3px; background: var(--surface-muted); color: var(--sub); font-size: 13px; line-height: 1.7; }
+
+/* ---- wizard: secondary role choice ---- */
+.pair-role .choice { padding: 16px 18px; }
+.pair-role .choice.selected { padding: 15px 17px; border: 2px solid var(--ink); }
+.pair-role .choice-title { font-size: 14px; }
+.pair-role .choice-copy { margin-top: 6px; line-height: 1.6; }
+
+/* ---- wizard: secondary waiting ---- */
+.pair-self { margin-top: 14px; }
+.sas-panel {
+  margin-top: 22px;
+  padding: 22px 20px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-raised);
+  text-align: center;
+}
+.sas-panel > p { margin: 0 0 6px; color: var(--sub); }
+.sas-panel .sas-code { background: var(--surface); margin-top: 12px; }
+.pair-waiting {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 22px 20px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-raised);
+}
+.pair-waiting .pair-spinner { margin: 0; }
+.pair-waiting p { margin: 4px 0 0; }
+.pair-notice { margin-top: 20px; padding: 13px 16px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-raised); color: var(--sub); line-height: 1.7; overflow-wrap: anywhere; }
+
+@media (max-width: 680px) {
+  .pair-card, .pair-option { flex-direction: column; align-items: flex-start; }
+  .pair-mini-row { align-self: flex-start; }
+  .pair-peer-copy .hint { max-width: 100%; }
+}
+
+/* Additional protocol choices use the existing pairing card geometry. */
+.pair-choice-section { margin-top: 18px; }
+.pair-choice-section > .hint { margin-top: 10px; }
+.pair-choice-identity { margin-top: 12px; cursor: default; overflow-wrap: anywhere; }
+.pair-choice-identity > span { min-width: 0; }

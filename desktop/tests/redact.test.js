@@ -89,3 +89,67 @@ test('empty and unusual values do not break redaction', () => {
   assert.equal(result.config, null);
   assert.equal(result.sidecar.events[0].fields.serial, '');
 });
+
+test('lan state is included and redacted without any private key material', () => {
+  const redact = load();
+  // Mirrors diagnostics.collect's `lan` section (sidecar lan.status) plus
+  // the config's `lan` block. The Noise private key lives in
+  // lan/identity.key (or DPAPI) and is never part of any diagnostics
+  // payload; only the key fingerprint (a 4-byte hash) appears.
+  const payload = () => ({
+    sidecar: {
+      lan: {
+        enabled: true,
+        listen_port: 47820,
+        self: { device_id: 'dev-ABC234DEF', key_fp: '1f22c9e5' },
+        peers: [{ device_id: 'dev-XYZ987HIJ', name: 'Elliott的MacBook', online: true, addr: '192.168.1.23:47820', key_fp: '0a0b0c0d' }],
+        issues: [
+          { code: 'E_LAN_NOT_MEMBER', message: 'Elliott的MacBook 连接未授权' },
+          { code: 'E_LAN_IO', message: 'dial 192.168.1.23:47820 and 10.0.0.7 failed' },
+        ],
+        sync: { 'dev-XYZ987HIJ': { status: 'synced' } },
+      },
+    },
+    config: {
+      local_device: { device_id: 'dev-ABC234DEF', host_label: 'Elliott的MacBook' },
+      lan: { enabled: true, listen_port: 47820, public_key: 'd3adbeefcafebabe0123456789abcdef' },
+      switch_group: { sync: { members: [
+        { device_id: 'dev-ABC234DEF', public_key: 'aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899', removed: false },
+      ] } },
+    },
+  });
+  const result = redact(payload(), { computerName: 'Elliott的MacBook' });
+  const text = JSON.stringify(result);
+  // LAN status stays diagnosable: ports, device IDs, short fingerprints.
+  assert.equal(result.sidecar.lan.enabled, true);
+  assert.equal(result.sidecar.lan.listen_port, 47820);
+  assert.equal(result.sidecar.lan.peers[0].online, true);
+  assert.equal(result.sidecar.lan.self.key_fp, '1f22c9e5');
+  assert.equal(result.sidecar.lan.peers[0].device_id, 'dev-XYZ987HIJ');
+  // LAN addresses (IPs) are replaced with stable placeholders (P2-7), and
+  // bare private IPs embedded in free text (messages, events) map to the
+  // same placeholder as the full address (P3).
+  assert.match(result.sidecar.lan.peers[0].addr, /^lan-addr-\d+$/);
+  assert.equal(text.includes('192.168.1.23'), false);
+  // Full public pins become 8-hex fingerprints; short fingerprint fields
+  // stay as they are.
+  assert.equal(result.config.lan.public_key, 'fp:d3adbeef');
+  assert.equal(
+    result.config.switch_group.sync.members[0].public_key,
+    'fp:aabbccdd',
+    'member pins are fingerprinted'
+  );
+  // Personal names are replaced everywhere, including lan issues.
+  assert.equal(text.includes('Elliott'), false);
+  assert.equal(result.sidecar.lan.peers[0].name, 'Computer 1');
+  assert.match(result.sidecar.lan.issues[0].message, /^Computer 1 /);
+  // The bare IPs in the second message are gone; the one matching the peer
+  // address reuses its placeholder, the other gets a stable lan-ip-N.
+  const ioMessage = result.sidecar.lan.issues[1].message;
+  assert.equal(ioMessage.includes('192.168.1.23'), false, ioMessage);
+  assert.equal(ioMessage.includes('10.0.0.7'), false, ioMessage);
+  assert.match(ioMessage, /lan-(addr|ip)-\d+/);
+  // No private-key material of any shape appears: the payload never
+  // contains the identity file's contents (header + 32 raw bytes).
+  assert.equal(text.includes('KVMFLOW-LAN-KEY'), false);
+});

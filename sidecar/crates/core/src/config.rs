@@ -28,6 +28,13 @@ pub struct Config {
 /// device inputs needed by the source-side fast path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MultiDeviceConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lan: Option<LanConfig>,
+    /// Secondary setup mode (§6.1): this machine skipped local
+    /// initialization and waits for the primary's pairing. Persisted so the
+    /// pending-input polling and trigger adoption survive a restart.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub setup_secondary: bool,
     pub schema_version: u32,
     pub local_device: LocalDeviceProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -35,6 +42,23 @@ pub struct MultiDeviceConfig {
     pub trigger: TriggerConfig,
     #[serde(default)]
     pub advanced: AdvancedConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LanConfig {
+    pub enabled: bool,
+    pub listen_port: u16,
+    pub public_key: String,
+}
+impl Default for LanConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            listen_port: 47820,
+            public_key: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -102,7 +126,12 @@ impl ConfigDocument {
                     CoreError::new(E_CONFIG_INVALID, format!("schema v1 config parse: {error}"))
                 }),
             MULTI_DEVICE_SCHEMA_VERSION => serde_json::from_value::<MultiDeviceConfig>(value)
-                .map(Self::MultiDeviceV2)
+                .map(|mut config| {
+                    if let Some(group) = &mut config.switch_group {
+                        group.migrate_mixed();
+                    }
+                    Self::MultiDeviceV2(config)
+                })
                 .map_err(|error| {
                     CoreError::new(E_CONFIG_INVALID, format!("schema v2 config parse: {error}"))
                 }),
@@ -142,11 +171,17 @@ impl MultiDeviceConfig {
     /// values; anything else falls back to [`MultiDeviceConfig::from_legacy`].
     pub fn migrate_legacy(config: Config) -> LegacyMigration {
         let armed = config.validate().is_ok() && config.armed_ready();
-        let group = SwitchGroupSnapshot {
+        let mut group = SwitchGroupSnapshot {
+            sync: serde_json::Value::Null,
+            mixed: None,
+            layouts: Vec::new(),
             group_id: "legacy-switch-group".into(),
             revision: 1,
             devices: vec![
                 GroupDevice {
+                    profile_rev: 0,
+                    available_builtin_screens: None,
+                    arrival_layout_id: None,
                     device_id: LEGACY_LOCAL_DEVICE_ID.into(),
                     name: config.host_label.clone(),
                     port_index: 1,
@@ -154,6 +189,7 @@ impl MultiDeviceConfig {
                         .monitors
                         .iter()
                         .map(|monitor| MonitorInput {
+                            local_fingerprint: None,
                             fingerprint: monitor.edid_id.clone(),
                             label: monitor.label.clone(),
                             local_input: monitor.here_input,
@@ -162,6 +198,9 @@ impl MultiDeviceConfig {
                         .collect(),
                 },
                 GroupDevice {
+                    profile_rev: 0,
+                    available_builtin_screens: None,
+                    arrival_layout_id: None,
                     device_id: LEGACY_REMOTE_DEVICE_ID.into(),
                     name: String::new(),
                     port_index: 2,
@@ -169,6 +208,7 @@ impl MultiDeviceConfig {
                         .monitors
                         .iter()
                         .map(|monitor| MonitorInput {
+                            local_fingerprint: None,
                             fingerprint: monitor.edid_id.clone(),
                             label: monitor.label.clone(),
                             local_input: monitor.away_input,
@@ -178,6 +218,7 @@ impl MultiDeviceConfig {
                 },
             ],
         };
+        group.migrate_mixed();
         let fallback = Self::from_legacy(config);
         let mut migrated = fallback.clone();
         migrated.switch_group = Some(group);
@@ -195,6 +236,8 @@ impl MultiDeviceConfig {
     /// device. It remains an explicitly legacy, local-only preset.
     pub fn from_legacy(config: Config) -> Self {
         Self {
+            lan: None,
+            setup_secondary: false,
             schema_version: MULTI_DEVICE_SCHEMA_VERSION,
             local_device: LocalDeviceProfile {
                 device_id: LEGACY_LOCAL_DEVICE_ID.into(),
@@ -265,7 +308,7 @@ impl MultiDeviceConfig {
                 let group_fingerprints: std::collections::BTreeSet<&str> = device
                     .monitors
                     .iter()
-                    .map(|monitor| monitor.fingerprint.as_str())
+                    .map(|monitor| monitor.backend_fingerprint())
                     .collect();
                 if local_fingerprints != group_fingerprints {
                     problems.push(
@@ -276,7 +319,7 @@ impl MultiDeviceConfig {
                     match device
                         .monitors
                         .iter()
-                        .find(|entry| entry.fingerprint == monitor.fingerprint)
+                        .find(|entry| entry.backend_fingerprint() == monitor.fingerprint)
                     {
                         Some(entry) if entry.local_input == monitor.local_input => {}
                         Some(_) => problems.push(format!(
@@ -306,7 +349,25 @@ impl MultiDeviceConfig {
     }
 
     pub fn ready_for_group_switch(&self) -> bool {
-        self.validate().is_ok() && self.switch_group.is_some() && self.has_valid_trigger()
+        self.validate().is_ok()
+            && self.switch_group.as_ref().is_some_and(|g| {
+                g.sync.get("ports_confirmed").and_then(Value::as_bool) != Some(false)
+            })
+            && self.has_valid_trigger()
+    }
+
+    /// Resolve a group fingerprint in the local owner's profile before DDC IO.
+    pub fn backend_fingerprint<'a>(&'a self, fingerprint: &'a str) -> &'a str {
+        self.switch_group
+            .as_ref()
+            .and_then(|g| {
+                g.devices
+                    .iter()
+                    .find(|d| d.device_id == self.local_device.device_id)
+            })
+            .and_then(|d| d.monitors.iter().find(|m| m.fingerprint == fingerprint))
+            .map(|m| m.backend_fingerprint())
+            .unwrap_or(fingerprint)
     }
 
     pub fn has_valid_trigger(&self) -> bool {
@@ -815,21 +876,29 @@ mod tests {
 
         let mut v2 = MultiDeviceConfig::from_legacy(valid());
         v2.switch_group = Some(SwitchGroupSnapshot {
+            sync: serde_json::Value::Null,
+            mixed: None,
+            layouts: Vec::new(),
             group_id: "desk".into(),
             revision: 1,
             devices: vec![
                 GroupDevice {
+                    profile_rev: 0,
+                    available_builtin_screens: None,
+                    arrival_layout_id: None,
                     device_id: "legacy-local".into(),
                     name: "工作 Mac".into(),
                     port_index: 1,
                     monitors: vec![
                         MonitorInput {
+                            local_fingerprint: None,
                             fingerprint: "SAC-2763-S:0000000000001".into(),
                             label: "G73".into(),
                             local_input: 15,
                             follow: true,
                         },
                         MonitorInput {
+                            local_fingerprint: None,
                             fingerprint: "SECOND".into(),
                             label: "第二台显示器".into(),
                             local_input: 17,
@@ -838,17 +907,22 @@ mod tests {
                     ],
                 },
                 GroupDevice {
+                    profile_rev: 0,
+                    available_builtin_screens: None,
+                    arrival_layout_id: None,
                     device_id: "windows".into(),
                     name: "Windows".into(),
                     port_index: 2,
                     monitors: vec![
                         MonitorInput {
+                            local_fingerprint: None,
                             fingerprint: "SAC-2763-S:0000000000001".into(),
                             label: "G73".into(),
                             local_input: 16,
                             follow: true,
                         },
                         MonitorInput {
+                            local_fingerprint: None,
                             fingerprint: "SECOND".into(),
                             label: "第二台显示器".into(),
                             local_input: 18,

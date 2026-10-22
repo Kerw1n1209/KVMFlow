@@ -58,6 +58,19 @@ impl Locale {
             .map(str::to_string)
     }
 
+    pub fn receive_beta(&self) -> bool {
+        self.saved.lock().unwrap()["receiveBeta"] == true
+    }
+
+    pub fn save_receive_beta(&self, enabled: bool) -> Result<(), String> {
+        let mut saved = self.saved.lock().unwrap();
+        let mut next = saved.clone();
+        next["receiveBeta"] = json!(enabled);
+        crate::paths::write_atomic(&self.path, &serde_json::to_vec_pretty(&next).unwrap())?;
+        *saved = next;
+        Ok(())
+    }
+
     pub fn text(&self, key: &str) -> String {
         let saved = self.saved.lock().unwrap();
         // The WebView supplies the OS language even when the window is hidden.
@@ -66,6 +79,21 @@ impl Locale {
             saved["systemLocale"].as_str().unwrap_or("en"),
         );
         translate(locale, key)
+    }
+
+    /// Native-only recovery messages; the renderer catalog is maintained by T4.
+    pub fn display_restore_error(&self, updating: bool) -> &'static str {
+        let saved = self.saved.lock().unwrap();
+        let chinese = resolve(
+            saved["language"].as_str().unwrap_or("auto"),
+            saved["systemLocale"].as_str().unwrap_or("en"),
+        ) == "zh-CN";
+        match (chinese, updating) {
+            (true, true) => "显示器恢复失败或超时，已取消更新。请检查显示器后重试。",
+            (true, false) => "显示器恢复失败或超时，已取消退出，KVMFlow 仍在运行。请检查显示器后重试退出。",
+            (false, true) => "Display restoration failed or timed out. Update cancelled; check your displays and retry.",
+            (false, false) => "Display restoration failed or timed out. Exit cancelled; KVMFlow is still running. Check your displays and retry Quit.",
+        }
     }
 
     pub fn error_text(&self, message: &str) -> String {
@@ -105,6 +133,32 @@ impl Locale {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn beta_is_opt_in_and_survives_restart_without_changing_language() {
+        let dir = tempfile::tempdir().unwrap();
+        let locale = Locale::load(dir.path());
+        assert!(!locale.receive_beta());
+        locale.save("en", "en-US").unwrap();
+        locale.save_receive_beta(true).unwrap();
+        let restored = Locale::load(dir.path());
+        assert!(restored.receive_beta());
+        assert_eq!(restored.preference().as_deref(), Some("en"));
+        restored.save("zh-CN", "en-US").unwrap();
+        assert!(Locale::load(dir.path()).receive_beta());
+        restored.save_receive_beta(false).unwrap();
+        assert!(!Locale::load(dir.path()).receive_beta());
+        assert_eq!(restored.preference().as_deref(), Some("zh-CN"));
+    }
+
+    #[test]
+    fn failed_beta_save_does_not_change_the_active_preference() {
+        let dir = tempfile::tempdir().unwrap();
+        let locale = Locale::load(dir.path());
+        std::fs::create_dir(dir.path().join("ui-preferences.json")).unwrap();
+        assert!(locale.save_receive_beta(true).is_err());
+        assert!(!locale.receive_beta());
+    }
 
     #[test]
     fn system_and_explicit_languages_resolve_consistently() {

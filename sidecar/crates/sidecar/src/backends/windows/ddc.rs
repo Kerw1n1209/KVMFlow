@@ -244,6 +244,35 @@ fn enumerate() -> Vec<WinDisplay> {
     out
 }
 
+/// GDI device name (`\\.\DISPLAY1`) -> fingerprint for every attached
+/// monitor, for the topology adapter. Shares `enumerate` (and so replaces the
+/// enumeration diagnostics, like any refresh).
+pub(super) fn gdi_fingerprints() -> Vec<(String, String)> {
+    enumerate()
+        .into_iter()
+        .map(|d| (d.device_name, d.edid_id))
+        .collect()
+}
+
+/// Confirm restored displays have an openable physical DDC handle, not just
+/// a registry/GDI entry. Opening/closing a handle does not send a VCP command.
+pub(super) fn ready_fingerprints(wanted: &[String]) -> Vec<String> {
+    let backend = WindowsDdcBackend::new();
+    enumerate()
+        .into_iter()
+        .filter_map(|display| {
+            if !wanted.contains(&display.edid_id) {
+                return None;
+            }
+            let handle = backend.physical_handle(&display.device_name).ok()?;
+            unsafe {
+                let _ = DestroyPhysicalMonitor(handle);
+            }
+            Some(display.edid_id)
+        })
+        .collect()
+}
+
 /// EDID resolution: registry candidate walk + sibling scan, all path logic
 /// in the pure (cross-testable) edid_registry module.
 fn resolve_identity(device_id: &str, used: &mut Vec<[u8; 128]>) -> Result<EdidIdentity, String> {

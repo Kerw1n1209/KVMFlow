@@ -5,6 +5,28 @@ use super::*;
 impl Runtime {
     pub(crate) fn handle_request(&mut self, req: kvmflow_core::protocol::RequestLine) -> bool {
         let id = req.id;
+        if self.released_topology.is_some()
+            && !matches!(
+                req.method.as_str(),
+                "hello"
+                    | "state.get"
+                    | "config.get"
+                    | "backend.status"
+                    | "protocol.describe"
+                    | "shutdown"
+            )
+        {
+            self.respond(ResponseLine::err(
+                id,
+                E_BACKEND,
+                "displays released for exit/update; resume before changing runtime state",
+            ));
+            return true;
+        }
+        if req.method.starts_with("lan.") {
+            self.handle_lan_request(id, &req.method, req.params);
+            return true;
+        }
         match req.method.as_str() {
             "hello" => {
                 let result = json!({
@@ -41,7 +63,82 @@ impl Runtime {
                 self.respond(ResponseLine::ok(id, self.active_config_value()));
             }
             "config.set" => {
-                let cfg_value = req.params.get("config").cloned().unwrap_or(Value::Null);
+                let mut cfg_value = req.params.get("config").cloned().unwrap_or(Value::Null);
+                // Internal convergence registers are never an external settings
+                // surface. Reject injection and restore live values on UI saves.
+                if let Some(sync) = cfg_value
+                    .pointer("/switch_group/sync")
+                    .and_then(Value::as_object)
+                {
+                    if sync.contains_key("profile_cache") || sync.contains_key("archived_arrivals")
+                    {
+                        self.respond(ResponseLine::err(
+                            id,
+                            kvmflow_core::errors::E_NOT_OWNER,
+                            "sync caches are internal fields",
+                        ));
+                        return true;
+                    }
+                }
+                if let Some(current) = self.config.as_ref().and_then(|c| c.switch_group.as_ref()) {
+                    if cfg_value
+                        .pointer("/switch_group/group_id")
+                        .and_then(Value::as_str)
+                        == Some(&current.group_id)
+                    {
+                        if let Some(group) = cfg_value
+                            .get_mut("switch_group")
+                            .and_then(Value::as_object_mut)
+                        {
+                            // A settings save never edits LAN trust or internal
+                            // convergence registers: restore members and caches
+                            // from the live snapshot when the caller omitted them.
+                            let live = current.group_sync();
+                            let sync = group.entry("sync").or_insert_with(|| json!({}));
+                            if !sync.is_object() {
+                                *sync = json!({});
+                            }
+                            if let Some(sync) = sync.as_object_mut() {
+                                for key in ["profile_cache", "archived_arrivals"] {
+                                    if let Some(saved) = current.sync.get(key) {
+                                        sync.insert(key.into(), saved.clone());
+                                    }
+                                }
+                                // Trust is never edited through settings:
+                                // ALWAYS overwrite with the live pins, even
+                                // when the supplied id list matches — a save
+                                // with unchanged ids could otherwise swap a
+                                // public key or lift a tombstone (P2-3).
+                                sync.insert(
+                                    "members".into(),
+                                    serde_json::to_value(&live.members).unwrap_or(json!([])),
+                                );
+                            }
+                        }
+                    }
+                }
+                // Generic settings writes never own the mixed section. Merge
+                // before deserialization so absence cannot trigger migration.
+                if let Some(current) = self
+                    .config
+                    .as_ref()
+                    .and_then(|c| c.switch_group.as_ref())
+                    .and_then(|g| g.mixed.as_ref())
+                {
+                    if let Some(group) = cfg_value
+                        .get_mut("switch_group")
+                        .and_then(Value::as_object_mut)
+                    {
+                        group.insert("mixed".into(), serde_json::to_value(current).unwrap());
+                    }
+                } else if let Some(group) = cfg_value
+                    .get_mut("switch_group")
+                    .and_then(Value::as_object_mut)
+                {
+                    // Bootstrap also uses migration defaults. A settings save
+                    // cannot arm mixed mode or import a caller-chosen revision.
+                    group.remove("mixed");
+                }
                 match ConfigDocument::from_value(cfg_value) {
                     Ok(ConfigDocument::LegacyV1(cfg)) => {
                         if let Err(error) = cfg.validate() {
@@ -241,12 +338,7 @@ impl Runtime {
                     .get("enabled")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true);
-                self.enabled = enabled;
-                if !enabled {
-                    self.bounce_watch = None;
-                }
-                let actions = self.fsm.handle(Input::SetDisabled(!enabled), now_ms());
-                self.run_actions(actions);
+                self.set_runtime_enabled(enabled);
                 self.respond(ResponseLine::ok(
                     id,
                     json!({"state": self.fsm.state(), "enabled": enabled}),
@@ -274,12 +366,23 @@ impl Runtime {
                 let c = self.last_candidates.clone().unwrap_or(Value::Null);
                 self.respond(ResponseLine::ok(id, c));
             }
+            "mixed.set" | "mixed.assign" => {
+                self.handle_mixed_request(id, &req.method, &req.params);
+                // A local mixed edit is a section change: broadcast the new
+                // snapshot so peers align (S8). The reply was already sent;
+                // this only fans out over LAN.
+                self.lan_config_changed();
+            }
             "state.get" => {
                 let result = json!({
                     "state": self.fsm.state(),
+                    "lan": self.lan_state(),
+                    "mixed": self.mixed_state(),
                     "groupPresent": self.tracker.as_ref().map(|t| t.group_present()).unwrap_or(false),
                     "groupStable": self.tracker.as_ref().map(|t| t.group_stable()).unwrap_or(false),
                     "lastMultiDeviceReport": self.last_multi_device_report,
+                    "lastLayoutApplication": self.last_layout_application,
+                    "effectiveLayouts": self.effective_layouts_value(),
                     "monitors": self.active_monitor_count(),
                     "configMode": self.config_mode(),
                     "groupReady": self.config.as_ref().map(|c| c.ready_for_group_switch()).unwrap_or(false),
@@ -304,6 +407,7 @@ impl Runtime {
                     "backend": self.backend.name(),
                     "simulated": self.backend.simulated(),
                     "config": self.active_config_value(),
+                    "lan": self.lan_state(),
                     "config_mode": self.config_mode(),
                     "events": events,
                 });

@@ -8,4 +8,5 @@
 //! USB: SetupAPI device-interface enumeration polled into snapshots.
 
 pub mod ddc;
+pub mod topology;
 pub mod usb;

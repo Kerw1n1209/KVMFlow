@@ -20,10 +20,15 @@ pub mod config;
 pub mod debounce;
 pub mod errors;
 pub mod events;
+pub mod identity;
+pub mod layouts;
+pub mod mixed;
 pub mod multidevice;
+pub mod pairing;
 pub mod protocol;
 pub mod retry;
 pub mod statemachine;
+pub mod sync;
 pub mod transaction;
 
 /// Single rule for building the stable cross-platform display identity

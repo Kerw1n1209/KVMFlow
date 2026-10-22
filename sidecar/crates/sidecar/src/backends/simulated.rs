@@ -32,6 +32,7 @@ struct SimMonitor {
 }
 
 pub struct SimulatedBackend {
+    topology: Option<crate::topology::SimulationTopologyLink>,
     monitors: Vec<SimMonitor>,
     #[allow(dead_code)]
     scenario: String,
@@ -78,6 +79,7 @@ impl SimulatedBackend {
             0
         };
         Self {
+            topology: None,
             monitors: vec![
                 SimMonitor {
                     edid_id: G73,
@@ -94,7 +96,7 @@ impl SimulatedBackend {
                     label: "G52plus",
                     here_input: 7,
                     away_input: 8,
-                    current: 7,
+                    current: if scenario == "manual_layout" { 8 } else { 7 },
                     fail_writes: fail_g52,
                     bounces_left: g52_bounces,
                     bounce_pending: false,
@@ -104,6 +106,27 @@ impl SimulatedBackend {
         }
     }
 
+    pub fn link_topology(&mut self, link: Option<crate::topology::SimulationTopologyLink>) {
+        self.topology = link;
+    }
+    fn require_connected(&self, fp: &str) -> Result<(), CoreError> {
+        if let Some(link) = &self.topology {
+            if !link
+                .displays
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|d| d.fingerprint == fp && d.connected)
+                || !link.enumerated.lock().unwrap().contains(fp)
+            {
+                return Err(CoreError::new(
+                    "E_TOPOLOGY_NOT_CONNECTED",
+                    "Simulated DDC requires an attached and enumerated display",
+                ));
+            }
+        }
+        Ok(())
+    }
     fn find_mut(&mut self, edid_id: &str) -> Result<&mut SimMonitor, CoreError> {
         self.monitors
             .iter_mut()
@@ -157,6 +180,7 @@ impl Backend for SimulatedBackend {
     }
 
     fn read_input(&mut self, edid_id: &str) -> Result<VcpRead, CoreError> {
+        self.require_connected(edid_id)?;
         let m = self.find_mut(edid_id)?;
         if m.bounce_pending {
             m.bounce_pending = false;
@@ -177,6 +201,24 @@ impl Backend for SimulatedBackend {
     }
 
     fn write_input(&mut self, edid_id: &str, value: u16) -> Result<VcpWriteOutcome, CoreError> {
+        self.require_connected(edid_id)?;
+        let link = self.topology.clone();
+        if let Some(link) = &link {
+            let mut failures = link.ddc_failures.lock().unwrap();
+            if let Some(n) = failures.get_mut(edid_id) {
+                if *n > 0 {
+                    *n -= 1;
+                    link.operations
+                        .lock()
+                        .unwrap()
+                        .push(format!("ddc_failed:{edid_id}:{value}"));
+                    return Err(CoreError::new(
+                        E_DDC_FAILED,
+                        "Injected transient DDC failure",
+                    ));
+                }
+            }
+        }
         let m = self.find_mut(edid_id)?;
         if m.fail_writes {
             return Err(CoreError::new(
@@ -196,6 +238,12 @@ impl Backend for SimulatedBackend {
             m.bounces_left -= 1;
             m.bounce_pending = true;
         }
+        if let Some(link) = link {
+            link.operations
+                .lock()
+                .unwrap()
+                .push(format!("ddc_push:{edid_id}:{value}"));
+        }
         Ok(VcpWriteOutcome {
             commanded: true,
             previous: Some(previous),
@@ -210,7 +258,7 @@ impl Backend for SimulatedBackend {
 /// used together with a test config that shrinks the debounce.
 pub fn scenario_steps(scenario: &str) -> Vec<ScenarioStep> {
     match scenario {
-        "idle" => vec![ScenarioStep {
+        "idle" | "manual_layout" => vec![ScenarioStep {
             delay_ms: 0,
             devices: switch_group(),
         }],
@@ -449,4 +497,44 @@ fn parse_rfc3339_ms(s: &str) -> Option<u64> {
         .take(3)
         .fold(0, |acc, c| acc * 10 + c.to_digit(10).unwrap_or(0) as u64);
     Some(secs * 1000 + millis)
+}
+
+#[cfg(test)]
+mod topology_contract_tests {
+    use super::*;
+    use crate::topology::{DisplayTopology, FakeDisplayTopology};
+    use kvmflow_core::mixed::TopologyDisplay;
+    #[test]
+    fn ddc_requires_attached_and_enumerated_topology_and_records_actual_value() {
+        let mut topology = FakeDisplayTopology::new(vec![TopologyDisplay {
+            fingerprint: G73.into(),
+            builtin: false,
+            connected: true,
+        }]);
+        let mut backend = SimulatedBackend::new("idle");
+        backend.link_topology(topology.simulation_link());
+        topology.detach(G73).unwrap();
+        assert_eq!(
+            backend.write_input(G73, 16).unwrap_err().code,
+            "E_TOPOLOGY_NOT_CONNECTED"
+        );
+        topology.attach(G73).unwrap();
+        assert_eq!(
+            backend.write_input(G73, 16).unwrap_err().code,
+            "E_TOPOLOGY_NOT_CONNECTED"
+        );
+        topology.wait_enumeration().unwrap();
+        let result = backend.write_input(G73, 16).unwrap();
+        assert!(result.commanded);
+        assert_eq!(result.evidence["wrote"], 16);
+        assert_eq!(
+            *topology.operations.lock().unwrap(),
+            vec![
+                format!("detach:{G73}"),
+                format!("attach:{G73}"),
+                "wait_enumeration".into(),
+                format!("ddc_push:{G73}:16")
+            ]
+        );
+    }
 }

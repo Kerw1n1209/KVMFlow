@@ -2,5 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- LAN channel (S9): local network discovery and pairing between the
+	     user's own computers on the same LAN. Required by macOS 15+ even for
+	     non-sandboxed apps; without it mDNS browsing is silently blocked. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>KVMFlow 使用本地网络发现并连接同一局域网中的其他 KVMFlow 电脑，以便同步切换组设置和混屏指令。你的键盘、鼠标和画面数据不会被发送到局域网之外。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_kvmflow._tcp</string>
+	</array>
 </dict>
 </plist>

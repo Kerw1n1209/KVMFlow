@@ -36,17 +36,44 @@ pub const REQUEST_METHODS: &[&str] = &[
     "wizard.end",
     "wizard.candidates",
     "state.get",
+    "mixed.set",
+    "mixed.assign",
     "diagnostics.collect",
+    "lan.status",
+    "lan.peers",
+    "lan.discover.start",
+    "lan.discover.stop",
+    "lan.connect.manual",
+    "lan.pair.start",
+    "lan.pair.confirm",
+    "lan.pair.resolve",
+    "lan.pair.cancel",
+    "lan.pair.window",
+    "lan.unpair",
+    "lan.setup.secondary",
+    "lan.profile.refresh",
+    "lan.test.start",
+    "lan.test.stop",
     "shutdown",
 ];
 
 /// The complete notification catalog (single copy).
 pub const NOTIFICATION_KINDS: &[&str] = &[
+    "lan.peers",
+    "lan.pair",
+    "lan.sync",
+    "lan.profile",
+    "lan.setup",
+    "lan.test",
     "ready",
     "event",
     "state",
     "trigger",
     "switch.report",
+    "layout.report",
+    "mixed.changed",
+    "mixed.pending_remote",
+    "mixed.warning",
     "wizard.candidates",
     "log",
 ];
@@ -191,6 +218,18 @@ mod tests {
         assert_eq!(r.method, "display.list");
         assert_eq!(r.id, 7);
         assert!(r.params.is_null());
+    }
+
+    #[test]
+    fn mixed_requests_replace_manual_layout_in_the_shared_catalog() {
+        let request =
+            parse_client_line(r#"{"v":1,"id":21,"method":"mixed.set","params":{"enabled":true}}"#)
+                .unwrap()
+                .unwrap();
+        assert_eq!(request.params["enabled"], true);
+        assert!(!REQUEST_METHODS.contains(&"apply_layout"));
+        assert!(REQUEST_METHODS.contains(&"mixed.set"));
+        assert!(NOTIFICATION_KINDS.contains(&"layout.report"));
     }
 
     #[test]

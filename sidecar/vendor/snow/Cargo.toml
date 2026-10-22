@@ -1,0 +1,52 @@
+[package]
+name = "snow"
+version = "0.10.0-kvmflow.1"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0 OR MIT"
+authors = ["Jake McGinty <me@jakebot.org>", "trevp"]
+description = "KVMFlow's scoped secret-lifetime patch of snow 0.10.0"
+repository = "https://github.com/mcginty/snow"
+
+[features]
+default = ["use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"]
+default-resolver = []
+default-resolver-crypto = ["use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"]
+use-curve25519 = ["dep:curve25519-dalek", "default-resolver"]
+use-chacha20poly1305 = ["dep:chacha20poly1305", "default-resolver"]
+use-blake2 = ["dep:blake2", "default-resolver"]
+use-getrandom = ["dep:getrandom", "default-resolver"]
+std = []
+# Retain upstream cfg names for provenance; unsupported primitives fail explicitly.
+use-aes-gcm = []
+use-sha2 = []
+use-xchacha20poly1305 = []
+use-p256 = []
+p256 = []
+use-pqcrypto-kyber1024 = []
+hfs = []
+pqclean_kyber1024 = []
+xchachapoly = []
+ring-resolver = []
+ring-accelerated = []
+nightly = []
+vector-tests = []
+risky-raw-split = []
+
+[dependencies]
+subtle = { version = "2.4", default-features = false }
+getrandom = { version = "0.3", optional = true }
+chacha20poly1305 = { version = "0.10", optional = true, default-features = false }
+blake2 = { version = "=0.10.6", optional = true, default-features = false }
+curve25519-dalek = { version = "4.1.3", optional = true, default-features = false, features = ["zeroize"] }
+zeroize = "=1.9.1"
+block-buffer = "=0.10.4"
+poly1305 = { version = "0.8", features = ["zeroize"] }
+
+[dev-dependencies]
+hex = "0.4"
+# Test-only unmodified reference; never linked into the application.
+upstream-snow = { package = "snow", version = "=0.10.0", default-features = false, features = ["use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
+
+[build-dependencies]
+rustc_version = "0.4"

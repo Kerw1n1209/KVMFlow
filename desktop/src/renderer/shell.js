@@ -55,27 +55,19 @@ function navState() {
 }
 
 function renderStatus() {
-  const a = local(), b = next();
-  $('#home-computer').textContent = a.name;
-  $('#home-port').textContent = t("port.value", {
-  p0: a.port
-});
-  $('#home-next').textContent = t("value.port.value", {
-  p0: b.name,
-  p1: b.port
-});
-  $('#mapping-state').textContent = model.usbConfirmed ? t("input.mappings.saved") : t("incomplete");
-  $('#display-table').innerHTML = model.displays.map((name, i) =>
-    `<tr><td><strong>${escapeHtml(name)}</strong></td><td>${source(a.sources[i])}</td><td>${source(b.sources[i])}</td></tr>`).join('');
+  const ready = model.usbConfirmed && model.computers.length > 1;
+  $('#topology').hidden = ready;
+  $('#topology').innerHTML = ready ? '' : `<div class="topology-head"><h2>${t("setup.incomplete")}</h2><button class="primary" data-action="beginSetup">${t("start.setup")}</button></div>`;
+  window.KVMFlowMixed?.render();
+  if (window.KVMFlowMixed?.renderLast()) return;
   const report = window.__kvmflowLastSwitchReport;
   const outcomes = report?.per_monitor || [];
   const accepted = outcomes.length && outcomes.every(entry => entry.commanded === true || entry.ok === true);
   $('#last-title').textContent = report ? (accepted ? t("command.accepted") : t("switch.incomplete")) : t("waiting.for.usb.switch");
-  $('#last-copy').textContent = report ? t("check.the.actual.display.if.there.is.no.picture.open.diagnostics.and.rec") : t("the.latest.command.result.appears.after.you.press.usb.switch");
-  renderTopology();
+  $('#last-copy').textContent = '';
 }
 
-const labels = ["identify.usb.switch", "record.this.computer", "set.up.the.other.computer", "start.switching"];
+const labels = ["identify.usb.switch", "record.this.computer", "add.the.other.computer", "try.switching"];
 function renderSteps() {
   $('#steps').innerHTML = labels.map((label, i) =>
     `<div class="step ${i === step ? 'active' : ''} ${i < step ? 'done' : ''}">${i + 1} ${t(label)}</div>`).join('');
@@ -153,8 +145,9 @@ function renderComputers() {
     `<div class="computer-row ${c.id === editingId ? 'selected' : ''}"><button class="computer-select" data-action="editComputer" data-value="${escapeHtml(c.id)}" aria-pressed="${c.id === editingId}">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H4zM9 19h6M12 16.5V19"/></svg>
       <span class="computer-copy"><span><span class="computer-name">${escapeHtml(c.name)}</span>${c.local ? `<span class="settings-tag">${t("this.computer")}</span>` : ''}</span><span class="hint">${t("port")} ${c.port}</span></span></button>
-      ${c.local ? '' : `<button class="settings-text-button danger-button" data-action="deleteComputer" data-value="${escapeHtml(c.id)}">${t("delete")}</button>`}</div>`).join('');
+      ${c.local ? '' : `<span class="computer-peer" data-mixed-peer="${escapeHtml(c.id)}"></span><button class="settings-text-button danger-button" data-action="deleteComputer" data-value="${escapeHtml(c.id)}">${t("delete")}</button>`}</div>`).join('');
   renderEditor(editingId);
+  window.KVMFlowMixed?.renderPeers();
 }
 function renderEditor(id) {
   const c = model.computers.find(item => item.id === id);
@@ -171,19 +164,7 @@ function renderEditor(id) {
   const value = source(c.sources[i]) === t("not.set") ? '' : source(c.sources[i]);
   return `<div class="field settings-input-row"><label for="edit-${i}">${escapeHtml(display)}</label>
           <input id="edit-${i}" type="number" required min="0" max="255" step="1" data-confirmed-value="${escapeHtml(value)}" value="${escapeHtml(value)}"></div>`;
-}).join('') || `<p class="settings-empty" role="status">${t("no.monitor.input.values.were.read")}</p>`}</div></div>
-      ${model.displays.length ? `<div class="form-section"><div class="settings-editor-heading"><h3>${t("when.switching.to.this.computer")}</h3></div>
-      <p class="hint">${t("turn.off.to.keep.a.monitor.on.its.current.picture")}</p>
-      <div class="follow-fields">${model.displays.map((display, i) => {
-  const follows = c.follow?.[i] !== false;
-  return `<div class="response-row"><div class="response-copy"><label for="edit-follow-${i}">${escapeHtml(display)}</label></div>
-          <label class="toggle-control"><input id="edit-follow-${i}" type="checkbox" data-confirmed-value="${follows}" ${follows ? 'checked' : ''}><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label">${t(follows ? "follows" : "stays")}</span></label></div>`;
-}).join('')}</div></div>` : ''}`;
-  for (const toggle of document.querySelectorAll('#computer-editor .follow-fields input')) {
-    toggle.addEventListener('change', () => {
-      toggle.parentElement.querySelector('.toggle-label').textContent = t(toggle.checked ? "follows" : "stays");
-    });
-  }
+}).join('') || `<p class="settings-empty" role="status">${t("no.monitor.input.values.were.read")}</p>`}</div></div>`;
 }
 window.hasUnsavedComputerEditor = () => {
   const computer = model.computers.find(item => item.id === editingId);
@@ -193,8 +174,6 @@ window.hasUnsavedComputerEditor = () => {
   const fields = [...document.querySelectorAll('#computer-editor .input-fields input')];
   if (!name || !port) return false;
   if ((name.value.trim() || computer.name) !== computer.name || Number(port.value) !== computer.port) return true;
-  const toggles = [...document.querySelectorAll('#computer-editor .follow-fields input')];
-  if (toggles.some((toggle, index) => toggle.checked !== (computer.follow?.[index] !== false))) return true;
   return fields.some((field, index) => {
     const current = source(computer.sources[index]);
     if (!field.validity.valid) return true;
@@ -295,7 +274,6 @@ function saveSettings() {
   const name = $('#edit-name').value.trim() || c.name;
   if (name !== c.name) delete c.nameKey;
   c.name = name; c.sources = values;
-  c.follow = model.displays.map((_, i) => $(`#edit-follow-${i}`)?.checked !== false);
   const queue = model.computers.filter(item => item.id !== c.id).sort((a, b) => a.port - b.port);
   queue.splice(Math.max(0, Math.min(queue.length, requestedPort - 1)), 0, c);
   queue.forEach((item, i) => { item.port = i + 1; });
@@ -316,7 +294,7 @@ function renderDiagnostics() {
       <span class="time">${escapeHtml(event.time)}</span></div>`).join('') || `<p class="hint">${t('no.switch.records.yet')}</p>`;
 }
 const pages = ['status', 'guide', 'settings', 'diagnostics'];
-function navigate(page) {
+function navigate(page, options = {}) {
   if (!pages.includes(page)) return;
   $('.shell').classList.toggle('settings-active', page === 'settings');
   pages.forEach(name => $(`#${name}-page`).classList.toggle('hidden', name !== page));
@@ -326,27 +304,7 @@ function navigate(page) {
   if (page === 'guide') renderGuide();
   if (page === 'settings') renderComputers();
   if (page === 'diagnostics') renderDiagnostics();
-}
-const computerIcon = '<svg viewBox="0 0 48 48" aria-hidden="true"><rect x="8" y="9" width="32" height="23" rx="2.5"/><path d="M18 38h12M24 32v6M6 40h36"/></svg>';
-$('#status-page .header').insertAdjacentHTML('afterend', `<section id="topology" class="topology" aria-label="${t("usb.switch.port.order")}"></section>`);
-function renderTopology() {
-  const current = local(), queue = [...model.computers].sort((a, b) => a.port - b.port);
-  const at = Math.max(0, queue.findIndex(item => item.id === current.id));
-  const target = queue[(at + 1) % queue.length] || current;
-  const ready = model.usbConfirmed && queue.length > 1;
-  $('#topology').innerHTML = `
-    ${ready ? '' : `<div class="topology-head"><div><h2>${t("setup.incomplete")}</h2><p>${t("record.each.computer.s.monitor.input.values.to.get.started")}</p></div><button class="primary" data-action="beginSetup">${t("start.setup")}</button></div>`}
-    <div class="switch-board"><div class="switch-board-scroll"><div class="switch-board-inner" style="--port-count:${queue.length}">
-      <div class="switch-chassis"><div class="switch-title"><strong>USB Switch</strong><span>${queue.length} ${t("ports")}</span></div>
-      <div class="switch-ports">${queue.map(item => `<div class="switch-port ${item.id === current.id ? 'current' : item.id === target.id ? 'next' : 'waiting'}">
-        <strong>${item.port}</strong><span class="usb-slot" aria-hidden="true"></span></div>`).join('')}</div></div>
-      <div class="port-grid">${queue.map(item => `<div class="port-card ${item.id === current.id ? 'current' : item.id === target.id ? 'next' : 'waiting'}">
-        <span class="port-index">${t("port")} ${item.port}</span><span class="computer-icon">${computerIcon}</span><div class="node-name">${escapeHtml(item.name)}</div>
-        <em class="port-state">${item.id === current.id ? t("this.computer") : item.id === target.id ? t("next.computer") : t("waiting.to.switch")}</em></div>`).join('')}</div>
-    </div></div><div class="switch-summary"><span class="summary-mark">i</span>
-      <span>${t("this.computer.is.on.port")} ${current.port}${queue.length > 1 ? t("the.next.computer.is.on.port.value", {
-  p0: target.port
-}) : t("add.another.computer")}</span></div></div>`;
+  if (page === 'settings' && options.section === 'mixed') $('#mixed-settings').scrollIntoView?.({ block: 'start' });
 }
 const actions = new Set(['confirmUsb', 'previousStep', 'nextStep', 'copyValue', 'selectChoice', 'setChoice', 'saveTarget', 'openTargetSettings', 'editComputer', 'deleteComputer', 'retryDisplayDetection']);
 function dispatchAction(event) {

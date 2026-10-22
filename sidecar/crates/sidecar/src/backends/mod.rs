@@ -147,6 +147,7 @@ pub trait Backend: Send {
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub mod edid_registry;
 pub mod simulated;
+pub mod topology;
 pub mod usb_port;
 /// DDC/CI VCP code table - single copy, hex-canonical (KVM-8).
 pub mod vcp_codes;

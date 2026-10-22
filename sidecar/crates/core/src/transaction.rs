@@ -24,8 +24,8 @@ pub enum TransactionPhase {
     /// The source saw its USB trigger group leave and should write the
     /// target's values immediately, before the target can run its correction.
     SourceFastPath,
-    /// The target observed its trigger group arrive and should repeat exactly
-    /// the values from the source plan.
+    /// The target observed its trigger group arrive and should repeat the
+    /// captured writes for monitors assigned to itself.
     TargetArrivalCorrection,
 }
 
@@ -38,10 +38,13 @@ pub struct SwitchTransaction {
     pub source_port_index: u16,
     pub target_device_id: String,
     pub target_port_index: u16,
-    /// The values are captured from the immutable group revision that created
-    /// the transaction. Both paths use this exact list; later group edits do
-    /// not mutate a switch already in flight.
+    /// Departure values captured from the immutable group revision. Later
+    /// group edits do not mutate a switch already in flight.
     pub writes: Vec<RouteWrite>,
+    /// Captured local-only correction. Absent on pre-layout transactions,
+    /// whose entire write list selected the target computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrival_writes: Option<Vec<RouteWrite>>,
     pub issued_at_ms: u64,
 }
 
@@ -58,8 +61,7 @@ pub struct TransactionWritePlan {
 
 /// The target's immediate local action after USB arrival. It intentionally has
 /// no transaction ID: daily switching must still work while the service is
-/// unavailable. When the corresponding transaction is delivered later, its
-/// write list must equal this correction plan.
+/// unavailable. A later transaction retains its own captured correction.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocalArrivalCorrection {
     pub group_id: String,
@@ -109,10 +111,17 @@ pub fn local_arrival_correction(
         .iter()
         .find(|device| device.device_id == local_device_id)
         .ok_or_else(|| TransactionError::UnknownLocalDevice(local_device_id.to_string()))?;
+    let layout = snapshot
+        .arrival_layout(local_device_id)
+        .expect("known device");
     let mut writes = device
         .monitors
         .iter()
-        .filter(|monitor| monitor.follow)
+        .filter(|monitor| {
+            snapshot
+                .layout_destination(&layout, &monitor.fingerprint)
+                .is_some_and(|target| target.device_id == local_device_id)
+        })
         .map(|monitor| RouteWrite {
             fingerprint: monitor.fingerprint.clone(),
             value: monitor.local_input,
@@ -146,7 +155,10 @@ impl SwitchTransaction {
         let route = snapshot
             .route_after_departure(source_device_id)
             .map_err(TransactionError::Route)?;
-        Ok(Self::from_route(id, route, issued_at_ms))
+        let arrival_writes = local_arrival_correction(snapshot, &route.target_device_id)?.writes;
+        let mut transaction = Self::from_route(id, route, issued_at_ms);
+        transaction.arrival_writes = Some(arrival_writes);
+        Ok(transaction)
     }
 
     fn from_route(id: SwitchTransactionId, route: SwitchRoute, issued_at_ms: u64) -> Self {
@@ -159,6 +171,7 @@ impl SwitchTransaction {
             target_device_id: route.target_device_id,
             target_port_index: route.target_port_index,
             writes: route.writes,
+            arrival_writes: None,
             issued_at_ms,
         }
     }
@@ -183,7 +196,12 @@ impl SwitchTransaction {
                 actual: local_device_id.to_string(),
             });
         }
-        Ok(self.plan(TransactionPhase::TargetArrivalCorrection))
+        let mut plan = self.plan(TransactionPhase::TargetArrivalCorrection);
+        plan.writes = self
+            .arrival_writes
+            .clone()
+            .unwrap_or_else(|| self.writes.clone());
+        Ok(plan)
     }
 
     fn plan(&self, phase: TransactionPhase) -> TransactionWritePlan {
@@ -206,6 +224,7 @@ mod tests {
 
     fn monitor(fingerprint: &str, input: u16) -> MonitorInput {
         MonitorInput {
+            local_fingerprint: None,
             fingerprint: fingerprint.into(),
             label: fingerprint.into(),
             local_input: input,
@@ -215,16 +234,25 @@ mod tests {
 
     fn group() -> SwitchGroupSnapshot {
         SwitchGroupSnapshot {
+            sync: serde_json::Value::Null,
+            mixed: None,
+            layouts: Vec::new(),
             group_id: "desk".into(),
             revision: 9,
             devices: vec![
                 GroupDevice {
+                    profile_rev: 0,
+                    available_builtin_screens: None,
+                    arrival_layout_id: None,
                     device_id: "mac".into(),
                     name: "Mac".into(),
                     port_index: 1,
                     monitors: vec![monitor("left", 15), monitor("right", 16)],
                 },
                 GroupDevice {
+                    profile_rev: 0,
+                    available_builtin_screens: None,
+                    arrival_layout_id: None,
                     device_id: "windows".into(),
                     name: "Windows".into(),
                     port_index: 2,
@@ -253,6 +281,7 @@ mod tests {
     fn arrival_correction_skips_monitors_that_do_not_follow() {
         let mut snapshot = group();
         snapshot.devices[1].monitors[1].follow = false;
+        snapshot.migrate_follow_layouts();
         let correction = local_arrival_correction(&snapshot, "windows").unwrap();
         let tx = SwitchTransaction::begin(&snapshot, "mac", "txn-1", 1).unwrap();
         assert_eq!(correction.writes.len(), 1);

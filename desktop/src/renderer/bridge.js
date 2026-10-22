@@ -14,6 +14,9 @@
       for (const cb of listeners.get(payload.kind) || []) cb(payload.data);
       for (const cb of listeners.get('*') || []) cb(payload.kind, payload.data);
     }),
+    listen('client-hidden', ({ payload }) => {
+      for (const cb of listeners.get('client.hidden') || []) cb(payload);
+    }),
     listen('client-navigate', ({ payload }) => {
       latestPage = payload;
       for (const cb of navigation) cb(payload);
@@ -48,8 +51,10 @@
     language: { set: (preference, systemLocale) => invoke('locale_set', { preference, systemLocale }) },
     updates: {
       check: () => invoke('update_check'),
+      setBeta: (enabled) => invoke('update_set_beta', { enabled: enabled === true }),
       download: () => invoke('update_download'),
-      install: () => invoke('update_install'),
+      install: (options = {}) => invoke('update_install', { allowUnrestored: options.allowUnrestored === true }),
+      openDownload: () => invoke('update_open_download'),
       onProgress: (cb) => {
         updateListeners.add(cb);
         return () => updateListeners.delete(cb);

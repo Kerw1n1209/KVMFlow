@@ -208,9 +208,15 @@ impl Runtime {
             .monitors
             .iter()
             .map(|monitor| {
+                let backend_id = self
+                    .config
+                    .as_ref()
+                    .map(|c| c.backend_fingerprint(&monitor.fingerprint))
+                    .unwrap_or(&monitor.fingerprint)
+                    .to_owned();
                 matches!(
                     self.backend
-                        .read_input_with_timeout(&monitor.fingerprint, probe_timeout()),
+                        .read_input_with_timeout(&backend_id, probe_timeout()),
                     Ok(read) if read.value == monitor.local_input
                 )
             })
@@ -283,6 +289,12 @@ impl Runtime {
     }
 
     pub(crate) fn handle_multi_device_tracker_event(&mut self, event: &TrackerEvent) {
+        match event {
+            TrackerEvent::GroupArrived { .. } => self.lan_test_observation("picture_arrived"),
+            TrackerEvent::GroupLeft { .. } => self.lan_test_observation("display_left"),
+            _ => {}
+        }
+        self.mixed_tracker_event(event);
         if !self.enabled {
             return;
         }
@@ -300,17 +312,13 @@ impl Runtime {
         }
         match event {
             TrackerEvent::GroupLeft { .. } => match group.route_after_departure(&config.local_device.device_id) {
-                Ok(route) if route.writes.is_empty() => self.emit_event(
-                    "switch.push.skipped",
-                    Level::Info,
-                    json!({
-                        "mode": "multi_device",
-                        "phase": "source_fast_path",
-                        "reason": "no_following_monitors",
-                        "target_device_id": route.target_device_id,
-                    }),
-                ),
                 Ok(route) => {
+                    if route.writes.is_empty() {
+                        self.bounce_watch = None;
+                        self.emit_event("switch.push.skipped", Level::Info, json!({"mode":"multi_device", "phase":"source_fast_path", "reason":"no_following_monitors", "target_device_id":route.target_device_id}));
+                        self.record_physical_layout(group, &route.target_device_id, &route.source_device_id, "source_fast_path", &[]);
+                        return;
+                    }
                     let outcomes = self.run_multi_device_writes(
                         "source_fast_path",
                         &route.group_id,
@@ -319,13 +327,14 @@ impl Runtime {
                         &route.target_device_id,
                         route.writes,
                     );
-                    let local_monitors: Vec<(String, u16)> = config
-                        .local_device
+                    let local_monitors: Vec<(String, u16)> = group.devices.iter()
+                        .find(|d|d.device_id==config.local_device.device_id).expect("validated local owner")
                         .monitors
                         .iter()
                         .map(|monitor| (monitor.fingerprint.clone(), monitor.local_input))
                         .collect();
                     self.start_bounce_watch(&local_monitors, &outcomes);
+                    self.record_physical_layout(group, &route.target_device_id, &route.source_device_id, "source_fast_path", &outcomes);
                 }
                 Err(error) => self.emit_event(
                     kinds::SWITCH_PUSH_REPORT,
@@ -334,9 +343,12 @@ impl Runtime {
                 ),
             },
             TrackerEvent::GroupArrived { .. } if config.advanced.arrival_correction_enabled => match local_arrival_correction(group, &config.local_device.device_id) {
-                Ok(correction) if correction.writes.is_empty() => {}
                 Ok(correction) => {
-                    self.run_multi_device_writes(
+                    if correction.writes.is_empty() {
+                        self.record_physical_layout(group, &correction.local_device_id, &correction.local_device_id, "target_arrival_correction", &[]);
+                        return;
+                    }
+                    let outcomes = self.run_multi_device_writes(
                         "target_arrival_correction",
                         &correction.group_id,
                         correction.group_revision,
@@ -344,6 +356,7 @@ impl Runtime {
                         &correction.local_device_id,
                         correction.writes,
                     );
+                    self.record_physical_layout(group, &correction.local_device_id, &correction.local_device_id, "target_arrival_correction", &outcomes);
                 }
                 Err(error) => self.emit_event(
                     kinds::SWITCH_PUSH_REPORT,
@@ -351,11 +364,14 @@ impl Runtime {
                     json!({"mode": "multi_device", "phase": "target_arrival_correction", "error": error.to_string()}),
                 ),
             },
-            TrackerEvent::GroupArrived { .. } => self.emit_event(
-                "trigger.arrival_correction_skipped",
-                Level::Info,
-                json!({"reason": "disabled_by_user", "local_device_id": config.local_device.device_id}),
-            ),
+            TrackerEvent::GroupArrived { .. } => {
+                self.emit_event(
+                    "trigger.arrival_correction_skipped",
+                    Level::Info,
+                    json!({"reason": "disabled_by_user", "local_device_id": config.local_device.device_id}),
+                );
+                self.observe_arrival_layout(group, &config.local_device.device_id);
+            },
             _ => {}
         }
     }
@@ -367,6 +383,13 @@ impl Runtime {
         policy: &kvmflow_core::retry::RetryPolicy,
         capture_readback: bool,
     ) -> MonitorOutcome {
+        self.invalidate_mixed_observation(edid_id);
+        let backend_id = self
+            .config
+            .as_ref()
+            .map(|c| c.backend_fingerprint(edid_id))
+            .unwrap_or(edid_id)
+            .to_owned();
         let mut attempts = 0u32;
         let mut previous = None;
         let mut readback = None;
@@ -382,13 +405,13 @@ impl Runtime {
                 let _ = self.backend.refresh_displays();
             }
             attempts += 1;
-            match self.backend.write_input(edid_id, value) {
+            match self.backend.write_input(&backend_id, value) {
                 Ok(o) => {
                     previous = o.previous;
                     if o.commanded {
                         commanded = true;
                         if capture_readback {
-                            match self.backend.read_input(edid_id) {
+                            match self.backend.read_input(&backend_id) {
                                 Ok(result) => readback = Some(result.value),
                                 Err(error) => readback_error = Some(error.to_string()),
                             }
