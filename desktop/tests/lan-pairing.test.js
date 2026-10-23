@@ -10,6 +10,12 @@ const discovered = (over = {}) => ({
   last_seen_ms: 1, initiator: null, app_version: '0.3.0', connection_id: null, key_fp: 'abcd', last_error: null,
   ...over,
 });
+const choosePrimary = async (win) => {
+  if (win.KVMFlowPairing.activeMode() !== 'role') return;
+  win.document.querySelector('[data-pair-role="primary"]').click();
+  win.document.querySelector('[data-pair-action="role-next"]').click();
+  await tick();
+};
 
 // Profile pages exercise an actual selected/committed peer, rather than
 // accepting an unrelated owner's broadcast as proof of a pairing.
@@ -20,7 +26,60 @@ async function pairedForProfile(win, subscriptions) {
   win.KVMFlowPairing.closeDialog(); await tick();
 }
 
-test('guide step 3 offers LAN pairing first and the role link exists on step 1', async t => {
+test('first run opens the role page; the host enters step 1 and can step back', async t => {
+  const { win } = await client(t, { config: null });
+  assert.equal(win.KVMFlowPairing.activeMode(), 'role');
+  assert.match(text(win, '#guide-content'), /欢迎使用 KVMFlow/);
+  assert.match(text(win, '#guide-content'), /这台电脑是/);
+  assert.equal(win.document.querySelector('#steps').classList.contains('hidden'), true);
+  assert.equal(win.document.querySelector('#guide-count').textContent, '');
+
+  win.document.querySelector('[data-pair-role="primary"]').click();
+  win.document.querySelector('[data-pair-action="role-next"]').click();
+  await tick();
+  assert.equal(win.KVMFlowPairing.activeMode(), null);
+  assert.match(text(win, '#guide-content'), /确认 USB Switch/);
+  assert.equal(win.document.querySelector('#steps').classList.contains('hidden'), false);
+  assert.match(win.document.querySelector('.step.active').textContent, /1/);
+  const back = win.document.querySelector('[data-pair-action="role-back"]');
+  assert.ok(back);
+  assert.match(back.textContent, /上一步|返回/);
+
+  back.click();
+  assert.equal(win.KVMFlowPairing.activeMode(), 'role');
+  assert.match(text(win, '#guide-content'), /这台电脑是/);
+});
+
+test('choosing the host is remembered for the rest of the session', async t => {
+  const { win } = await client(t, { config: null });
+  await choosePrimary(win);
+  win.navigate('status');
+  win.navigate('guide');
+  assert.equal(win.KVMFlowPairing.activeMode(), null);
+  assert.match(text(win, '#guide-content'), /确认 USB Switch/);
+  assert.ok(win.document.querySelector('[data-pair-action="role-back"]'));
+});
+
+test('a persisted secondary resumes the wait page instead of the role page', async t => {
+  const lan = { enabled: true, listen_port: 47820,
+    self: { device_id: 'dev-mac', key_fp: '1f22', addr: '192.168.1.23:47820' }, peers: [], issues: [], sync: {},
+    setup: { secondary: true } };
+  const { win, requests } = await client(t, { config: null, state: { state: 'unconfigured', enabled: true, lan } });
+  assert.equal(win.KVMFlowPairing.activeMode(), 'secondary-wait');
+  assert.doesNotMatch(text(win, '#guide-content'), /这台电脑是/);
+  assert.match(text(win, '#guide-content'), /等待主力机连接/);
+  assert.equal(requests.filter(entry => entry.method === 'lan.setup.secondary').length, 0);
+});
+
+test('completed setup opens step 1 from the sidebar without the role page', async t => {
+  const { win } = await client(t);
+  win.navigate('guide');
+  assert.equal(win.KVMFlowPairing.activeMode(), null);
+  assert.match(text(win, '#guide-content'), /确认 USB Switch/);
+  assert.doesNotMatch(text(win, '#guide-content'), /这台电脑是/);
+});
+
+test('guide step 3 offers LAN pairing first and step 1 has no secondary shortcut', async t => {
   const { win } = await client(t);
   win.navigate('guide');
   win.nextStep(); win.nextStep();
@@ -29,7 +88,7 @@ test('guide step 3 offers LAN pairing first and the role link exists on step 1',
   assert.match(guide, /手动填写|另一台电脑的输入值/);
   assert.equal(win.KVMFlowPairing.activeMode(), null);
   win.previousStep(); win.previousStep();
-  assert.match(text(win, '#guide-content'), /这是副机/);
+  assert.doesNotMatch(text(win, '#guide-content'), /这是副机/);
 });
 
 test('discovery list shows discovered peers, skips members and offline peers are disabled', async t => {
@@ -314,8 +373,6 @@ test('secondary role choice opens the wait page, pairing window and SAS confirm'
     if (method === 'lan.pair.confirm') return { phase: 'await_peer_confirm', sas: '482 913', session_id: 'inbound', event_seq: 2, local_confirmed: true, peer_confirmed: false };
   } });
   win.navigate('guide');
-  win.document.querySelector('[data-pair-action="choose-role"]').click();
-  await tick();
   assert.equal(win.KVMFlowPairing.activeMode(), 'role');
   assert.match(text(win, '#guide-content'), /这台电脑是/);
   assert.match(text(win, '#guide-content'), /这是主机/);
@@ -360,8 +417,6 @@ test('secondary done page lists monitors whose local input is still unknown', as
   config.local_device.monitors[1].source = 'unknown';
   const { win, subscriptions } = await client(t, { config, state: state(mixedState()) });
   win.navigate('guide');
-  win.document.querySelector('[data-pair-action="choose-role"]').click();
-  await tick();
   win.KVMFlowPairing.startRoleChoice();
   win.document.querySelector('[data-pair-role="secondary"]').click();
   await tick();
@@ -379,8 +434,7 @@ test('navigating away from the secondary wait page closes the pairing window', a
     if (method === 'lan.setup.secondary') return { secondary: true, phase: 'waiting_for_primary' };
   } });
   win.navigate('guide');
-  win.document.querySelector('[data-pair-action="choose-role"]').click();
-  await tick();
+  assert.equal(win.KVMFlowPairing.activeMode(), 'role');
   win.document.querySelector('[data-pair-role="secondary"]').click();
   await tick();
   win.document.querySelector('[data-pair-action="role-next"]').click();
@@ -487,12 +541,7 @@ test('secondary wait page shows the local host address without the pairing port'
   const { win } = await client(t, { config: null, state: { state: 'unconfigured', enabled: true, lan },
     request: async (method) => { if (method === 'lan.setup.secondary') return { secondary: true, phase: 'waiting_for_primary' }; } });
   win.navigate('guide');
-  win.document.querySelector('[data-pair-action="choose-role"]').click();
-  await tick();
-  win.document.querySelector('[data-pair-role="secondary"]').click();
-  await tick();
-  win.document.querySelector('[data-pair-action="role-next"]').click();
-  await tick();
+  assert.equal(win.KVMFlowPairing.activeMode(), 'secondary-wait');
   const self = text(win, '.pair-self');
   assert.match(self, /192\.168\.1\.23/);
   assert.doesNotMatch(self, /47820/);

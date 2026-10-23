@@ -449,7 +449,7 @@
       displayDetectionSnapshot = null;
       const result = originalRenderGuide(...args);
       updateFinalStepUi();
-      if (step === 0 && model.usbConfirmed) {
+      if (step === 0 && model.usbConfirmed && !window.KVMFlowPairing?.activeMode()) {
         const footer = byId('guide-content')?.querySelector('.wizard-footer');
         if (footer && !byId('recalibrate-usb')) {
           const button = document.createElement('button');

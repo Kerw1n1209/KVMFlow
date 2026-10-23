@@ -10,6 +10,13 @@ const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 
 const { client, v2, tick, automaticConfig } = require('./client-helper');
 
+async function choosePrimary(win) {
+  if (win.KVMFlowPairing.activeMode() !== 'role') return;
+  win.document.querySelector('[data-pair-role="primary"]').click();
+  win.document.querySelector('[data-pair-action="role-next"]').click();
+  await tick();
+}
+
 test('settings save belongs to computer configuration, with startup separate from timing', async t => {
   const { win } = await client(t);
   win.navigate('settings');
@@ -429,6 +436,7 @@ test('USB calibration ignores a peripheral departure and requires the physical h
   const { win, subscriptions, requests } = await client(t, { config: null, displays: [
     { edid_id: 'screen', model_name: '屏幕', builtin: false, ddc: { state: 'available', input: 15 } },
   ] });
+  await choosePrimary(win);
   await win.confirmUsb();
   assert.equal(requests.filter(entry => entry.method === 'wizard.begin').length, 1);
   const candidates = subscriptions.get('wizard.candidates');
@@ -571,6 +579,7 @@ test('preset and custom timing options switch language without changing saved va
 test('language changes during USB identification preserve the active calibration and translated status', async t => {
   const c = await client(t, { config: null });
   c.win.navigate('guide');
+  await choosePrimary(c.win);
   await c.win.confirmUsb();
   c.win.KVMFlowI18n.setPreference('en');
   const doc = c.win.document;

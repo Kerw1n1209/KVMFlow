@@ -29,6 +29,8 @@
   // Pairing wizard mode inside #guide-content. Null means the classic wizard.
   // 'add' | 'confirm' | 'try' | 'role' | 'secondary-wait' | 'secondary-done'
   let mode = null;
+  let autoRole = false;       // the role page was opened by the first-run entry, not the user
+  let primaryChosen = false;  // the user picked "this is the host" in this session
 
   let generation = 0;
   let session = null;
@@ -660,8 +662,28 @@
     if (mode === 'add' || mode === 'confirm') renderPeerList();
   }
 
-  // The classic wizard: step 3 (index 2) offers LAN pairing first; step 1
-  // links to the role choice for the secondary machine.
+  function setupComplete() {
+    return model.usbConfirmed && model.computers.length > 1;
+  }
+
+  // First run asks for the role before the primary wizard: no active pairing
+  // mode, the first step, incomplete setup and no host choice in this
+  // session. A persisted secondary skips the question and resumes waiting.
+  function maybeChooseRole() {
+    if (mode || step !== 0 || primaryChosen || setupComplete()) return;
+    if (lan?.setup?.secondary) {
+      mode = 'secondary-wait';
+      secondaryNote ||= { secondary: true, phase: 'waiting_for_primary' };
+      autoRole = false;
+      return;
+    }
+    mode = 'role';
+    roleChoice = null;
+    autoRole = true;
+  }
+
+  // The classic wizard: step 3 (index 2) offers LAN pairing first; a first-run
+  // host can step back to the role choice from step 1.
   const originalGuideView = window.guideView;
   if (typeof originalGuideView === 'function') {
     window.guideView = function overriddenGuideView() {
@@ -673,15 +695,16 @@
           <p class="pair-entry-sep hint">${t('lan.add.entry.or')}</p>`;
         return classic.replace('<div class="wizard-head">', `${entry}<div class="wizard-head">`);
       }
-      if (step === 0) {
-        const entry = `<p class="pair-manual"><span class="hint">${t('lan.role.entry')}</span> <button class="link" data-pair-action="choose-role">${t('lan.role.secondary')}</button></p>`;
-        return classic.replace('<div class="callout">', `${entry}<div class="callout">`);
+      if (step === 0 && !setupComplete() && !lan?.setup?.secondary) {
+        return classic.replace('<div class="wizard-footer"><span></span>',
+          `<div class="wizard-footer"><button class="secondary" data-pair-action="role-back">${t('back')}</button>`);
       }
       return classic;
     };
   }
   const originalRenderGuide = window.renderGuide;
   window.renderGuide = function overriddenRenderGuide(...args) {
+    maybeChooseRole();
     originalRenderGuide(...args);
     if (mode) {
       byId('guide-content').dataset.pairRendered = '';
@@ -836,18 +859,23 @@
         renderGuide();
         return;
       case 'choose-role':
-        mode = 'role'; roleChoice = null;
+        mode = 'role'; roleChoice = null; autoRole = false;
         renderGuide();
         return;
       case 'role-next':
-        if (roleChoice === 'secondary') await startSecondary();
-        else exitWizard(0);
+        if (roleChoice === 'secondary') {
+          autoRole = false;
+          await startSecondary();
+        } else {
+          primaryChosen = true; autoRole = false;
+          exitWizard(0);
+        }
         return;
       case 'wait-again':
         await startSecondary();
         return;
       case 'role-back':
-        roleChoice = null; mode = 'role';
+        roleChoice = null; mode = 'role'; autoRole = false;
         void endPairing();
         renderWizard();
         return;
@@ -881,6 +909,7 @@
 
   function exitWizard(targetStep) {
     mode = null;
+    autoRole = false;
     roleChoice = null;
     byId('steps')?.classList.remove('hidden');
     byId('guide-content')?.classList.remove('pair-wizard');
@@ -921,7 +950,7 @@
     if (mode === 'try') void stopTry();
     if (force || windowOwned || session || setupPending) void endPairing(force);
     closeDialog({ cancel: false });
-    if (mode === 'secondary-wait' || mode === 'secondary-done') mode = 'role';
+    if (mode === 'secondary-wait' || mode === 'secondary-done') { mode = 'role'; autoRole = false; }
     else if (mode !== 'role') mode = null;
     renderWizard();
   }
@@ -1025,6 +1054,11 @@
   function acceptLanState(state) {
     if (state && typeof state.lan === 'object' && state.lan) {
       lan = state.lan;
+      if (autoRole && mode === 'role' && lan.setup?.secondary) {
+        mode = 'secondary-wait';
+        secondaryNote ||= { secondary: true, phase: 'waiting_for_primary' };
+        autoRole = false;
+      }
       renderPeerList();
       renderWizard();
     }
@@ -1047,7 +1081,7 @@
 
   window.KVMFlowPairing = {
     startPrimaryAdd: () => { mode = 'add'; dialPeer = null; renderWizard(); },
-    startRoleChoice: () => { mode = 'role'; roleChoice = null; renderWizard(); },
+    startRoleChoice: () => { mode = 'role'; roleChoice = null; autoRole = false; renderWizard(); },
     pairWith: (deviceId) => {
       const row = View.discoveryList(lan).find(entry => entry.deviceId === deviceId);
       if (!row?.addr || row.online === false) return;

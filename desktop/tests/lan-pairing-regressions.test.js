@@ -12,6 +12,10 @@ async function secondary(c) {
   click(c.win, '[data-pair-role="secondary"]'); click(c.win, '[data-pair-action="role-next"]'); await tick();
 }
 async function dial(c, id = 'dev-peer') { c.win.KVMFlowPairing.pairWith(id); await tick(); }
+async function choosePrimary(win) {
+  if (win.KVMFlowPairing.activeMode() !== 'role') return;
+  click(win, '[data-pair-role="primary"]'); click(win, '[data-pair-action="role-next"]'); await tick();
+}
 
 // P1-1: names remain text on every screen, including the inbound SAS boundary.
 test('untrusted peer names cannot create actions in connecting, profile or secondary SAS pages', async t => {
@@ -44,7 +48,7 @@ test('fresh primary persists its stable identity, observed inputs and trigger be
       if (method === 'config.set') { persisted = structuredClone(params.config); return { saved: true }; }
       if (method === 'config.get' && persisted) return persisted;
     } });
-  c.win.navigate('guide'); await c.win.confirmUsb();
+  c.win.navigate('guide'); await choosePrimary(c.win); await c.win.confirmUsb();
   await emit(c, 'wizard.candidates', { disappeared: [{ vid_pid: '1234:5678', product: 'USB Hub' }, { vid_pid: '2345:6789', product: 'Keyboard' }] });
   c.win.nextStep(); c.win.KVMFlowPairing.startPrimaryAdd(); await dial(c);
   assert.ok(persisted, 'local setup must be persisted');
@@ -61,7 +65,7 @@ test('fresh primary cannot dial if saving local setup fails', async t => {
   const c = await client(t, { config: null, state: { state: 'unconfigured', enabled: true, lan: state().lan },
     displays: [{ edid_id: 'real-display', ddc: { state: 'available', input: 17 } }],
     request: async method => { if (method === 'config.set') throw Object.assign(new Error('disk'), { code: 'E_CONFIG_IO' }); } });
-  c.win.navigate('guide'); await c.win.confirmUsb();
+  c.win.navigate('guide'); await choosePrimary(c.win); await c.win.confirmUsb();
   await emit(c, 'wizard.candidates', { disappeared: [{ vid_pid: '1234:5678', product: 'USB Hub' }, { vid_pid: '2345:6789', product: 'Keyboard' }] });
   c.win.nextStep(); await dial(c);
   assert.equal(c.requests.filter(r => r.method === 'config.set').length, 1);
