@@ -651,7 +651,9 @@
     // Sidebar status follows the secondary lifecycle (secondary-2/3 designs).
     const navState = byId('nav-state');
     if (navState) {
-      if (mode === 'secondary-wait' || mode === 'role') navState.textContent = t('nav.waiting.pair');
+      // The role choice is not the secondary lifecycle yet; keep the regular status.
+      if (mode === 'role') window.navState?.();
+      else if (mode === 'secondary-wait') navState.textContent = t('nav.waiting.pair');
       else if (mode === 'secondary-done') navState.textContent = t('nav.paired', { p0: esc(peerName || t('other.computer')) });
     }
     const html = wizardHtml();
