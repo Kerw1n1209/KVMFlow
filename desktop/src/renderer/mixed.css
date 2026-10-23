@@ -1,5 +1,5 @@
 /* Mixed mode: status page desktop map and the settings assignment section. */
-.setup-prompt{padding:18px 0}
+.setup-prompt{margin:0;padding:18px 0;border:0;border-radius:0;background:transparent;box-shadow:none}
 #last-copy:empty{display:none}
 .setup-prompt[hidden],#mixed-status[hidden],.mixed-settings[hidden],.mixed-assign[hidden],.next-switch[hidden]{display:none}
 .mode-bar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:16px 0;padding:16px 20px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
