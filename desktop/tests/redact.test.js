@@ -161,7 +161,12 @@ test('unpaired peer names, UUID values and keys, IPs and instance paths are reda
   const original = { sidecar: backend() };
   const result = load()(original);
   const text = JSON.stringify(result);
-  for (const secret of secrets) assert.equal(text.includes(secret), false, `${secret} leaked`);
+  for (const secret of secrets) {
+    assert.equal(text.includes(secret), false, `${secret} leaked`);
+    assert.equal(text.includes(JSON.stringify(secret).slice(1, -1)), false, `${secret} leaked as escaped JSON`);
+  }
+  assert.match(result.sidecar.events[0].fields.instance, /^device-path-\d+$/);
+  assert.match(result.sidecar.events[0].fields.usb, /^device-path-\d+$/);
   const lan = result.sidecar.lan;
   assert.match(lan.self.device_id, /^device-\d+$/);
   assert.match(lan.peers[0].device_id, /^device-\d+$/);

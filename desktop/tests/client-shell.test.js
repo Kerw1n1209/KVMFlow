@@ -687,6 +687,13 @@ test('native export and actual feedback attachment both remove unpaired peer ide
   c.win.kvmflow.sendFeedback = async payload => { sent = payload; return { ok: true, id: 'fb_01JABCDEF0123456789ABCDEFG' }; };
   c.win.document.querySelector('#feedback-send').click(); await tick();
   assert.equal(sent.diagnostics, preview.diagnostics);
-  for (const text of [JSON.stringify(exported), sent.diagnostics]) for (const secret of secrets) assert.equal(text.includes(secret), false, `${secret} leaked`);
+  for (const text of [JSON.stringify(exported), sent.diagnostics]) for (const secret of secrets) {
+    assert.equal(text.includes(secret), false, `${secret} leaked`);
+    assert.equal(text.includes(JSON.stringify(secret).slice(1, -1)), false, `${secret} leaked as escaped JSON`);
+  }
+  for (const data of [exported, JSON.parse(sent.diagnostics)]) {
+    assert.match(data.sidecar.events[0].fields.instance, /^device-path-\d+$/);
+    assert.match(data.sidecar.events[0].fields.usb, /^device-path-\d+$/);
+  }
   assert.deepEqual(JSON.parse(sent.diagnostics).sidecar, JSON.parse(JSON.stringify(exported.sidecar)));
 });
