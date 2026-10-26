@@ -260,11 +260,34 @@
 .pair-choice-identity { margin-top: 12px; cursor: default; overflow-wrap: anywhere; }
 .pair-choice-identity > span { min-width: 0; }
 
-/* The report shares the pairing surface and keeps every line reachable. */
-#compatibility-dialog { width: min(680px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); }
-#compatibility-report { max-height: calc(100dvh - 184px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; line-height: 1.6; margin: 0; }
-#compatibility-dialog .confirmation-actions { gap: 10px; flex-wrap: wrap; }
+/* Feedback uses the existing pairing surface, with scrollable content and
+   actions that stay within the smallest supported native window. */
+#compatibility-dialog { width: min(600px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); }
+#compatibility-dialog[open] { display: flex; flex-direction: column; }
+#compatibility-dialog h2 { margin: 0 0 18px; font-size: 18px; }
+.feedback-content { min-height: 0; overflow-y: auto; }
+.feedback-kind { display: flex; gap: 12px; padding: 0; border: 0; margin: 0 0 16px; }
+.feedback-kind label { flex: 1; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); padding: 12px; cursor: pointer; }
+.feedback-kind label:has(input:checked) { background: var(--surface-muted); border-color: var(--ink); }
+.feedback-kind input, .feedback-diagnostics input { width: 16px; height: 16px; min-height: 0; padding: 0; accent-color: var(--ink); flex: 0 0 auto; }
+.feedback-field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; font-size: 13px; }
+.feedback-field input, .feedback-field textarea { width: 100%; padding: 9px 10px; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 3px; }
+.feedback-field textarea { resize: vertical; min-height: 72px; max-height: 160px; }
+.feedback-diagnostics { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 4px 0 16px; cursor: pointer; }
+#feedback-preview { font-size: 13px; }
+#feedback-preview summary { cursor: pointer; padding: 3px 0; }
+#compatibility-report { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 12px; line-height: 1.6; margin: 12px 0 0; padding: 12px; background: var(--surface-muted); }
+.feedback-footer { flex: 0 0 auto; margin-top: 18px; }
+.feedback-links { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.feedback-links button { min-height: 0; padding: 0; border: 0; background: transparent; color: var(--sub); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.feedback-links button:hover { color: var(--ink); }
+#compatibility-dialog .confirmation-actions { gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 #compatibility-dialog button:active { transform: translateY(1px); }
+#feedback-status { font-size: 13px; margin: 0 0 12px; overflow-wrap: anywhere; }
+#feedback-status:empty { display: none; }
+#feedback-id { margin-top: 16px; overflow-wrap: anywhere; }
 .diagnostics-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 #compatibility-status:empty { display: none; }
 #compatibility-status { margin: 0 0 20px; color: var(--sub); font-size: 13px; }
+
+.feedback-kind legend { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

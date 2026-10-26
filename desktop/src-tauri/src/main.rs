@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod compatibility;
+mod feedback;
 mod host_name;
 mod locale;
 mod mixed_menu;
@@ -33,6 +34,7 @@ struct Host {
     status: MenuItem<tauri::Wry>,
     settings: MenuItem<tauri::Wry>,
     diagnostics: MenuItem<tauri::Wry>,
+    feedback: MenuItem<tauri::Wry>,
     quit: MenuItem<tauri::Wry>,
     last_state: Mutex<runtime_state::Snapshot>,
     tray_config: Mutex<Value>,
@@ -131,6 +133,7 @@ fn refresh_tray(app: &AppHandle) {
         let _ = host.pause.set_text(tr(&handle, "native.pause"));
         let _ = host.settings.set_text(tr(&handle, "native.open"));
         let _ = host.diagnostics.set_text(tr(&handle, "native.diagnostics"));
+        let _ = host.feedback.set_text(tr(&handle, "native.feedback"));
         let _ = host.quit.set_text(tr(&handle, "native.quit"));
         let _ = host.mixed.set_text(tr(&handle, "mixed.mode"));
         let _ = host.mixed.set_checked(mixed["enabled"] == true);
@@ -164,6 +167,7 @@ fn refresh_tray(app: &AppHandle) {
                 menu.append(&PredefinedMenuItem::separator(&handle)?)?;
                 menu.append(&host.settings)?;
                 menu.append(&host.diagnostics)?;
+                menu.append(&host.feedback)?;
                 menu.append(&host.pause)?;
                 menu.append(&PredefinedMenuItem::separator(&handle)?)?;
                 menu.append(&host.quit)?;
@@ -515,7 +519,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
-        .invoke_handler(tauri::generate_handler![runtime_request, host_info, compatibility::compatibility_open_issue, locale_set, client_ready, startup_get, startup_set, export_diagnostics, confirm_delete, confirm_local_input, updates::update_check, updates::update_set_beta, updates::update_download, updates::update_install, updates::update_open_download])
+        .invoke_handler(tauri::generate_handler![runtime_request, host_info, compatibility::compatibility_open_issue, compatibility::feedback_open_privacy, feedback::feedback_send, locale_set, client_ready, startup_get, startup_set, export_diagnostics, confirm_delete, confirm_local_input, updates::update_check, updates::update_set_beta, updates::update_download, updates::update_install, updates::update_open_download])
         .setup(|app| {
             let handle = app.handle().clone();
             let data_dir = paths::data_dir()?;
@@ -526,18 +530,19 @@ fn main() {
             let status = MenuItem::with_id(app, "status", tr(app.app_handle(), "native.unconfigured"), false, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", tr(app.app_handle(), "settings"), true, None::<&str>)?;
             let diagnostics = MenuItem::with_id(app, "diagnostics", tr(app.app_handle(), "native.diagnostics"), true, None::<&str>)?;
+            let feedback = MenuItem::with_id(app, "feedback", tr(app.app_handle(), "native.feedback"), true, None::<&str>)?;
             let pause = CheckMenuItem::with_id(app, "pause", tr(app.app_handle(), "native.pause"), true, false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", tr(app.app_handle(), "native.quit"), true, None::<&str>)?;
             let mixed = CheckMenuItem::with_id(app, "mixed", tr(app.app_handle(), "mixed.mode"), false, false, None::<&str>)?;
             let mixed_assignment = MenuItem::with_id(app, "mixed-assignment", "", false, None::<&str>)?;
             let mixed_configure = MenuItem::with_id(app, "mixed-configure", tr(app.app_handle(), "native.mixed.configure"), true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&status, &mixed, &mixed_configure, &settings, &diagnostics, &pause, &quit])?;
+            let menu = Menu::with_items(app, &[&status, &mixed, &mixed_configure, &settings, &diagnostics, &feedback, &pause, &quit])?;
             let generation = recovery::INITIAL_GENERATION;
             let runtime = start_runtime(&handle, &data_dir, generation)?;
             let restart_handle = handle.clone();
             let restart_dir = data_dir.clone();
             let slot = recovery::RuntimeSlot::new(runtime.clone(), move |generation| start_runtime(&restart_handle, &restart_dir, generation));
-            app.manage(Host { runtime: slot, pairing_gate: Arc::new(Mutex::new(())), pairing_closing: AtomicBool::new(false), data_dir, page: Mutex::new(page.into()), status, settings, diagnostics, quit, pause, last_state: Mutex::new(runtime_state::Snapshot::default()),
+            app.manage(Host { runtime: slot, pairing_gate: Arc::new(Mutex::new(())), pairing_closing: AtomicBool::new(false), data_dir, page: Mutex::new(page.into()), status, settings, diagnostics, feedback, quit, pause, last_state: Mutex::new(runtime_state::Snapshot::default()),
                 tray_config: Mutex::new(json!({})), mixed, mixed_assignment, mixed_configure, mixed_notice_mode: Mutex::new(None), mixed_busy: AtomicBool::new(false),
                 ready: AtomicBool::new(false), wants_visible: AtomicBool::new(!hidden),
                 exit_pending: AtomicBool::new(false), exit_ready: AtomicBool::new(false) });
@@ -578,6 +583,7 @@ fn main() {
                         });
                     },
                     "diagnostics" => open_client(app, "diagnostics"),
+                    "feedback" => open_client(app, "diagnostics#feedback"),
                     "pause" => {
                         if app.state::<updates::Updates>().installing.load(Ordering::Acquire) {
                             let _ = app.state::<Host>().pause.set_checked(true);

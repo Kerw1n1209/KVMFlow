@@ -31,13 +31,20 @@ pub fn compatibility_open_issue(url: String) -> Result<(), String> {
     if !allowed_url(&url) {
         return Err("Invalid compatibility issue URL".into());
     }
+    open_browser(&url)
+}
+
+#[tauri::command]
+pub fn feedback_open_privacy() -> Result<(), String> {
+    open_browser("https://kvmflow.net/privacy")
+}
+
+fn open_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("/usr/bin/open")
-        .arg(&url)
-        .spawn();
+    let result = std::process::Command::new("/usr/bin/open").arg(url).spawn();
     #[cfg(target_os = "windows")]
     let result = std::process::Command::new("rundll32.exe")
-        .args(["url.dll,FileProtocolHandler", &url])
+        .args(["url.dll,FileProtocolHandler", url])
         .spawn();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     return Err("Unsupported browser platform".into());

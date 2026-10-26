@@ -2155,6 +2155,8 @@ dependencies = [
  "kvmflow-core",
  "kvmflow-sidecar",
  "os_info",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",

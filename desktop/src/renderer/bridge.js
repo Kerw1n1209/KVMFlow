@@ -52,6 +52,8 @@
     },
     get cachedDisplays() { return structuredClone(cachedDisplays); },
     openCompatibilityIssue: (url) => invoke('compatibility_open_issue', { url }),
+    sendFeedback: (payload) => invoke('feedback_send', { payload }),
+    openPrivacy: () => invoke('feedback_open_privacy'),
     exportDiagnostics: (payload) => invoke('export_diagnostics', { payload }),
     confirmDelete: (name) => invoke('confirm_delete', { name }),
     confirmLocalInput: (changes) => invoke('confirm_local_input', { changes }),

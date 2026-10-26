@@ -638,3 +638,28 @@ test('a config migrated from v1 opens with both computers and keeps its device i
   assert.equal(saved.local_device.device_id, 'legacy-local');
   assert.equal(JSON.stringify(saved.switch_group.devices.map(device => device.device_id).sort()), '["legacy-local","legacy-remote"]');
 });
+
+
+test('tray feedback navigation opens the dialog from both a running and a cold window', async t => {
+  const running = await client(t);
+  running.navigate('diagnostics#feedback');
+  await tick();
+  assert.equal(running.win.document.querySelector('#compatibility-dialog').open, true);
+  assert.equal(running.win.document.querySelector('#diagnostics-page').classList.contains('hidden'), false);
+  assert.equal(running.requests.some(r => r.method === 'diagnostics.collect'), false);
+  const cold = await client(t, { initialPage: 'diagnostics#feedback' });
+  assert.equal(cold.win.document.querySelector('#compatibility-dialog').open, true);
+});
+
+test('feedback uses the same redacted diagnostics collector as native export', async t => {
+  const c = await client(t, { computerName: 'PRIVATE-HOST' });
+  const payload = await c.win.kvmflow.collectRedactedDiagnostics({ requireRuntime: true });
+  assert.equal(payload.redacted, true);
+  assert.equal(payload.sidecar.backend, 'test');
+  assert.equal(JSON.stringify(payload).includes('PRIVATE-HOST'), false);
+  const failed = await client(t, { request: async method => { if (method === 'diagnostics.collect') throw new Error('offline'); } });
+  await assert.rejects(failed.win.kvmflow.collectRedactedDiagnostics({ requireRuntime: true }));
+  const partialExport = await failed.win.kvmflow.collectRedactedDiagnostics();
+  assert.equal(partialExport.sidecar, null);
+  assert.equal(partialExport.redacted, true);
+});

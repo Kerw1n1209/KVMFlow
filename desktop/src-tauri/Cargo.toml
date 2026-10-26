@@ -9,6 +9,8 @@ license = "MIT"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 os_info = { version = "3", default-features = false }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-autostart = "2"

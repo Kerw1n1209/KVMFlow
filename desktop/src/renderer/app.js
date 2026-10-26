@@ -812,28 +812,30 @@
       finally { settingsDetectionActive = false; }
     })();
   };
+  S.collectRedactedDiagnostics = async ({ requireRuntime = false } = {}) => {
+    const [diagnosticsResult, configResult] = await Promise.allSettled([
+      S.request('diagnostics.collect', { tail: 200 }), S.request('config.get'),
+    ]);
+    if (requireRuntime && diagnosticsResult.status === 'rejected') throw new Error('Diagnostics unavailable');
+    return window.KVMFlowRedact.redactDiagnostics({
+      exported_at: new Date().toISOString(), ui: model,
+      config: configResult.status === 'fulfilled' ? configResult.value : null,
+      sidecar: diagnosticsResult.status === 'fulfilled' ? diagnosticsResult.value : null,
+      errors: [diagnosticsResult, configResult].filter(result => result.status === 'rejected').map(result => String(result.reason?.message || result.reason)),
+    }, { computerName });
+  };
   byId('export-log').addEventListener('click', async (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
     try {
-      const [diagnosticsResult, configResult] = await Promise.allSettled([
-        S.request('diagnostics.collect', { tail: 200 }),
-        S.request('config.get'),
-      ]);
-      const payload = window.KVMFlowRedact.redactDiagnostics({
-        exported_at: new Date().toISOString(),
-        ui: model,
-        config: configResult.status === 'fulfilled' ? configResult.value : null,
-        sidecar: diagnosticsResult.status === 'fulfilled' ? diagnosticsResult.value : null,
-        errors: [diagnosticsResult, configResult].filter((result) => result.status === 'rejected').map((result) => String(result.reason?.message || result.reason)),
-      }, { computerName });
-      if (await S.exportDiagnostics(payload)) log(t("diagnostics.exported"), t("diagnostics.saved.to.the.selected.location"));
+      if (await S.exportDiagnostics(await S.collectRedactedDiagnostics())) log(t("diagnostics.exported"), t("diagnostics.saved.to.the.selected.location"));
     } catch (error) { log(t("export.failed"), String(error?.message || t("unable.to.export.records"))); }
   }, true);
   S.onClientNavigate((target) => {
     // "settings#mixed" opens the settings page at the mixed mode section.
     const [page, section] = String(target).split('#');
     navigate(page === 'wizard' ? 'guide' : page, { section });
+    if (page === 'diagnostics' && section === 'feedback') window.KVMFlowFeedback.open();
   });
   S.onNotification('state', (state) => {
     state = window.KVMFlowMixed ? window.KVMFlowMixed.setState(state) : state;
@@ -897,6 +899,7 @@
     redrawAll();
     const [initialPage, initialSection] = String(S.initialPage || info.initialPage).split('#');
     navigate(initialPage === 'wizard' ? 'guide' : initialPage, { section: initialSection });
+    if (initialPage === 'diagnostics' && initialSection === 'feedback') window.KVMFlowFeedback.open();
     await S.clientReady();
     // Display probes run in setup, where the user has put the physical
     // screen on this host. Loading the saved mappings needs no DDC traffic.
