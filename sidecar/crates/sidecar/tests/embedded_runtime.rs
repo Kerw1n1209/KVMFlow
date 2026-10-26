@@ -294,3 +294,63 @@ fn runtime_snapshots_have_one_monotonic_sequence_across_events_and_responses() {
     assert!(previous > 0);
     runtime.shutdown_and_join().unwrap();
 }
+
+#[test]
+fn manual_connect_commands_validate_before_dispatch_and_identity_works_without_lan() {
+    let dir = tempfile::tempdir().unwrap();
+    let (runtime, _) = start(dir.path(), "config.json");
+    let identity = runtime.request("lan.identity", json!({})).unwrap();
+    assert!(identity["device_id"].as_str().unwrap().starts_with("dev-"));
+    assert_eq!(
+        runtime.request("lan.identity", json!({})).unwrap(),
+        identity
+    );
+    for method in ["lan.connect_manual", "lan.connect.manual"] {
+        for pair in [true, false] {
+            assert_eq!(
+                runtime
+                    .request(method, json!({"addr":"8.8.8.8","pair":pair}))
+                    .unwrap_err()
+                    .code,
+                "E_LAN_ADDRESS"
+            );
+            assert_eq!(
+                runtime
+                    .request(method, json!({"addr":"192.168.1.23","pair":pair}))
+                    .unwrap_err()
+                    .code,
+                "E_LAN_DISABLED"
+            );
+        }
+    }
+    runtime.shutdown();
+}
+
+#[test]
+fn paired_legacy_config_emits_actionable_issue_without_changing_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = kvmflow_core::config::MultiDeviceConfig::from_legacy(
+        kvmflow_core::config::example_config(),
+    );
+    cfg.local_device.device_id = "mac".into();
+    let mut value = serde_json::to_value(cfg).unwrap();
+    value["switch_group"] = json!({"group_id":"paired","revision":1,"devices":[],"sync":{"members":[{"device_id":"peer","public_key":"pin"}]}});
+    let original = serde_json::to_vec(&value).unwrap();
+    std::fs::write(dir.path().join("config.json"), &original).unwrap();
+    let (runtime, _) = start(dir.path(), "config.json");
+    let state = runtime.request("lan.status", json!({})).unwrap();
+    assert!(state["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["code"] == "E_LAN_ID_MIGRATION_REQUIRED"));
+    assert_eq!(
+        runtime.request("lan.identity", json!({})).unwrap_err().code,
+        "E_LAN_ID_MIGRATION_REQUIRED"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("config.json")).unwrap(),
+        original
+    );
+    runtime.shutdown();
+}

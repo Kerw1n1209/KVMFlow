@@ -121,7 +121,10 @@ fn pair(a: &mut Node, b: &mut Node) {
     let b_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, b.lan_port()));
     // The responder is on its pairing screen (inbound admission window).
     b.request("lan.pair.window", json!({"open": true}));
-    a.request("lan.pair.start", json!({"addr": b_addr.to_string()}));
+    a.request(
+        "lan.connect_manual",
+        json!({"addr": b_addr.to_string(), "pair":true}),
+    );
     let confirm = |n: &Node| n.wait_for(|v| v["phase"] == "await_confirm", Duration::from_secs(10));
     assert!(confirm(a).is_some(), "a never showed the SAS prompt");
     assert!(confirm(b).is_some(), "b never showed the SAS prompt");

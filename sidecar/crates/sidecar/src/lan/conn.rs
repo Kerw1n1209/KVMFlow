@@ -79,6 +79,9 @@ pub struct PeerStatus {
     pub name: String,
     pub online: bool,
     pub addr: Option<SocketAddr>,
+    /// Untrusted discovery hint for starting quarantined pairing only.
+    /// It never implies membership or an authenticated online session.
+    pub pair_addr: Option<SocketAddr>,
     pub last_seen_ms: u64,
     /// Initiator ID makes connection selection inspectable in diagnostics.
     pub initiator: Option<String>,
@@ -126,6 +129,10 @@ struct SessionContext {
 type SessionRegistry = Arc<Mutex<HashMap<String, SessionContext>>>;
 #[derive(Clone, Debug)]
 pub enum LanEvent {
+    Issue {
+        code: String,
+        message: String,
+    },
     Peers(Vec<PeerStatus>),
     PairReady(Arc<super::pair_link::PairLink>),
     Message {
@@ -160,7 +167,7 @@ impl LanEvent {
 }
 enum Command {
     Send(String, Envelope),
-    Manual(SocketAddr),
+    Manual(SocketAddr, bool),
     Pair(SocketAddr),
     Reannounce,
     Disconnect(String),
@@ -324,8 +331,11 @@ impl LanHandle {
         self.command(Command::Pair(addr))
     }
     pub fn connect_manual(&self, addr: SocketAddr) -> Result<()> {
+        self.connect_manual_with_pairing(addr, false)
+    }
+    pub fn connect_manual_with_pairing(&self, addr: SocketAddr, pairing: bool) -> Result<()> {
         self.policy.check(addr)?;
-        self.command(Command::Manual(addr))
+        self.command(Command::Manual(addr, pairing))
     }
     /// Runtime calls after network changes/resume. Auto-address monitoring in
     /// mdns-sd also updates announcements as interfaces appear/disappear.
@@ -386,6 +396,11 @@ fn local_lan_ip() -> Option<std::net::IpAddr> {
         .ok()?
         .into_iter()
         .filter(|iface| !iface.is_loopback())
+        .filter(|iface| {
+            !["utun", "tun", "tap", "zt", "tailscale", "wg"]
+                .iter()
+                .any(|prefix| iface.name.to_lowercase().starts_with(prefix))
+        })
         .map(|iface| iface.addr.ip())
         .filter(|ip| matches!(ip, std::net::IpAddr::V4(_)) && policy.allows(*ip))
         .collect();
@@ -433,6 +448,14 @@ impl Retry {
         self.next = Instant::now() + self.delay;
         self.delay = self.delay.saturating_mul(2).min(timing.retry_max);
         self.cursor += 1;
+    }
+    fn failed_in_rotation(&mut self, timing: &Timing, count: usize) {
+        if (self.cursor + 1) % count == 0 {
+            self.failed(timing);
+        } else {
+            self.cursor += 1;
+            self.next = Instant::now();
+        }
     }
     fn reset(&mut self, timing: &Timing) {
         self.next = Instant::now();
@@ -693,9 +716,11 @@ impl Supervisor {
                         }
                     }
                     Command::Disconnect(id) => self.close(&id, "E_LAN_DISCONNECTED"),
-                    Command::Manual(addr) => {
+                    Command::Manual(addr, pairing) => {
                         if let Err(e) = self.options.address_policy.check(addr) {
                             self.issue(e.to_string());
+                        } else if pairing {
+                            self.spawn_pair(addr);
                         } else {
                             self.upsert(DiscoveredPeer {
                                 device_id: format!("@{addr}"),
@@ -928,10 +953,19 @@ impl Supervisor {
             Err(error) => {
                 if let Some(id) = candidate {
                     if let Some(candidate) = self.candidates.get_mut(&id) {
-                        candidate.retry.failed(&self.options.timing);
+                        candidate
+                            .retry
+                            .failed_in_rotation(&self.options.timing, candidate.addresses.len());
                     }
                     if let Some(peer) = self.peers.get_mut(&id) {
                         peer.last_error = Some(error.code.into());
+                        peer.pair_addr = if error.code == "E_LAN_NOT_MEMBER" {
+                            Some(result.addr)
+                        } else {
+                            self.candidates
+                                .get(&id)
+                                .map(|c| c.addresses[c.retry.cursor % c.addresses.len()])
+                        };
                     }
                 }
                 let _ = self.events.try_send(LanEvent::Rejected {
@@ -944,6 +978,20 @@ impl Supervisor {
         }
     }
     fn upsert(&mut self, mut peer: DiscoveredPeer) {
+        if peer.device_id == self.hello.device_id
+            && !peer.key_fp.is_empty()
+            && peer.key_fp != short_hash(&self.identity.public_key())
+        {
+            let code = "E_LAN_ID_CONFLICT";
+            let mut status = self.status.lock().unwrap();
+            if !status.issues.iter().any(|issue| issue == code) {
+                status.issues.push(code.into());
+                let _ = self.events.try_send(LanEvent::Issue {
+                    code: code.into(), message: "Another computer advertises this device ID with a different key. Pair the computers again.".into(),
+                });
+            }
+            return;
+        }
         if peer.device_id.is_empty()
             || peer.device_id == self.hello.device_id
             || peer.device_id.len() > 128
@@ -971,8 +1019,11 @@ impl Supervisor {
                 addresses: vec![],
                 retry: Retry::new(&self.options.timing),
             });
-        retry.addresses = peer.addresses;
-        retry.retry.reset(&self.options.timing);
+        if retry.addresses != peer.addresses {
+            retry.addresses = peer.addresses;
+            retry.retry.reset(&self.options.timing);
+        }
+        let pair_addr = retry.addresses[retry.retry.cursor % retry.addresses.len()];
         let id = peer.device_id.clone();
         self.observed.insert(id.clone(), Instant::now());
         self.peers
@@ -980,6 +1031,7 @@ impl Supervisor {
             .and_modify(|p| {
                 if !p.online {
                     p.name = peer.name.clone();
+                    p.pair_addr = Some(pair_addr);
                 }
             })
             .or_insert(PeerStatus {
@@ -987,6 +1039,7 @@ impl Supervisor {
                 name: peer.name,
                 online: false,
                 addr: None,
+                pair_addr: Some(pair_addr),
                 last_seen_ms: 0,
                 initiator: None,
                 app_version: None,
@@ -1370,6 +1423,7 @@ impl Supervisor {
             name: id.clone(),
             online: false,
             addr: None,
+            pair_addr: None,
             last_seen_ms: 0,
             initiator: None,
             app_version: None,
@@ -1403,7 +1457,9 @@ impl Supervisor {
         }
         if let Some(candidate) = self.candidates.get_mut(id) {
             candidate.retry.reset(&self.options.timing);
-            candidate.retry.failed(&self.options.timing);
+            candidate
+                .retry
+                .failed_in_rotation(&self.options.timing, candidate.addresses.len());
         }
         self.publish();
     }
@@ -2382,5 +2438,92 @@ mod session_source_tests {
             thread::sleep(TICK);
         }
         restarted.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod identity_conflict_regressions {
+    use super::*;
+    #[test]
+    fn duplicate_id_with_a_different_key_reports_issue_but_own_echo_is_ignored() {
+        let (mut supervisor, _, events) = super::discovery_regression_tests::supervisor();
+        let mut ad = DiscoveredPeer {
+            device_id: "local".into(),
+            name: "PC".into(),
+            addresses: vec!["192.168.1.3:47820".parse().unwrap()],
+            key_fp: short_hash(&supervisor.identity.public_key()),
+            group_fp: String::new(),
+        };
+        supervisor.upsert(ad.clone());
+        assert!(events.try_recv().is_err());
+        ad.key_fp = "different".into();
+        supervisor.upsert(ad.clone());
+        assert!(format!("{:?}", events.try_recv().unwrap()).contains("E_LAN_ID_CONFLICT"));
+        supervisor.upsert(ad);
+        assert!(events.try_recv().is_err());
+        assert_eq!(
+            supervisor.status.lock().unwrap().issues,
+            vec!["E_LAN_ID_CONFLICT"]
+        );
+        assert!(supervisor.peers.is_empty());
+    }
+    #[test]
+    fn unreachable_virtual_addresses_rotate_before_backoff_and_refresh_preserves_progress() {
+        let (mut supervisor, _, _) = super::discovery_regression_tests::supervisor();
+        let ad = DiscoveredPeer {
+            device_id: "peer".into(),
+            name: "PC".into(),
+            addresses: vec![
+                "10.242.163.87:47820".parse().unwrap(),
+                "10.147.17.37:47820".parse().unwrap(),
+                "192.168.1.23:47820".parse().unwrap(),
+            ],
+            key_fp: String::new(),
+            group_fp: String::new(),
+        };
+        supervisor.upsert(ad.clone());
+        for index in 0..2 {
+            let token = supervisor.begin_attempt(Some("peer".into()));
+            supervisor.complete_attempt(AttemptResult {
+                token,
+                addr: ad.addresses[index],
+                result: Err(LanError::new("E_LAN_IO", "unreachable")),
+                refusal_key: None,
+            });
+            let candidate = &supervisor.candidates["peer"];
+            assert_eq!(candidate.retry.cursor, index + 1);
+            assert!(candidate.retry.next <= Instant::now());
+            supervisor.upsert(ad.clone());
+            assert_eq!(supervisor.candidates["peer"].retry.cursor, index + 1);
+        }
+        assert_eq!(
+            supervisor.candidates["peer"].addresses[2].ip().to_string(),
+            "192.168.1.23"
+        );
+        let token = supervisor.begin_attempt(Some("peer".into()));
+        supervisor.complete_attempt(AttemptResult {
+            token,
+            addr: ad.addresses[2],
+            result: Err(LanError::new("E_LAN_IO", "unreachable")),
+            refusal_key: None,
+        });
+        assert!(supervisor.candidates["peer"].retry.next > Instant::now());
+    }
+}
+
+#[cfg(test)]
+mod unpaired_discovery_tests {
+    use super::*;
+    #[test]
+    fn untrusted_advertisement_exposes_pairing_hint_without_online_or_session_evidence() {
+        let (mut supervisor, _, _) = super::discovery_regression_tests::supervisor();
+        let ad = super::discovery_regression_tests::discovered("fresh");
+        let addr = ad.addresses[0];
+        supervisor.upsert(ad);
+        let peer = &supervisor.peers["fresh"];
+        assert_eq!(peer.pair_addr, Some(addr));
+        assert!(!peer.online);
+        assert!(peer.addr.is_none());
+        assert!(peer.connection_id.is_none());
     }
 }
