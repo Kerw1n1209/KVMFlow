@@ -2,13 +2,12 @@ const t = (id, params) => window.KVMFlowI18n.t(id, params);
 // Local UI model. The persisted Rust configuration is authoritative; this
 // cache stores navigation and recent UI events, never hardware evidence.
 const key = 'kvmflow-local-prototype-v2';
-const windowsHost = /Win/.test(navigator.platform);
 const defaults = {
-  localId: windowsHost ? 'win' : 'mac', nextId: windowsHost ? 'mac' : 'win',
+  localId: 'draft-local', nextId: 'draft-remote',
   usbConfirmed: false,
   computers: [
-    { id: windowsHost ? 'win' : 'mac', name: t("this.computer"), nameKey: "this.computer", port: 1, local: true, sources: [] },
-    { id: windowsHost ? 'mac' : 'win', name: t("other.computer"), nameKey: "other.computer", port: 2, local: false, sources: [] },
+    { id: 'draft-local', name: t("this.computer"), nameKey: "this.computer", port: 1, local: true, sources: [] },
+    { id: 'draft-remote', name: t("other.computer"), nameKey: "other.computer", port: 2, local: false, sources: [] },
   ],
   displays: [], events: [],
 };

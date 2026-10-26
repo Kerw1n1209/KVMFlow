@@ -628,7 +628,12 @@
       "feedback.done": "完成",
       "feedback.id.copied": "反馈编号已复制",
       "compat.channel": "版本通道",
-      "compat.mode": "切换模式"
+      "compat.mode": "切换模式",
+      "lan.ip.connect": "按 IP 连接",
+      "lan.ip.address": "对方的 IPv4 地址",
+      "lan.error.id.conflict": "另一台电脑正在使用相同的设备身份。请更新两台电脑上的 KVMFlow，然后重新配对。",
+      "lan.error.id.migration": "旧设备身份已用于配对。请在两台电脑上移除旧配对，然后重新配对。",
+      "lan.error.identity.io": "无法保存本机设备身份。请检查配置目录的写入权限后重启 KVMFlow。"
     },
     "en": {
       "this.computer": "This computer",
@@ -1246,7 +1251,12 @@
       "feedback.done": "Done",
       "feedback.id.copied": "Feedback ID copied",
       "compat.channel": "Release channel",
-      "compat.mode": "Switching mode"
+      "compat.mode": "Switching mode",
+      "lan.ip.connect": "Connect by IP",
+      "lan.ip.address": "Other computer’s IPv4 address",
+      "lan.error.id.conflict": "Another computer is using the same device identity. Update KVMFlow on both computers, then pair again.",
+      "lan.error.id.migration": "This legacy identity is already paired. Remove the old pairing on both computers, then pair again.",
+      "lan.error.identity.io": "Could not save this computer’s identity. Check write access to the configuration folder and restart KVMFlow."
     }
   }
 }

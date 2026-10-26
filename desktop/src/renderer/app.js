@@ -13,6 +13,7 @@
     return result;
   };
   let sidecarConfig = null;
+  let runtimeDeviceId = null;
   let pairingConfigStale = false;
   let appliedModel = null;
   let computerName = t("this.computer");
@@ -112,8 +113,15 @@
     const readableDisplays = displays.filter((display) => display.ddc?.state === 'available');
     readableDisplayCount = readableDisplays.length;
     const groupDevices = Array.isArray(config?.switch_group?.devices) ? [...config.switch_group.devices].sort((a, b) => Number(a.port_index) - Number(b.port_index)) : [];
-    const localDeviceId = config?.local_device?.device_id;
-    if (localDeviceId && !groupDevices.length) {
+    const localDeviceId = config?.local_device?.device_id || runtimeDeviceId;
+    if (!config && runtimeDeviceId) {
+      const oldId = model.localId;
+      model.computers = model.computers.map(computer => computer.local ? { ...computer, id: runtimeDeviceId } : computer);
+      model.localId = runtimeDeviceId;
+      if (model.nextId === oldId) model.nextId = runtimeDeviceId;
+      editingId = runtimeDeviceId;
+    }
+    if (config?.local_device && localDeviceId && !groupDevices.length) {
       const previousLocal = current();
       model.localId = localDeviceId;
       model.nextId = localDeviceId;
@@ -209,7 +217,8 @@
   p0: index + 1
 }), local_input: safe(localComputer.sources[index], before.local_input ?? 0), source: model.localInputSources?.[index] || before.here_input_source || before.source || 'unknown' };
     });
-    const localDeviceId = previous.local_device?.device_id || localComputer.id;
+    const localDeviceId = runtimeDeviceId;
+    if (!localDeviceId) throw new Error(t('lan.error.identity'));
     const inputFor = (computer, index) => computer.local ? monitors[index].local_input : computer.sources[index];
     for (const computer of model.computers) {
       const missing = monitors.findIndex((_, index) => {
@@ -352,9 +361,10 @@
       pairingConfigStale = true;
       return serializeConfigWrite(reloadPairingConfig);
     },
-    preparePrimary: (identity) => serializeConfigWrite(async () => {
+    preparePrimary: () => serializeConfigWrite(async () => {
       if (sidecarConfig?.local_device) return;
-      const self = identity?.device_id ? identity : (await S.request('lan.status'))?.self;
+      const self = await S.request('lan.identity');
+      runtimeDeviceId = self?.device_id || null;
       // Identity is owned by the runtime. Never use shell defaults or create
       // a frontend device id when LAN startup could not expose the real one.
       if (!self?.device_id) throw new Error(t('lan.error.identity'));
@@ -895,6 +905,7 @@
     computerName = typeof info.computerName === 'string' && info.computerName.trim()
       ? info.computerName.trim() : t("this.computer");
     const config = await S.request('config.get');
+    try { runtimeDeviceId = (await S.request('lan.identity'))?.device_id || null; } catch { runtimeDeviceId = null; }
     applySidecarConfig(config, null);
     redrawAll();
     const [initialPage, initialSection] = String(S.initialPage || info.initialPage).split('#');

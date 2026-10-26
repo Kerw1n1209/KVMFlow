@@ -182,7 +182,7 @@ test('unconfigured settings read real local monitor values without arming switch
   assert.equal(win.document.querySelector('#local-input-origin').textContent, '自动读取');
   assert.equal(win.document.querySelector('#edit-name').value, '尚未保存的名称');
   assert.equal(requests.some(entry => entry.method === 'usb.watch.start' || entry.method === 'config.set'), false);
-  win.editComputer('win');
+  win.editComputer('draft-remote');
   assert.equal(win.document.querySelector('#local-input-origin'), null);
   assert.equal(win.document.querySelector('#edit-0').value, '');
 });
