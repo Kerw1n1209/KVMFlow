@@ -61,6 +61,22 @@ check(
   notices.includes('generate-third-party-licenses'),
 );
 
+const fontDir = path.join(root, 'desktop/src/renderer/assets/fonts');
+const fontFiles = [
+  'NotoSerifSC-Variable.woff2',
+  'KVMFlowSerif-Variable.woff2',
+  'OFL-NotoSerifSC.txt',
+  'OFL-SourceSerif4.txt',
+];
+check(
+  'bundled renderer fonts and OFL texts are present',
+  fontFiles.every((name) => fs.existsSync(path.join(fontDir, name))),
+);
+check(
+  'THIRD_PARTY_NOTICES documents the bundled fonts',
+  notices.includes('Noto Serif SC') && notices.includes('Source Serif 4'),
+);
+
 if (process.argv.includes('--licenses')) {
   const result = spawnSync(
     process.execPath,
@@ -68,6 +84,11 @@ if (process.argv.includes('--licenses')) {
     { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
   );
   check('license bundle generates without gaps', result.status === 0, result.stdout + result.stderr);
+  check(
+    'license bundle includes the font OFL texts',
+    fs.existsSync(path.join(root, 'third-party-licenses/fonts/OFL-NotoSerifSC.txt'))
+      && fs.existsSync(path.join(root, 'third-party-licenses/fonts/OFL-SourceSerif4.txt')),
+  );
 }
 
 if (failures > 0) {

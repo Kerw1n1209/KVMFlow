@@ -111,6 +111,22 @@ const manifest = {
     status: c.status,
   })),
 };
+
+// Bundled renderer fonts are not cargo crates; carry their OFL texts in the
+// same redistributable bundle so release packaging has one license root.
+const fontSource = path.join(root, 'desktop/src/renderer/assets/fonts');
+const fontTarget = path.join(outDir, 'fonts');
+fs.mkdirSync(fontTarget, { recursive: true });
+const fontFiles = ['OFL-NotoSerifSC.txt', 'OFL-SourceSerif4.txt', 'README.md'];
+for (const name of fontFiles) {
+  const from = path.join(fontSource, name);
+  if (!fs.existsSync(from)) fail(`missing font license file: ${from}`);
+  fs.copyFileSync(from, path.join(fontTarget, name));
+}
+manifest.fonts = {
+  source: 'desktop/src/renderer/assets/fonts',
+  files: fontFiles,
+};
 fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
 const ok = index.filter((c) => c.status === 'ok').length;
