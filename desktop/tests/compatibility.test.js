@@ -19,7 +19,13 @@ async function setup(t, options = {}) {
   Object.defineProperty(win.navigator, 'clipboard', { value: { writeText: async text => { if (options.copyFailed) throw new Error('clipboard unavailable'); copied.push(text); } } });
   win.kvmflow = {
     info: Promise.resolve({ platform: 'windows', version: '0.4.0', arch: 'x86_64', osVersion: '11.0.26100', computerName: 'PRIVATE-PC' }), cachedDisplays: options.displays || [],
-    request: async method => { requests.push(method); if (options.requestFailed) throw new Error('/Users/private'); return {}; },
+    hostInfo: async () => ({ platform: 'windows', version: '0.4.0', arch: 'x86_64', osVersion: '11.0.26100', receiveBeta: options.receiveBeta === true }),
+    request: async method => {
+      requests.push(method);
+      if (options.requestFailed) throw new Error('/Users/private');
+      if (method === 'display.list') { if (options.probeFailed) throw new Error('probe failed'); return { displays: options.liveDisplays || options.displays || [] }; }
+      return {};
+    },
     openCompatibilityIssue: async url => { if (options.openFailed) throw new Error('cannot launch'); opened.push(url); },
     openPrivacy: async () => { privacyCalls++; },
     sendFeedback: async payload => { sent.push(structuredClone(payload)); if (options.send) return options.send(payload); if (options.sendError) throw { code: options.sendError }; return receipt; },
@@ -42,7 +48,7 @@ async function setup(t, options = {}) {
 test('entry defaults to no diagnostics and previews the exact structured object sent', async t => {
   const c = await setup(t); await c.click('submit-device');
   assert.equal(c.dialog.open, true); assert.equal(c.byId('feedback-diagnostics').checked, false); assert.equal(c.byId('feedback-send').disabled, true);
-  assert.deepEqual(c.requests, ['config.get', 'usb.snapshot', 'state.get']); assert.equal(c.diagnosticCalls(), 0); assert.deepEqual(c.sent, []);
+  assert.deepEqual(c.requests, ['config.get', 'usb.snapshot', 'state.get', 'display.list']); assert.equal(c.diagnosticCalls(), 0); assert.deepEqual(c.sent, []);
   c.choose('problem'); c.fill('feedback-message', 'Display stayed black\nAfter switching'); c.fill('feedback-contact', 'user@example.com');
   const preview = JSON.parse(c.preview());
   await c.click('feedback-send');
@@ -121,4 +127,40 @@ test('collection and receipt failures display local messages and never raw serve
   assert.equal(failed.dialog.open, false); assert.match(failed.byId('compatibility-status').textContent, /Could not prepare/); assert.doesNotMatch(failed.win.document.body.textContent, /\/Users\/private/);
   const c = await setup(t, { send: async () => ({ ok: true, id: '/Users/private' }) }); await c.click('submit-device'); c.choose(); await c.click('feedback-send');
   assert.match(c.byId('feedback-status').textContent, /Unable to send/); assert.doesNotMatch(c.win.document.body.textContent, /\/Users\/private/);
+});
+
+
+test('each open refreshes display evidence and saved channel while preserving the complete draft', async t => {
+  const display = { edid_id: 'display-one', manufacturer: 'DEL', model_name: 'U2723QE', ddc: { state: 'available', input: 15 } };
+  const options = { liveDisplays: [display], receiveBeta: false };
+  const c = await setup(t, options); await c.click('submit-device'); c.choose('problem');
+  c.fill('feedback-message', 'Keep my description'); c.fill('feedback-contact', 'person@example.com'); await c.click('feedback-diagnostics');
+  assert.equal(JSON.parse(c.preview()).report.monitors[0].model, 'U2723QE');
+  await c.click('cancel-compatibility');
+  options.liveDisplays = [{ ...display, model_name: 'U3223QE', ddc: { state: 'available', input: 17 } }]; options.receiveBeta = true;
+  await c.click('submit-device');
+  const payload = JSON.parse(c.preview());
+  assert.equal(payload.report.monitors[0].model, 'U3223QE'); assert.equal(payload.report.monitors[0].vcp60, 17); assert.equal(payload.report.app.channel, 'beta');
+  assert.equal(payload.kind, 'problem'); assert.equal(payload.message, 'Keep my description'); assert.equal(payload.contact, 'person@example.com');
+  assert.equal(c.byId('feedback-diagnostics').checked, true); assert.equal(typeof payload.diagnostics, 'string');
+  assert.equal(c.requests.filter(method => method === 'display.list').length, 2);
+});
+
+test('display probe failure falls back to existing evidence and still opens the dialog', async t => {
+  const c = await setup(t, { probeFailed: true, displays: [{ edid_id: 'cached-unique-identifier', manufacturer: 'DEL', model_name: 'Cached monitor' }] });
+  await c.click('submit-device'); assert.equal(c.dialog.open, true);
+  assert.equal(JSON.parse(c.preview()).report.monitors[0].model, 'Cached monitor');
+  const empty = await setup(t, { probeFailed: true }); await empty.click('submit-device');
+  assert.equal(empty.dialog.open, true); assert.deepEqual(JSON.parse(empty.preview()).report.monitors, []);
+});
+
+test('reopening after a receipt also preserves all entered fields and the diagnostics choice', async t => {
+  const c = await setup(t); await c.click('submit-device'); c.choose('problem');
+  c.fill('feedback-message', 'Keep this text'); c.fill('feedback-contact', 'person@example.com');
+  await c.click('feedback-diagnostics'); await c.click('feedback-send'); await c.click('cancel-compatibility');
+  await c.click('submit-device');
+  const p = JSON.parse(c.preview());
+  assert.equal(p.kind, 'problem'); assert.equal(p.message, 'Keep this text'); assert.equal(p.contact, 'person@example.com');
+  assert.equal(c.byId('feedback-diagnostics').checked, true); assert.equal(typeof p.diagnostics, 'string');
+  assert.equal(c.requests.filter(method => method === 'display.list').length, 2);
 });

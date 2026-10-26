@@ -80,6 +80,10 @@ test('compatibility inventory reuses display responses without probing and opens
   assert.equal(calls.filter(([command]) => command === 'runtime_request').length, 1);
   await window.kvmflow.openCompatibilityIssue('https://github.com/Kerw1n1209/KVMFlow/issues/new?template=compatibility.yml');
   assert.equal(calls.at(-1)[0], 'compatibility_open_issue');
+  const count = calls.length;
+  await window.kvmflow.hostInfo();
+  assert.equal(calls.length, count + 1);
+  assert.equal(calls.at(-1)[0], 'host_info');
   const payload = { schema: 1, kind: 'works' };
   await window.kvmflow.sendFeedback(payload);
   assert.equal(calls.at(-1)[0], 'feedback_send');

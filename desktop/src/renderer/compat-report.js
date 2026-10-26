@@ -20,7 +20,7 @@
       else if (value && typeof value === 'object') Object.entries(value).forEach(([k, v]) => collect(v, k));
     };
     collect(data);
-    array(config.switch_group?.devices).forEach(device => { if (device.name) secrets.add(device.name.toLowerCase()); });
+    array(config.switch_group?.devices).forEach(device => { if (typeof device?.name === 'string' && device.name) secrets.add(device.name.toLowerCase()); });
     const unsafe = /(?:https?:|[\\/@]|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[A-Z0-9]{3}-[0-9A-F]{4}-|\b[0-9a-f]{32,}\b|[0-9a-f]*:[0-9a-f:]*:[0-9a-f:]*|[\x00-\x1f\x7f])/i;
     const text = value => {
       if (typeof value !== 'string' || !value.trim() || unsafe.test(value) || [...secrets].some(secret => value.toLowerCase().includes(secret))) return null;
@@ -32,7 +32,7 @@
     const allMonitors = [...inventory, ...configured.filter(m => !inventory.some(d => d.edid_id === m.fingerprint)).map(m => ({ edid_id: m.fingerprint }))];
     const monitors = allMonitors.slice(0, 8).map(display => {
       const fp = display.edid_id;
-      let mappings = array(config.switch_group?.devices).map((device, i) => ({ ...array(device.monitors).find(m => fp && m.fingerprint === fp), computer: device.port_index ?? i + 1 }));
+      let mappings = array(config.switch_group?.devices).map((device, i) => ({ ...array(device?.monitors).find(m => fp && m.fingerprint === fp), computer: device?.port_index ?? i + 1 }));
       if (!mappings.some(m => input(m.local_input))) mappings = [{ ...configured.find(m => fp && m.fingerprint === fp), computer: 1 }];
       return {
         vendor: text(display.manufacturer), model: text(display.model_name),
@@ -52,7 +52,7 @@
     // panel's readback to multiple panels or infer a picture-switch result.
     const readback = outcomes.length === 1 && input(outcomes[0].readback) ? outcomes[0].readback : null;
     return {
-      app: { version: /^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(host.version || '') ? host.version : '0.0.0', channel: host.version?.includes('-') ? 'beta' : 'stable' },
+      app: { version: /^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(host.version || '') ? host.version : '0.0.0', channel: host.receiveBeta === true ? 'beta' : 'stable' },
       os: { platform: host.platform, version: /^[\d.]+$/.test(host.osVersion || '') ? host.osVersion : 'unknown', arch: ['aarch64', 'x86_64', 'x86', 'arm'].includes(host.arch) ? host.arch : 'unknown' },
       mode: state.mixed?.enabled === true ? 'mixed' : 'normal', monitors,
       usb: /^[0-9a-f]{4}:[0-9a-f]{4}$/i.test(vidPid || '') ? { vendor: text(device?.vendor) || '', product: text(device?.product) || '', vid: vidPid.slice(0, 4).toUpperCase(), pid: vidPid.slice(5).toUpperCase() } : null,

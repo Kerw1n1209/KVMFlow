@@ -57,7 +57,7 @@ const bridge = `
     handlers.get(kind).add(cb);
     return () => handlers.get(kind).delete(cb);
   } }, core: { invoke: async (command, args = {}) => {
-    if (command === 'host_info') return { version: '0.3.0', platform: scenarioName === 'compat-report' || scenarioName.startsWith('feedback') ? 'macos' : 'preview', arch: 'aarch64', osVersion: '15.7.1', computerName: 'MacBook Pro',
+    if (command === 'host_info') return { version: '0.3.0', platform: scenarioName === 'compat-report' || scenarioName.startsWith('feedback') ? 'macos' : 'preview', arch: 'aarch64', osVersion: '15.7.1', receiveBeta: query.get('beta') === '1', computerName: 'MacBook Pro',
       languagePreference: query.get('lang') || 'zh-CN', initialPage: 'wizard' };
     if (command === 'feedback_send') {
       window.__previewFeedbackPayload = structuredClone(args.payload);
@@ -123,7 +123,7 @@ const bridge = `
     };
     switch (scenarioName) {
       case 'compat-report': case 'feedback': case 'feedback-preview': case 'feedback-success': case 'feedback-failure': {
-        await window.kvmflow.request('display.list');
+        // Feedback must obtain its own inventory, as on a cold tray open.
         window.navigate('diagnostics');
         document.getElementById('submit-device').click();
         await waitFor(() => document.getElementById('compatibility-dialog').open);

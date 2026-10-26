@@ -44,14 +44,13 @@
     if (opening || dialog.open) return;
     opening = true; entry.disabled = true;
     try {
-      if (!report || receipt) {
-        const [host, config, usb, state] = await Promise.all([S.info, S.request('config.get'), S.request('usb.snapshot'), S.request('state.get')]);
-        report = reportAPI.buildReport({ host, config: config || {}, usb: usb?.devices, displays: S.cachedDisplays, state: state || {} });
-        if (receipt) {
-          message.value = ''; contact.value = ''; include.checked = false;
-          dialog.querySelectorAll('[name="feedback-kind"]').forEach(control => { control.checked = false; });
-          diagnostics = null; receipt = null; failed = false; collectionError = ''; status.textContent = '';
-        }
+      const [host, config, usb, state, displays] = await Promise.all([
+        S.hostInfo ? S.hostInfo() : S.info, S.request('config.get'), S.request('usb.snapshot'), S.request('state.get'),
+        S.request('display.list').catch(() => ({ displays: S.cachedDisplays })),
+      ]);
+      report = reportAPI.buildReport({ host, config: config || {}, usb: usb?.devices, displays: displays?.displays || S.cachedDisplays, state: state || {} });
+      if (receipt) {
+        receipt = null; failed = false; status.textContent = '';
       }
       render(); dialog.showModal();
       dialog.querySelector('input[name="feedback-kind"]').focus();

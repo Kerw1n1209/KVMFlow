@@ -31,6 +31,7 @@
   window.kvmflow = {
     ready: Promise.all(subscriptions),
     info: invoke('host_info'),
+    hostInfo: () => invoke('host_info'),
     clientReady: () => invoke('client_ready'),
     get initialPage() { return latestPage; },
     request: async (method, params = {}) => {

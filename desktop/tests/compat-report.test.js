@@ -11,7 +11,7 @@ const load = locale => {
   return { ...window.KVMFlowCompatReport, build: data => window.KVMFlowCompatReport.buildReport(data, id => messages[locale || 'en'][id]) };
 };
 const fixture = () => ({
-  host: { platform: 'macos', arch: 'aarch64', osVersion: '15.7.1', version: '0.4.0-beta.1', computerName: 'Elliott-MacBook' },
+  host: { platform: 'macos', arch: 'aarch64', osVersion: '15.7.1', version: '0.4.0-beta.1', receiveBeta: true, computerName: 'Elliott-MacBook' },
   config: {
     local_device: { device_id: 'local-private-device', host_label: 'Elliott-MacBook', monitors: [{ fingerprint: 'DEL-A261-0000BEEF', local_input: 15, source: 'learned_active_read' }] },
     trigger: { anchor: { vid_pid: '1a40:0101', serial: 'USB-PRIVATE-SERIAL' }, members: [{ vid_pid: '9999:8888', serial: 'PERIPHERAL-SERIAL' }] },
@@ -97,4 +97,20 @@ test('form URL contains the exact text and falls back at the encoded boundary', 
   assert.equal(submission('a'.repeat(size)).url.length, MAX_URL_LENGTH); assert.equal(submission('a'.repeat(size + 1)).copyFirst, true);
   assert.equal(submission('设备'.repeat(500)).url, `${ISSUE_URL}?template=compatibility.yml`);
   assert.match(fs.readFileSync(path.join(__dirname, '../../.github/ISSUE_TEMPLATE/compatibility.yml'), 'utf8'), /id: report/);
+});
+
+
+test('channel follows the saved beta preference regardless of installed version', () => {
+  const data = fixture();
+  data.host.version = '0.4.0-beta.1'; data.host.receiveBeta = false;
+  assert.equal(load().build(data).app.channel, 'stable');
+  data.host.version = '0.4.0'; data.host.receiveBeta = true;
+  assert.equal(load().build(data).app.channel, 'beta');
+});
+
+test('non-string device names do not throw or enter the report', () => {
+  for (const name of [null, 42, {}, [], false]) {
+    const data = fixture(); data.config.switch_group.devices[0].name = name;
+    assert.equal(load().build(data).monitors[0].model, 'DELL U2723QE');
+  }
 });

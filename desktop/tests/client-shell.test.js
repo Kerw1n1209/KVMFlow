@@ -665,6 +665,15 @@ test('feedback uses the same redacted diagnostics collector as native export', a
 });
 
 
+test('cold tray feedback actively probes display metadata without needing cached inventory', async t => {
+  const display = { edid_id: 'display-b', manufacturer: 'DEL', model_name: 'U2723QE', ddc: { state: 'available', input: 15 } };
+  const c = await client(t, { initialPage: 'diagnostics#feedback', displays: [display] });
+  assert.equal(c.win.kvmflow.cachedDisplays, undefined);
+  const report = JSON.parse(c.win.document.querySelector('#compatibility-report').textContent).report;
+  assert.deepEqual(JSON.parse(JSON.stringify(report.monitors[0])), { vendor: 'DEL', model: 'U2723QE', ddc: true, vcp60: 15, inputs: [] });
+  assert.equal(c.requests.filter(r => r.method === 'display.list').length, 1);
+});
+
 test('native export and actual feedback attachment both remove unpaired peer identities and addresses', async t => {
   const { backend, secrets } = require('./fixtures/diagnostics-private');
   const c = await client(t, { request: async method => method === 'diagnostics.collect' ? backend() : undefined });
