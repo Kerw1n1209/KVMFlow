@@ -15,14 +15,14 @@ const payload = () => ({
   exported_at: '2026-10-15T00:00:00.000Z',
   ui: {
     computers: [
-      { id: 'host-mac', name: 'Elliott的MacBook', port: 1, local: true },
+      { id: 'host-mac', name: 'Alex的MacBook', port: 1, local: true },
       { id: 'host-win', name: 'GAMING-RIG', port: 2, local: false },
     ],
     displays: ['DELL U2723'],
     events: [{ title: '电脑配置已保存', copy: 'GAMING-RIG 已加入切换组' }],
   },
   config: {
-    local_device: { device_id: 'host-mac', host_label: 'Elliott的MacBook', monitors: [
+    local_device: { device_id: 'host-mac', host_label: 'Alex的MacBook', monitors: [
       { fingerprint: 'DEL-A0B1-0012ABCD', label: 'DELL U2723', local_input: 15 },
       { fingerprint: 'GSM-5B7F-S:304NTAB1C234', label: 'LG', local_input: 17 },
     ] },
@@ -32,12 +32,12 @@ const payload = () => ({
     trigger: { anchor: { vid_pid: '1a40:0101' }, members: [{ vid_pid: '3837:303c', serial: 'KB-9F31-77' }] },
   },
   sidecar: {
-    logPath: '/Users/elliott/Library/Logs/KVMFlow/session.jsonl',
-    configPath: 'C:\\Users\\Elliott Wu\\AppData\\Roaming\\KVMFlow\\config.json',
+    logPath: '/Users/alex/Library/Logs/KVMFlow/session.jsonl',
+    configPath: 'C:\\Users\\Alex Doe\\AppData\\Roaming\\KVMFlow\\config.json',
     events: [
       { kind: 'usb.snapshot', fields: { devices: [{ key: '3837:303c:KB-9F31-77', vid_pid: '3837:303c', serial: 'KB-9F31-77', product: 'Keyboard' }] } },
       { kind: 'display.list', fields: { displays: [{ edid_id: 'DEL-A0B1-0012ABCD', serial_string: '0012ABCD', model_name: 'DELL U2723' }] } },
-      { kind: 'ddc.set', fields: { evidence: { argv: ['/Users/elliott/Applications/KVMFlow.app/Contents/Resources/m1ddc', 'set', 'input', '16'] } } },
+      { kind: 'ddc.set', fields: { evidence: { argv: ['/Users/alex/Applications/KVMFlow.app/Contents/Resources/m1ddc', 'set', 'input', '16'] } } },
     ],
   },
 });
@@ -45,9 +45,9 @@ const payload = () => ({
 test('personal identifiers are replaced with stable placeholders', () => {
   const redact = load();
   const original = payload();
-  const result = redact(original, { computerName: 'Elliott的MacBook' });
+  const result = redact(original, { computerName: 'Alex的MacBook' });
   const text = JSON.stringify(result);
-  for (const secret of ['Elliott', 'GAMING-RIG', 'KB-9F31-77', '0012ABCD', '304NTAB1C234', '/Users/elliott', 'Elliott Wu']) {
+  for (const secret of ['Alex', 'GAMING-RIG', 'KB-9F31-77', '0012ABCD', '304NTAB1C234', '/Users/alex', 'Alex Doe']) {
     assert.equal(text.includes(secret), false, `${secret} leaked: ${text}`);
   }
   assert.equal(result.redacted, true);
@@ -73,7 +73,7 @@ test('personal identifiers are replaced with stable placeholders', () => {
   assert.equal(result.config.local_device.monitors[0].local_input, 15);
   assert.equal(result.ui.displays[0], 'DELL U2723');
   // The caller's object is not modified.
-  assert.equal(original.ui.computers[0].name, 'Elliott的MacBook');
+  assert.equal(original.ui.computers[0].name, 'Alex的MacBook');
 });
 
 test('a bare EDID serial seen before its fingerprint is still replaced', () => {
@@ -102,23 +102,23 @@ test('lan state is included and redacted without any private key material', () =
         enabled: true,
         listen_port: 47820,
         self: { device_id: 'dev-ABC234DEF', key_fp: '1f22c9e5' },
-        peers: [{ device_id: 'dev-XYZ987HIJ', name: 'Elliott的MacBook', online: true, addr: '192.168.1.23:47820', key_fp: '0a0b0c0d' }],
+        peers: [{ device_id: 'dev-XYZ987HIJ', name: 'Alex的MacBook', online: true, addr: '192.168.1.23:47820', key_fp: '0a0b0c0d' }],
         issues: [
-          { code: 'E_LAN_NOT_MEMBER', message: 'Elliott的MacBook 连接未授权' },
+          { code: 'E_LAN_NOT_MEMBER', message: 'Alex的MacBook 连接未授权' },
           { code: 'E_LAN_IO', message: 'dial 192.168.1.23:47820 and 10.0.0.7 failed' },
         ],
         sync: { 'dev-XYZ987HIJ': { status: 'synced' } },
       },
     },
     config: {
-      local_device: { device_id: 'dev-ABC234DEF', host_label: 'Elliott的MacBook' },
+      local_device: { device_id: 'dev-ABC234DEF', host_label: 'Alex的MacBook' },
       lan: { enabled: true, listen_port: 47820, public_key: 'd3adbeefcafebabe0123456789abcdef' },
       switch_group: { sync: { members: [
         { device_id: 'dev-ABC234DEF', public_key: 'aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899', removed: false },
       ] } },
     },
   });
-  const result = redact(payload(), { computerName: 'Elliott的MacBook' });
+  const result = redact(payload(), { computerName: 'Alex的MacBook' });
   const text = JSON.stringify(result);
   // LAN status stays diagnosable through stable IDs, ports and short fingerprints.
   assert.equal(result.sidecar.lan.enabled, true);
@@ -141,7 +141,7 @@ test('lan state is included and redacted without any private key material', () =
     'member pins are fingerprinted'
   );
   // Personal names are replaced everywhere, including lan issues.
-  assert.equal(text.includes('Elliott'), false);
+  assert.equal(text.includes('Alex'), false);
   assert.equal(result.sidecar.lan.peers[0].name, 'Computer 1');
   assert.match(result.sidecar.lan.issues[0].message, /^Computer 1 /);
   // The bare IPs in the second message are gone; the one matching the peer

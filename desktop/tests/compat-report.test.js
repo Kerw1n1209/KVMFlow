@@ -11,18 +11,18 @@ const load = locale => {
   return { ...window.KVMFlowCompatReport, build: data => window.KVMFlowCompatReport.buildReport(data, id => messages[locale || 'en'][id]) };
 };
 const fixture = () => ({
-  host: { platform: 'macos', arch: 'aarch64', osVersion: '15.7.1', version: '0.4.0-beta.1', receiveBeta: true, computerName: 'Elliott-MacBook' },
+  host: { platform: 'macos', arch: 'aarch64', osVersion: '15.7.1', version: '0.4.0-beta.1', receiveBeta: true, computerName: 'Alex-MacBook' },
   config: {
-    local_device: { device_id: 'local-private-device', host_label: 'Elliott-MacBook', monitors: [{ fingerprint: 'DEL-A261-0000BEEF', local_input: 15, source: 'learned_active_read' }] },
+    local_device: { device_id: 'local-private-device', host_label: 'Alex-MacBook', monitors: [{ fingerprint: 'DEL-A261-0000BEEF', local_input: 15, source: 'learned_active_read' }] },
     trigger: { anchor: { vid_pid: '1a40:0101', serial: 'USB-PRIVATE-SERIAL' }, members: [{ vid_pid: '9999:8888', serial: 'PERIPHERAL-SERIAL' }] },
     switch_group: { group_id: '0ac24f98-45b9-4eea-8ad8-d5f7cbf0c24e', devices: [
-      { device_id: 'local-private-device', name: 'Elliott-MacBook', monitors: [{ fingerprint: 'DEL-A261-0000BEEF', local_input: 15, source: 'learned_active_read' }] },
+      { device_id: 'local-private-device', name: 'Alex-MacBook', monitors: [{ fingerprint: 'DEL-A261-0000BEEF', local_input: 15, source: 'learned_active_read' }] },
       { device_id: 'remote-private-device', name: 'GAMING-PRIVATE-PC', monitors: [{ fingerprint: 'DEL-A261-0000BEEF', local_input: 17, source: 'manual' }] },
     ] },
   },
   displays: [{ manufacturer: 'DEL', model_name: 'DELL U2723QE', edid_id: 'DEL-A261-0000BEEF', serial_string: '0000BEEF', edid: 'RAW-EDID-PRIVATE', ddc: { state: 'available', input: 15 } }],
   usb: [{ vendor: 'Terminus Technology', product: 'USB Hub', vid_pid: '1a40:0101', serial: 'USB-PRIVATE-SERIAL', key: 'USB-PRIVATE-KEY' }, { vendor: 'Peripheral', product: 'Keyboard', vid_pid: '9999:8888' }],
-  state: { lastMultiDeviceReport: { target_device_id: 'remote-private-device', per_monitor: [{ edid_id: 'DEL-A261-0000BEEF', requested: 17, commanded: true, readback: 17, last_error: '/Users/elliott/private 192.168.1.22' }] },
+  state: { lastMultiDeviceReport: { target_device_id: 'remote-private-device', per_monitor: [{ edid_id: 'DEL-A261-0000BEEF', requested: 17, commanded: true, readback: 17, last_error: '/Users/alex/private 192.168.1.22' }] },
     lan: { public_key: 'a'.repeat(64), addr: '192.168.1.22:47820', peer: 'GAMING-PRIVATE-PC' } },
   extra: { uuid: 'f2312345-1234-4321-8abc-123456789abc', username: 'secret-user', path: 'C:\\Users\\secret-user\\AppData\\file', addr: 'fd12:3456::42' },
 });
@@ -34,7 +34,7 @@ test('structured v1 report excludes every identifier and preserves only allowed 
   const text = JSON.stringify(report) + publicText + decodeURIComponent(submission(publicText).url.replaceAll('+', ' '));
   for (const secret of ['DEL-A261-0000BEEF', '0000BEEF', 'USB-PRIVATE-SERIAL', 'PERIPHERAL-SERIAL', 'USB-PRIVATE-KEY', 'RAW-EDID-PRIVATE',
     'local-private-device', 'remote-private-device', '0ac24f98-45b9-4eea-8ad8-d5f7cbf0c24e', 'f2312345-1234-4321-8abc-123456789abc',
-    '/Users/', 'C:\\Users\\', 'secret-user', '192.168.1.22', 'fd12:3456::42', 'a'.repeat(64), 'Elliott-MacBook', 'GAMING-PRIVATE-PC']) {
+    '/Users/', 'C:\\Users\\', 'secret-user', '192.168.1.22', 'fd12:3456::42', 'a'.repeat(64), 'Alex-MacBook', 'GAMING-PRIVATE-PC']) {
     assert.equal(text.includes(secret), false, `${secret} leaked`);
   }
   assert.deepEqual(JSON.parse(JSON.stringify(report)), {
@@ -48,7 +48,7 @@ test('structured v1 report excludes every identifier and preserves only allowed 
 });
 
 test('private values embedded in allowed hardware strings become null or empty strings', () => {
-  for (const secret of ['0000BEEF', '0000beef', 'DEL-A261-0000BEEF', 'GAMING-PRIVATE-PC', '/Users/elliott/private', 'C:\\Users\\elliott\\file',
+  for (const secret of ['0000BEEF', '0000beef', 'DEL-A261-0000BEEF', 'GAMING-PRIVATE-PC', '/Users/alex/private', 'C:\\Users\\alex\\file',
     '/Volumes/PrivateDisk/report', '/etc/private', '10.0.1.2', '172.16.0.2', '192.168.1.7', 'fd12:3456::42', 'f2312345-1234-4321-8abc-123456789abc', 'a'.repeat(64), 'secret-user', 'remote-private-device', 'owner@example.com']) {
     const data = fixture(); data.displays[0].model_name = `Monitor ${secret}`; data.usb[0].vendor = `Vendor ${secret}`; data.usb[0].product = `Hub ${secret}`;
     const report = load().build(data);
