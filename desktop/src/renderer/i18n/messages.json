@@ -470,8 +470,8 @@
       "lan.committing.copy": "正在两台电脑上写入配置，可能需要几秒钟…",
       "lan.committed.title": "配对完成",
       "lan.committed.copy": "两台电脑已使用同一份配置，之后的修改会自动同步。",
-      "lan.committed.pin.title": "配对完成，配置稍后合并",
-      "lan.committed.pin.copy": "两台电脑已互相信任。还有少量配置问题待处理，可以在设置中完成。",
+      "lan.committed.pin.title": "安全连接已建立，配置待完成",
+      "lan.committed.pin.copy": "两台电脑已互相信任。请继续确认显示器，保存完整配置后再试一下。",
       "lan.committed.wait.peer": "正在等待对方电脑确认写入结果…",
       "lan.cancelled.title": "已取消配对",
       "lan.cancelled.copy": "两台电脑的配置都没有变化。",
@@ -499,7 +499,7 @@
       "lan.no.lan": "无法使用局域网？",
       "lan.manual.fill": "手动填写",
       "lan.manual.setup": "改为手动设置",
-      "lan.confirm.ready.title": "{p0} 已就绪",
+      "lan.confirm.ready.title": "确认 {p0} 的显示器",
       "lan.confirm.ready.copy": "下面是 {p0} 上报的信息。确认后会同步到两台电脑。",
       "lan.port.inferred": "自动推断",
       "lan.monitor.pending": "待读取",
@@ -633,7 +633,12 @@
       "lan.ip.address": "对方的 IPv4 地址",
       "lan.error.id.conflict": "另一台电脑正在使用相同的设备身份。请更新两台电脑上的 KVMFlow，然后重新配对。",
       "lan.error.id.migration": "旧设备身份已用于配对。请在两台电脑上移除旧配对，然后重新配对。",
-      "lan.error.identity.io": "无法保存本机设备身份。请检查配置目录的写入权限后重启 KVMFlow。"
+      "lan.error.identity.io": "无法保存本机设备身份。请检查配置目录的写入权限后重启 KVMFlow。",
+      "lan.error.topology.self": "对方的配置缺少这台电脑，正在自动修复。若未恢复，请在主力机重新添加这台电脑。",
+      "lan.error.config.save": "配置未能保存。请重试；保存成功后才能试一下。",
+      "lan.error.setup.pending": "显示器配置尚未保存完整。请让显示器显示副机画面，再重试读取；完成后才能试一下。",
+      "lan.log.connected": "安全连接已建立",
+      "retry": "重试"
     },
     "en": {
       "this.computer": "This computer",
@@ -1093,8 +1098,8 @@
       "lan.committing.copy": "Writing the configuration on both computers; this can take a few seconds…",
       "lan.committed.title": "Pairing complete",
       "lan.committed.copy": "Both computers now share one configuration; later changes sync automatically.",
-      "lan.committed.pin.title": "Paired; configuration merges later",
-      "lan.committed.pin.copy": "The two computers now trust each other. A few configuration issues remain; finish them in Settings.",
+      "lan.committed.pin.title": "Secure connection established; setup pending",
+      "lan.committed.pin.copy": "The two computers now trust each other. Continue to confirm the displays and save the setup before testing.",
       "lan.committed.wait.peer": "Waiting for the other computer to confirm the write…",
       "lan.cancelled.title": "Pairing cancelled",
       "lan.cancelled.copy": "Neither computer’s configuration changed.",
@@ -1122,7 +1127,7 @@
       "lan.no.lan": "Can’t use the local network?",
       "lan.manual.fill": "Enter manually",
       "lan.manual.setup": "Set up manually instead",
-      "lan.confirm.ready.title": "{p0} is ready",
+      "lan.confirm.ready.title": "Confirm displays for {p0}",
       "lan.confirm.ready.copy": "This is what {p0} reported. Confirming syncs it to both computers.",
       "lan.port.inferred": "Inferred",
       "lan.monitor.pending": "Pending",
@@ -1256,7 +1261,12 @@
       "lan.ip.address": "Other computer’s IPv4 address",
       "lan.error.id.conflict": "Another computer is using the same device identity. Update KVMFlow on both computers, then pair again.",
       "lan.error.id.migration": "This legacy identity is already paired. Remove the old pairing on both computers, then pair again.",
-      "lan.error.identity.io": "Could not save this computer’s identity. Check write access to the configuration folder and restart KVMFlow."
+      "lan.error.identity.io": "Could not save this computer’s identity. Check write access to the configuration folder and restart KVMFlow.",
+      "lan.error.topology.self": "The shared setup is missing this computer. Repair is in progress. If it does not recover, add this computer again on the primary.",
+      "lan.error.config.save": "The setup could not be saved. Retry before testing.",
+      "lan.error.setup.pending": "The display setup is not saved yet. Show the secondary on each monitor, then retry reading its inputs before testing.",
+      "lan.log.connected": "Secure connection established",
+      "retry": "Retry"
     }
   }
 }

@@ -32,7 +32,8 @@ const v2 = {
 };
 
 async function client(t, options = {}) {
-  const { config = v2, failSave = false, displays = [], storage = {} } = options;
+  const { failSave = false, displays = [], storage = {} } = options;
+  let config = options.config === undefined ? v2 : options.config;
   const state = options.state || { state: 'idle', enabled: true, mixed: config?.switch_group ? mixedState(config) : null };
   const computerName = Object.hasOwn(options, 'computerName') ? options.computerName : config?.local_device?.host_label;
   const dom = new JSDOM(read('src/renderer/index.html'), { url: 'http://tauri.localhost', runScripts: 'outside-only' });
@@ -59,7 +60,10 @@ async function client(t, options = {}) {
       if (method === 'lan.identity') return { device_id: state?.lan?.self?.device_id || config?.local_device?.device_id || 'dev-test-local' };
       if (method === 'state.get') return structuredClone(state);
       if (method === 'display.list') return { displays };
-      if (method === 'config.set' && failSave) throw new Error('保存失败');
+      if (method === 'config.set') {
+        if (failSave) throw new Error('保存失败');
+        config = structuredClone(params.config);
+      }
       if (method === 'diagnostics.collect') return { events: [], backend: 'test' };
       return {};
     },
@@ -88,7 +92,7 @@ async function client(t, options = {}) {
   vm.runInContext(read('src/renderer/lan-pairing.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/app.js'), dom.getInternalVMContext());
   await new Promise(resolve => setTimeout(resolve, 10));
-  return { win, requests, subscriptions, export: () => exported, navigate: page => navigateListeners.forEach(cb => cb(page)) };
+  return { win, requests, subscriptions, setConfig: next => { config = structuredClone(next); }, export: () => exported, navigate: page => navigateListeners.forEach(cb => cb(page)) };
 }
 
 function mixedState(config = v2) {
@@ -107,4 +111,10 @@ const automaticConfig = () => {
   return config;
 };
 
-module.exports = { client, v2, tick, automaticConfig, mixedState };
+const pairedV2 = () => {
+  const config = structuredClone(v2);
+  config.switch_group.devices.push({ device_id: 'dev-peer', name: 'DESKTOP-GAME', port_index: 4,
+    monitors: [{fingerprint: 'display-a', local_input: 21}, {fingerprint: 'display-b', local_input: 22}] });
+  return config;
+};
+module.exports = { client, v2, tick, automaticConfig, mixedState, pairedV2 };

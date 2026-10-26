@@ -70,7 +70,8 @@ const bridge = `
     if (command === 'runtime_request') {
       const { method, params } = args;
       if (method === 'lan.identity') return state.lan.self;
-      if (method === 'config.get') return config;
+      if (method === 'config.get') return structuredClone(config);
+      if (method === 'config.set') { if (window.__previewPairing.failSave) throw { code:'E_CONFIG_IO',message:'synthetic save failure' }; Object.assign(config,structuredClone(params.config)); return {}; }
       if (method === 'state.get') return snapshot(state);
       if (method === 'lan.pair.window') return { open: params.open };
       if (method === 'lan.pair.start' || method === 'lan.connect_manual') return { phase: 'connecting', addr: params.addr,
@@ -95,7 +96,12 @@ const bridge = `
     return null;
   } } };
 
-  window.__previewPairing = { emit };
+  const completeTopology = () => {
+    if (!config.switch_group.devices.some(d => d.device_id === peer.device_id)) config.switch_group.devices.push({
+      device_id:peer.device_id,name:peer.name,port_index:2,profile_rev:2,
+      monitors:profileReport(0).monitors.slice(0,count).map(m=>({fingerprint:m.fingerprint,label:m.name,local_input:m.input.value})) });
+  };
+  window.__previewPairing = { emit, completeTopology, config, failSave:false };
   // bootstrap.js loads the renderer modules asynchronously, so a fixed delay
   // can run before KVMFlowPairing exists (the old secondary-2-wait capture
   // silently stayed on the classic wizard page). Wait for the real API.
@@ -117,12 +123,16 @@ const bridge = `
     const primaryProfile = async (pending, includeProfile = true) => {
       window.navigate('guide'); window.nextStep(); window.nextStep();
       S.startPrimaryAdd(); S.pairWith('dev-game'); await sleep(40);
+      if (!pending) completeTopology();
       emit('lan.pair', pairEvent({ phase: 'committed', device_id: 'dev-game', config_merged: !pending, local_confirmed: true, peer_confirmed: true }));
       await sleep(40);
       if (includeProfile) { emit('lan.profile', profileReport(pending)); await sleep(40); }
       document.querySelector('#pairing-body [data-pair-action="finish"]').click(); await sleep(40);
     };
     switch (scenarioName) {
+      case 'legacy-welcome': S.startRoleChoice(); break;
+      case 'legacy-ready': await primaryProfile(0); break;
+      case 'legacy-pending': await primaryProfile(1); break;
       case 'compat-report': case 'feedback': case 'feedback-preview': case 'feedback-success': case 'feedback-failure': {
         // Feedback must obtain its own inventory, as on a cold tray open.
         window.navigate('diagnostics');

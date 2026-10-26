@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { client, tick, v2, mixedState } = require('./client-helper');
+const { client, tick, v2, mixedState, pairedV2 } = require('./client-helper');
 const peer = (over = {}) => ({ device_id: 'dev-peer', name: 'GAME', online: true, addr: '192.168.1.23:47820', ...over });
 const state = (peers = [peer()]) => ({ state: 'idle', enabled: true, mixed: mixedState(), lan: { enabled: true, self: { device_id: 'host-win' }, peers } });
 const click = (win, selector) => { const el = win.document.querySelector(selector); assert.ok(el, selector); el.click(); };
@@ -110,9 +110,9 @@ test('late confirm reply cannot replace committed state and duplicate commit is 
   await emit(c, 'lan.pair', committed);
   assert.equal(c.requests.filter(r => r.method === 'config.get').length, gets, 'duplicate commit must not refresh again');
   reply.resolve({ phase: 'await_peer_confirm', sas: '123 456' }); await tick();
-  assert.match(body(c.win), /配置稍后合并/);
+  assert.match(body(c.win), /配置待完成/);
   await emit(c, 'lan.pair', { phase: 'peer_committed' });
-  assert.match(body(c.win), /配置稍后合并/, 'peer ack must preserve the pin-only commit result');
+  assert.match(body(c.win), /配置待完成/, 'peer ack must preserve the pin-only commit result');
 });
 
 test('late start reply cannot replace SAS and repeated connect or confirm cannot issue a second request', async t => {
@@ -293,7 +293,7 @@ test('pin-only completion shows the unmatched blocker and pending configuration 
     local_confirmed: true, peer_confirmed: true,
     issues: [{ severity: 'blocking', detail: { kind: 'monitor_unmatched', basis: ['display-a'], joiner: ['peer-display'] } }],
   });
-  assert.match(body(c.win), /配置稍后合并/);
+  assert.match(body(c.win), /配置待完成/);
   assert.match(body(c.win), /没有一一对应/);
 });
 
@@ -322,6 +322,7 @@ test('declining a display correspondence cancels without sending an invented ali
 const profile = (pending = false, rev = 1) => ({ device_id: 'dev-peer', profile_rev: rev, monitors: [{ fingerprint: 'display-a', name: 'DELL', input: pending ? { state: 'pending' } : { state: 'value', value: 17 } }] });
 async function readyPrimary(c, pending = false) {
   c.win.navigate('guide'); c.win.KVMFlowPairing.startPrimaryAdd(); await dial(c);
+  if (!pending) c.setConfig(pairedV2());
   await emit(c, 'lan.pair', { phase: 'committed', device_id: 'dev-peer', config_merged: !pending });
   await emit(c, 'lan.profile', profile(pending));
   click(c.win, '#pairing-body [data-pair-action="finish"]'); await tick();
@@ -333,6 +334,9 @@ test('committed dialog continues to pending confirmation instead of skipping it'
   assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, true);
   assert.equal(c.requests.filter(r => r.method === 'lan.test.start').length, 0);
   await emit(c, 'lan.profile', profile(false, 2));
+  assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, true, 'owner values alone are not a saved topology');
+  c.setConfig(pairedV2());
+  await emit(c, 'lan.setup', { phase: 'topology_ready', device_id: 'dev-peer' });
   assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, false);
 });
 
