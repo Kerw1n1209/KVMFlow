@@ -4,6 +4,34 @@
 use super::*;
 use std::time::Instant;
 
+/// Manual UI entry accepts numeric IPv4 only, never DNS or a public endpoint.
+fn manual_address(params: &Value) -> Result<SocketAddr, CoreError> {
+    let value = params
+        .get("addr")
+        .and_then(Value::as_str)
+        .ok_or_else(|| core_err("E_LAN_ADDRESS", "enter a private IPv4 address"))?
+        .trim();
+    let addr: SocketAddr = if value.contains(':') {
+        value.parse().ok()
+    } else {
+        value
+            .parse::<std::net::Ipv4Addr>()
+            .ok()
+            .map(|ip| SocketAddr::from((ip, DEFAULT_LAN_PORT)))
+    }
+    .filter(SocketAddr::is_ipv4)
+    .ok_or_else(|| {
+        core_err(
+            "E_LAN_ADDRESS",
+            "enter a private IPv4 address with an optional port",
+        )
+    })?;
+    lan::address::AddressPolicy::from_env()
+        .check(addr)
+        .map_err(|e| core_err(e.code, e.message))?;
+    Ok(addr)
+}
+
 const MIXED_SET_TIMEOUT: Duration = Duration::from_secs(8);
 const PUSH_BASE_TIMEOUT: Duration = Duration::from_secs(5);
 const PUSH_PER_DISPLAY: Duration = Duration::from_millis(1500);
@@ -496,6 +524,33 @@ impl Runtime {
     /// Frontend request surface (`lan.*`).
     pub(crate) fn handle_lan_request(&mut self, id: u64, method: &str, params: Value) {
         match method {
+            "lan.identity" => {
+                let result = if let Some(config) = &self.config {
+                    if config.local_device.device_id.starts_with("dev-") {
+                        Ok(config.local_device.device_id.clone())
+                    } else {
+                        Err(std::io::Error::other(
+                            "legacy identity requires migration or re-pairing",
+                        ))
+                    }
+                } else {
+                    config_store::load_or_create_device_id(&self.config_path)
+                };
+                match result {
+                    Ok(device_id) => {
+                        self.respond(ResponseLine::ok(id, json!({"device_id": device_id})))
+                    }
+                    Err(e) => self.respond(ResponseLine::err(
+                        id,
+                        if self.config.is_some() {
+                            "E_LAN_ID_MIGRATION_REQUIRED"
+                        } else {
+                            "E_LAN_IDENTITY_IO"
+                        },
+                        e.to_string(),
+                    )),
+                }
+            }
             "lan.status" | "lan.peers" => {
                 self.respond(ResponseLine::ok(id, self.lan_state()));
             }
@@ -505,13 +560,25 @@ impl Runtime {
                 }
                 self.respond(ResponseLine::ok(id, self.lan_state()));
             }
-            "lan.connect.manual" => {
+            "lan.connect.manual" | "lan.connect_manual"
+                if params.get("pair").and_then(Value::as_bool) != Some(true) =>
+            {
                 let result = (|| -> Result<Value, CoreError> {
-                    let addr: SocketAddr = params
+                    // Preserve the existing dotted command's numeric IPv6
+                    // support; the new UI command accepts IPv4 only.
+                    let legacy_v6 = params
                         .get("addr")
                         .and_then(Value::as_str)
-                        .and_then(|s| s.parse().ok())
-                        .ok_or_else(|| core_err("E_CONFIG_INVALID", "addr must be host:port"))?;
+                        .and_then(|value| value.parse::<SocketAddr>().ok())
+                        .filter(|addr| method == "lan.connect.manual" && addr.is_ipv6());
+                    let addr = if let Some(addr) = legacy_v6 {
+                        lan::address::AddressPolicy::from_env()
+                            .check(addr)
+                            .map_err(|e| core_err(e.code, e.message))?;
+                        addr
+                    } else {
+                        manual_address(&params)?
+                    };
                     let handle = self
                         .lan_runtime
                         .handle
@@ -527,22 +594,31 @@ impl Runtime {
                     Err(e) => self.respond(ResponseLine::err(id, e.code, e.message)),
                 }
             }
-            "lan.pair.start" => {
+            "lan.pair.start" | "lan.connect_manual" | "lan.connect.manual" => {
                 let result = (|| -> Result<Value, CoreError> {
                     if self.lan_runtime.pair.is_some() {
                         return Err(core_err("E_LAN_BUSY", "a pairing is already active"));
                     }
-                    let addr: SocketAddr = params
-                        .get("addr")
-                        .and_then(Value::as_str)
-                        .and_then(|s| s.parse().ok())
-                        .ok_or_else(|| core_err("E_CONFIG_INVALID", "addr must be host:port"))?;
+                    let addr: SocketAddr = if method == "lan.pair.start" {
+                        params
+                            .get("addr")
+                            .and_then(Value::as_str)
+                            .and_then(|s| s.parse().ok())
+                            .ok_or_else(|| core_err("E_CONFIG_INVALID", "addr must be host:port"))?
+                    } else {
+                        manual_address(&params)?
+                    };
                     let handle = self
                         .lan_runtime
                         .handle
                         .as_ref()
                         .ok_or_else(|| core_err("E_LAN_DISABLED", "LAN disabled"))?;
-                    handle.pair(addr).map_err(|e| core_err(e.code, e.message))?;
+                    if method == "lan.pair.start" {
+                        handle.pair(addr)
+                    } else {
+                        handle.connect_manual_with_pairing(addr, true)
+                    }
+                    .map_err(|e| core_err(e.code, e.message))?;
                     // The user is on a pairing screen: accept inbound
                     // attempts from the other machine too (both ends can
                     // press 连接).
@@ -1057,6 +1133,45 @@ impl Runtime {
         );
         if let Some(pair) = self.lan_runtime.pair.as_mut() {
             pair.phase = super::pairing::Phase::Committing;
+        }
+    }
+}
+
+#[cfg(test)]
+mod manual_address_tests {
+    use super::*;
+    #[test]
+    fn manual_ipv4_has_default_port_and_validates_the_lan_policy() {
+        assert_eq!(
+            manual_address(&json!({"addr":"192.168.1.23"}))
+                .unwrap()
+                .to_string(),
+            "192.168.1.23:47820"
+        );
+        assert_eq!(
+            manual_address(&json!({"addr":" 10.1.2.3:50000 "}))
+                .unwrap()
+                .port(),
+            50000
+        );
+        for addr in [
+            "example.com",
+            "8.8.8.8",
+            "100.64.1.1",
+            "198.18.1.1",
+            "0.0.0.0",
+            "224.0.0.1",
+            "192.168.1.23:0",
+            "192.168.1.23:65536",
+            "192.168.1.256",
+            "192.168.1.23:abc",
+            "[fd00::1]:47820",
+        ] {
+            assert_eq!(
+                manual_address(&json!({"addr":addr})).unwrap_err().code,
+                "E_LAN_ADDRESS",
+                "{addr}"
+            );
         }
     }
 }

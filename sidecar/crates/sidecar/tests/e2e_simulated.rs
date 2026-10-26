@@ -90,7 +90,7 @@ fn e2e_v2_config_persists_and_has_no_manual_push() {
     let v2 = serde_json::json!({
         "schema_version": 2,
         "local_device": {
-            "device_id": "mac-work",
+            "device_id": "dev-mac-work",
             "host_label": "工作 Mac",
             "monitors": [
                 {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15, "source": "learned_active_read"},
@@ -101,11 +101,11 @@ fn e2e_v2_config_persists_and_has_no_manual_push() {
             "group_id": "desk",
             "revision": 4,
             "devices": [
-                {"device_id": "mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [
+                {"device_id": "dev-mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15},
                     {"fingerprint": "SAC-2466-S:0000000000000", "label": "G52plus", "local_input": 7}
                 ]},
-                {"device_id": "windows", "name": "Windows", "port_index": 2, "monitors": [
+                {"device_id": "dev-windows", "name": "Windows", "port_index": 2, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 17},
                     {"fingerprint": "SAC-2466-S:0000000000000", "label": "G52plus", "local_input": 8}
                 ]}
@@ -161,7 +161,7 @@ fn e2e_v2_config_persists_and_has_no_manual_push() {
                 Duration::from_secs(6),
             )
             .expect("v2 source fast-path report");
-        assert_eq!(report["data"]["target_device_id"], "windows");
+        assert_eq!(report["data"]["target_device_id"], "dev-windows");
         let per_monitor = report["data"]["per_monitor"]
             .as_array()
             .expect("monitor outcomes");
@@ -206,14 +206,17 @@ fn e2e_v2_config_persists_and_has_no_manual_push() {
         .wait_for(|value| value["id"] == 4, Duration::from_secs(5))
         .expect("v2 config.get after restart");
     assert_eq!(loaded["result"]["schema_version"], 2);
-    assert_eq!(loaded["result"]["local_device"]["device_id"], "mac-work");
+    assert_eq!(
+        loaded["result"]["local_device"]["device_id"],
+        "dev-mac-work"
+    );
 }
 
 fn two_monitor_source_config() -> Value {
     serde_json::json!({
         "schema_version": 2,
         "local_device": {
-            "device_id": "mac-work",
+            "device_id": "dev-mac-work",
             "host_label": "工作 Mac",
             "monitors": [
                 {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15, "source": "learned_active_read"},
@@ -224,11 +227,11 @@ fn two_monitor_source_config() -> Value {
             "group_id": "desk",
             "revision": 4,
             "devices": [
-                {"device_id": "mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [
+                {"device_id": "dev-mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15},
                     {"fingerprint": "SAC-2466-S:0000000000000", "label": "G52plus", "local_input": 7}
                 ]},
-                {"device_id": "windows", "name": "Windows", "port_index": 2, "monitors": [
+                {"device_id": "dev-windows", "name": "Windows", "port_index": 2, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 16},
                     {"fingerprint": "SAC-2466-S:0000000000000", "label": "G52plus", "local_input": 8}
                 ]}
@@ -362,7 +365,7 @@ fn e2e_v2_local_profile_waits_for_pairing_and_usb_calibration() {
     let local_profile = serde_json::json!({
         "schema_version": 2,
         "local_device": {
-            "device_id": "pending-account-device",
+            "device_id": "dev-pending-account-device",
             "host_label": "这台 Mac",
             "monitors": [
                 {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15, "source": "learned_active_read"}
@@ -420,7 +423,7 @@ fn e2e_v2_local_profile_waits_for_pairing_and_usb_calibration() {
         .expect("local profile config.get");
     assert_eq!(
         loaded["result"]["local_device"]["device_id"],
-        "pending-account-device"
+        "dev-pending-account-device"
     );
     assert_eq!(loaded["result"]["switch_group"], Value::Null);
 }
@@ -436,7 +439,7 @@ fn e2e_v2_arrival_corrects_only_after_usb_arrival() {
     let v2 = serde_json::json!({
         "schema_version": 2,
         "local_device": {
-            "device_id": "windows",
+            "device_id": "dev-windows",
             "host_label": "Windows",
             "monitors": [
                 {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15, "source": "learned_active_read"}
@@ -446,10 +449,10 @@ fn e2e_v2_arrival_corrects_only_after_usb_arrival() {
             "group_id": "desk",
             "revision": 4,
             "devices": [
-                {"device_id": "mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [
+                {"device_id": "dev-mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 17}
                 ]},
-                {"device_id": "windows", "name": "Windows", "port_index": 2, "monitors": [
+                {"device_id": "dev-windows", "name": "Windows", "port_index": 2, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15}
                 ]}
             ]
@@ -499,7 +502,7 @@ fn e2e_v2_arrival_corrects_only_after_usb_arrival() {
             Duration::from_secs(6),
         )
         .expect("v2 target arrival correction report");
-    assert_eq!(report["data"]["target_device_id"], "windows");
+    assert_eq!(report["data"]["target_device_id"], "dev-windows");
     assert_eq!(
         report["data"]["per_monitor"][0]["edid_id"],
         "SAC-2763-S:0000000000001"
@@ -516,7 +519,7 @@ fn e2e_v2_arrival_correction_can_be_disabled() {
     let v2 = serde_json::json!({
         "schema_version": 2,
         "local_device": {
-            "device_id": "windows",
+            "device_id": "dev-windows",
             "host_label": "Windows",
             "monitors": [{"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15}]
         },
@@ -524,10 +527,10 @@ fn e2e_v2_arrival_correction_can_be_disabled() {
             "group_id": "desk",
             "revision": 4,
             "devices": [
-                {"device_id": "mac", "name": "Mac", "port_index": 1, "monitors": [
+                {"device_id": "dev-mac", "name": "Mac", "port_index": 1, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 17}
                 ]},
-                {"device_id": "windows", "name": "Windows", "port_index": 2, "monitors": [
+                {"device_id": "dev-windows", "name": "Windows", "port_index": 2, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15}
                 ]}
             ]
@@ -599,7 +602,7 @@ fn e2e_v2_startup_with_group_present_does_not_write() {
     let v2 = serde_json::json!({
         "schema_version": 2,
         "local_device": {
-            "device_id": "windows",
+            "device_id": "dev-windows",
             "host_label": "Windows",
             "monitors": [
                 {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 16, "source": "manual"},
@@ -609,11 +612,11 @@ fn e2e_v2_startup_with_group_present_does_not_write() {
         "switch_group": {
             "group_id": "desk", "revision": 1,
             "devices": [
-                {"device_id": "mac", "name": "Mac", "port_index": 1, "monitors": [
+                {"device_id": "dev-mac", "name": "Mac", "port_index": 1, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "local_input": 15},
                     {"fingerprint": "SAC-2466-S:0000000000000", "local_input": 7}
                 ]},
-                {"device_id": "windows", "name": "Windows", "port_index": 2, "monitors": [
+                {"device_id": "dev-windows", "name": "Windows", "port_index": 2, "monitors": [
                     {"fingerprint": "SAC-2763-S:0000000000001", "local_input": 16},
                     {"fingerprint": "SAC-2466-S:0000000000000", "local_input": 8}
                 ]}
@@ -662,7 +665,7 @@ fn e2e_v2_pause_blocks_physical_trigger_writes() {
     let v2 = serde_json::json!({
         "schema_version": 2,
         "local_device": {
-            "device_id": "mac-work",
+            "device_id": "dev-mac-work",
             "host_label": "工作 Mac",
             "monitors": [
                 {"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15, "source": "learned_active_read"}
@@ -671,8 +674,8 @@ fn e2e_v2_pause_blocks_physical_trigger_writes() {
         "switch_group": {
             "group_id": "desk", "revision": 4,
             "devices": [
-                {"device_id": "mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [{"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15}]},
-                {"device_id": "windows", "name": "Windows", "port_index": 2, "monitors": [{"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 17}]}
+                {"device_id": "dev-mac-work", "name": "工作 Mac", "port_index": 1, "monitors": [{"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 15}]},
+                {"device_id": "dev-windows", "name": "Windows", "port_index": 2, "monitors": [{"fingerprint": "SAC-2763-S:0000000000001", "label": "G73", "local_input": 17}]}
             ]
         },
         "trigger": {
@@ -1172,7 +1175,7 @@ fn e2e_legacy_follow_migrates_disabled_so_normal_mode_writes_all() {
 #[test]
 fn e2e_mixed_fixed_monitors_report_a_skip_instead_of_a_failure() {
     let mut config = two_monitor_source_config();
-    config["switch_group"]["mixed"] = serde_json::json!({"enabled":true,"revision":1,"assignment":[{"fingerprint":"SAC-2763-S:0000000000001","device_id":"mac-work"},{"fingerprint":"SAC-2466-S:0000000000000","device_id":"windows"}]});
+    config["switch_group"]["mixed"] = serde_json::json!({"enabled":true,"revision":1,"assignment":[{"fingerprint":"SAC-2763-S:0000000000001","device_id":"dev-mac-work"},{"fingerprint":"SAC-2466-S:0000000000000","device_id":"dev-windows"}]});
     let (report, events) = fast_path_outcome(config);
     assert!(report.is_none(), "{report:?}");
     assert!(events
@@ -1236,8 +1239,8 @@ fn e2e_apply_layout_is_no_longer_a_public_jsonl_request() {
     let mut config = two_monitor_source_config();
     config["switch_group"]["layouts"] = serde_json::json!([{
         "id":"u:other", "name":"Other", "monitors":[
-            {"fingerprint":"SAC-2763-S:0000000000001","target":{"device_id":"windows"}},
-            {"fingerprint":"SAC-2466-S:0000000000000","target":{"device_id":"windows"}}
+            {"fingerprint":"SAC-2763-S:0000000000001","target":{"device_id":"dev-windows"}},
+            {"fingerprint":"SAC-2466-S:0000000000000","target":{"device_id":"dev-windows"}}
         ]
     }]);
     std::fs::write(&config_path, config.to_string()).unwrap();

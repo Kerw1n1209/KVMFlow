@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 const MAIN: &str = "SAC-2763-S:0000000000001";
 const SECOND: &str = "SAC-2466-S:0000000000000";
 fn config() -> Value {
-    json!({"schema_version":2,"local_device":{"device_id":"mac","monitors":[{"fingerprint":MAIN,"local_input":15},{"fingerprint":SECOND,"local_input":7}]},
-        "switch_group":{"group_id":"desk","revision":1,"mixed":{"enabled":false,"revision":4,"assignment":[{"fingerprint":MAIN,"device_id":"mac"},{"fingerprint":SECOND,"device_id":"windows"}]},
-        "devices":[{"device_id":"mac","name":"Mac","port_index":1,"monitors":[{"fingerprint":MAIN,"local_input":15},{"fingerprint":SECOND,"local_input":7}]},{"device_id":"windows","name":"PC","port_index":2,"monitors":[{"fingerprint":MAIN,"local_input":16},{"fingerprint":SECOND,"local_input":8}]}]},
+    json!({"schema_version":2,"local_device":{"device_id":"dev-mac","monitors":[{"fingerprint":MAIN,"local_input":15},{"fingerprint":SECOND,"local_input":7}]},
+        "switch_group":{"group_id":"desk","revision":1,"mixed":{"enabled":false,"revision":4,"assignment":[{"fingerprint":MAIN,"device_id":"dev-mac"},{"fingerprint":SECOND,"device_id":"dev-windows"}]},
+        "devices":[{"device_id":"dev-mac","name":"Mac","port_index":1,"monitors":[{"fingerprint":MAIN,"local_input":15},{"fingerprint":SECOND,"local_input":7}]},{"device_id":"dev-windows","name":"PC","port_index":2,"monitors":[{"fingerprint":MAIN,"local_input":16},{"fingerprint":SECOND,"local_input":8}]}]},
         "trigger":{"anchor":{"vid_pid":"1a40:0101"},"members":[{"vid_pid":"3837:303c"}],"debounce":{"t_stable_ms":0,"t_absent_ms":0,"t_cooldown_ms":1000}},"advanced":{"ddc_retry":{"attempts":2,"delay_ms":0}}})
 }
 
@@ -107,7 +107,7 @@ fn scenario_2_assignment_only_saves_and_roundtrips_without_ddc() {
     let dir = tempfile::tempdir().unwrap();
     let topo = topology();
     let (rt, _) = start(dir.path(), "idle", &config(), Box::new(topo.clone()));
-    let assignment = json!([{"fingerprint":MAIN,"device_id":"windows"},{"fingerprint":SECOND,"device_id":"mac"}]);
+    let assignment = json!([{"fingerprint":MAIN,"device_id":"dev-windows"},{"fingerprint":SECOND,"device_id":"dev-mac"}]);
     let r = rt
         .request("mixed.assign", json!({"assignment":assignment}))
         .unwrap();
@@ -195,7 +195,7 @@ fn scenario_6_disable_restores_waits_and_queues_remote_owner_with_revision() {
     );
     assert_eq!(
         r["mixed"]["pending_remote"],
-        json!([{"id":expected_pending_id(&r["mixed"],SECOND,"mac"),"device_id":null,"fingerprint":SECOND,"target_device_id":"mac"}])
+        json!([{"id":expected_pending_id(&r["mixed"],SECOND,"dev-mac"),"device_id":null,"fingerprint":SECOND,"target_device_id":"dev-mac"}])
     );
     let n = loop {
         let n = wait(&rx, "mixed.pending_remote");
@@ -215,14 +215,17 @@ fn scenario_7_unknown_owner_remains_pending_and_noop_is_honest() {
         &config(),
         Box::new(kvmflow_sidecar::topology::NoopDisplayTopology),
     );
-    let assignment = json!([{"fingerprint":MAIN,"device_id":"windows"},{"fingerprint":SECOND,"device_id":"mac"}]);
+    let assignment = json!([{"fingerprint":MAIN,"device_id":"dev-windows"},{"fingerprint":SECOND,"device_id":"dev-mac"}]);
     rt.request("mixed.assign", json!({"assignment":assignment}))
         .unwrap();
     let r = rt.request("mixed.set", json!({"enabled":true})).unwrap();
     assert_eq!(r["mixed"]["detached"], json!([]));
     assert!(r["mixed"]["topology_error"].is_string());
     assert_eq!(r["mixed"]["pending_remote"][0]["device_id"], Value::Null);
-    assert_eq!(r["mixed"]["pending_remote"][0]["target_device_id"], "mac");
+    assert_eq!(
+        r["mixed"]["pending_remote"][0]["target_device_id"],
+        "dev-mac"
+    );
     assert_eq!(wait(&rx, "mixed.pending_remote")["enabled"], true);
 }
 #[test]
@@ -235,7 +238,7 @@ fn invalid_requests_never_change_revision_or_saved_file_and_manual_api_is_gone()
         ("mixed.set", json!({"enabled":"yes"})),
         (
             "mixed.assign",
-            json!({"assignment":[{"fingerprint":MAIN,"device_id":"mac"},{"fingerprint":MAIN,"device_id":"windows"}]}),
+            json!({"assignment":[{"fingerprint":MAIN,"device_id":"dev-mac"},{"fingerprint":MAIN,"device_id":"dev-windows"}]}),
         ),
     ] {
         assert_eq!(
@@ -248,7 +251,7 @@ fn invalid_requests_never_change_revision_or_saved_file_and_manual_api_is_gone()
         );
     }
     assert_eq!(
-        rt.request("apply_layout", json!({"layout_id":"builtin:mac"}))
+        rt.request("apply_layout", json!({"layout_id":"builtin:dev-mac"}))
             .unwrap_err()
             .code,
         "E_UNKNOWN_METHOD"
@@ -259,7 +262,7 @@ fn invalid_requests_never_change_revision_or_saved_file_and_manual_api_is_gone()
             .unwrap()
             .contains(&json!("apply_layout"))
     );
-    rt.request("mixed.assign",json!({"assignment":[{"fingerprint":MAIN,"device_id":"mac"},{"fingerprint":SECOND,"device_id":"mac"}]})).unwrap();
+    rt.request("mixed.assign",json!({"assignment":[{"fingerprint":MAIN,"device_id":"dev-mac"},{"fingerprint":SECOND,"device_id":"dev-mac"}]})).unwrap();
     let before = std::fs::read(dir.path().join("config.json")).unwrap();
     assert_eq!(
         rt.request("mixed.set", json!({"enabled":true}))
@@ -302,7 +305,7 @@ fn legacy_follow_migrates_disabled_to_assignment_and_archives_layouts() {
     assert_eq!(migrated["switch_group"]["mixed"]["enabled"], false);
     assert_eq!(
         migrated["switch_group"]["mixed"]["assignment"],
-        json!([{"fingerprint":MAIN,"device_id":"windows"},{"fingerprint":SECOND,"device_id":"mac"}])
+        json!([{"fingerprint":MAIN,"device_id":"dev-windows"},{"fingerprint":SECOND,"device_id":"dev-mac"}])
     );
     assert_eq!(
         migrated["switch_group"]["layouts"][0]["source"]["kind"],
@@ -436,7 +439,7 @@ fn e2_builtin_allows_one_external_and_e3_lid_close_restores_last_screen() {
     assert_eq!(
         rt.request(
             "mixed.assign",
-            json!({"assignment":[{"fingerprint":"builtin","device_id":"mac"}]})
+            json!({"assignment":[{"fingerprint":"builtin","device_id":"dev-mac"}]})
         )
         .unwrap_err()
         .code,
@@ -612,7 +615,7 @@ fn await_state(rt: &RuntimeHandle, mut f: impl FnMut(&Value) -> bool) -> Value {
     }
 }
 fn await_holder(rt: &RuntimeHandle) {
-    await_state(rt, |s| s["mixed"]["keyboard_holder_device_id"] == "mac");
+    await_state(rt, |s| s["mixed"]["keyboard_holder_device_id"] == "dev-mac");
 }
 fn remote(revision: u64, enabled: bool, holder: Option<&str>) -> Value {
     json!({"group_id":"desk","revision":revision,"enabled":enabled,"assignment":config()["switch_group"]["mixed"]["assignment"],"keyboard_holder_device_id":holder})
@@ -624,13 +627,14 @@ fn review_remote_entry_is_trusted_versioned_persisted_and_does_not_echo() {
     await_holder(&rt);
     while rx.try_recv().is_ok() {}
     assert_eq!(
-        rt.request("mixed.apply_remote", remote(8, true, Some("mac")))
+        rt.request("mixed.apply_remote", remote(8, true, Some("dev-mac")))
             .unwrap_err()
             .code,
         "E_UNKNOWN_METHOD"
     );
     assert_eq!(
-        rt.apply_remote_mixed(remote(8, true, Some("mac"))).unwrap()["applied"],
+        rt.apply_remote_mixed(remote(8, true, Some("dev-mac")))
+            .unwrap()["applied"],
         true
     );
     let current = rt.request("config.get", json!({})).unwrap();
@@ -638,7 +642,7 @@ fn review_remote_entry_is_trusted_versioned_persisted_and_does_not_echo() {
     assert_eq!(current["switch_group"]["mixed"]["revision"], 8);
     for revision in [7, 8] {
         assert_eq!(
-            rt.apply_remote_mixed(remote(revision, false, Some("mac")))
+            rt.apply_remote_mixed(remote(revision, false, Some("dev-mac")))
                 .unwrap()["applied"],
             false
         );
@@ -647,7 +651,7 @@ fn review_remote_entry_is_trusted_versioned_persisted_and_does_not_echo() {
         rt.request("state.get", json!({})).unwrap()["mixed"]["enabled"],
         true
     );
-    let wrong = json!({"group_id":"wrong","revision":9,"enabled":false,"assignment":[],"keyboard_holder_device_id":"mac"});
+    let wrong = json!({"group_id":"wrong","revision":9,"enabled":false,"assignment":[],"keyboard_holder_device_id":"dev-mac"});
     assert!(rt.apply_remote_mixed(wrong).is_err());
     let notices: Vec<_> = rx.try_iter().collect();
     assert!(notices.iter().any(|(k, _)| k == "state"));
@@ -784,7 +788,7 @@ fn review_close_to_remote_holder_attaches_waits_then_pushes_local_screen() {
     rt.request("mixed.set", json!({"enabled":true})).unwrap();
     topo.operations.lock().unwrap().clear();
     let r = rt
-        .apply_remote_mixed(remote(6, false, Some("windows")))
+        .apply_remote_mixed(remote(6, false, Some("dev-windows")))
         .unwrap();
     let ops = topo.operations.lock().unwrap().clone();
     let attach = ops
@@ -932,7 +936,7 @@ fn review_pending_ids_stable_across_replans_and_superseded_by_new_revision() {
         .as_str()
         .unwrap()
         .to_string();
-    assert_eq!(id, expected_pending_id(&off["mixed"], SECOND, "mac"));
+    assert_eq!(id, expected_pending_id(&off["mixed"], SECOND, "dev-mac"));
     let cfg = rt.request("config.get", json!({})).unwrap();
     rt.request("config.set", json!({"config":cfg})).unwrap();
     assert_eq!(
@@ -941,7 +945,7 @@ fn review_pending_ids_stable_across_replans_and_superseded_by_new_revision() {
     );
 
     let newer = rt
-        .apply_remote_mixed(remote(7, false, Some("windows")))
+        .apply_remote_mixed(remote(7, false, Some("dev-windows")))
         .unwrap();
     assert!(newer["mixed"]["superseded_remote"]
         .as_array()
@@ -970,7 +974,7 @@ fn review_status_labels_target_evidence_and_builtin_unavailable() {
     let d = on["mixed"]["destinations"].as_array().unwrap();
     assert_eq!(d[0]["display_name"], "Desk main");
     assert_eq!(d[1]["display_name"], "显示器 2");
-    assert_eq!(d[1]["target_device_id"], "windows");
+    assert_eq!(d[1]["target_device_id"], "dev-windows");
     assert_eq!(d[1]["evidence"], "commanded_unconfirmed");
     assert!(d[1]["current_device_id"].is_null());
     topo.displays.lock().unwrap().retain(|d| !d.builtin);
@@ -1030,7 +1034,7 @@ fn review_enabled_usb_departure_has_zero_additional_ddc_writes() {
     await_holder(&rt);
     let initial = topo.operations.lock().unwrap().clone();
     let s = await_state(&rt, |s| {
-        s["mixed"]["keyboard_holder_device_id"] == "windows"
+        s["mixed"]["keyboard_holder_device_id"] == "dev-windows"
     });
     assert_eq!(*topo.operations.lock().unwrap(), initial);
     assert_eq!(s["mixed"]["holder_confidence"], "known");
@@ -1044,7 +1048,7 @@ fn review_enabled_usb_departure_has_zero_additional_ddc_writes() {
         Box::new(topo.clone()),
     );
     await_state(&rt, |s| {
-        s["mixed"]["keyboard_holder_device_id"] == "windows"
+        s["mixed"]["keyboard_holder_device_id"] == "dev-windows"
     });
     let deadline = Instant::now() + Duration::from_secs(2);
     while topo
@@ -1084,7 +1088,7 @@ fn review_three_computer_inferred_holder_cannot_push_on_close() {
         Box::new(topo.clone()),
     );
     let state = await_state(&rt, |s| {
-        s["mixed"]["keyboard_holder_device_id"] == "windows"
+        s["mixed"]["keyboard_holder_device_id"] == "dev-windows"
     });
     assert_eq!(state["mixed"]["holder_confidence"], "inferred");
     topo.operations.lock().unwrap().clear();
@@ -1200,8 +1204,8 @@ fn combination_initial_stable_with_same_holder_preserves_close_pending() {
     std::thread::sleep(Duration::from_millis(1700));
     let stable = rt.request("state.get", json!({})).unwrap();
     assert_eq!(stable["groupStable"], true);
-    assert_eq!(closed["mixed"]["keyboard_holder_device_id"], "mac");
-    assert_eq!(stable["mixed"]["keyboard_holder_device_id"], "mac");
+    assert_eq!(closed["mixed"]["keyboard_holder_device_id"], "dev-mac");
+    assert_eq!(stable["mixed"]["keyboard_holder_device_id"], "dev-mac");
     assert!(
         stable["mixed"]["pending_remote"]
             .as_array()
@@ -1234,7 +1238,10 @@ fn combination_actual_handoff_still_supersedes_close_pending() {
     assert!(id.is_string());
     std::thread::sleep(Duration::from_millis(2100));
     let departed = rt.request("state.get", json!({})).unwrap();
-    assert_eq!(departed["mixed"]["keyboard_holder_device_id"], "windows");
+    assert_eq!(
+        departed["mixed"]["keyboard_holder_device_id"],
+        "dev-windows"
+    );
     assert!(departed["mixed"]["pending_remote"]
         .as_array()
         .unwrap()
@@ -1251,7 +1258,7 @@ fn combination_newer_section_meta_does_not_reactivate_superseded_id() {
     let dir = tempfile::tempdir().unwrap();
     let (rt, _) = start(dir.path(), "manual_layout", &config(), Box::new(topology()));
     await_holder(&rt);
-    let mut params = remote(8, true, Some("mac"));
+    let mut params = remote(8, true, Some("dev-mac"));
     params["meta"] = json!({"updated_at_ms":100,"updated_by":"pc"});
     let first = rt.apply_remote_mixed(params.clone()).unwrap();
     let previous = first["mixed"]["pending_remote"][0]["id"].clone();

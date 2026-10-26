@@ -56,6 +56,7 @@ async function client(t, options = {}) {
         if (result !== undefined) return result;
       }
       if (method === 'config.get') return structuredClone(config);
+      if (method === 'lan.identity') return { device_id: state?.lan?.self?.device_id || config?.local_device?.device_id || 'dev-test-local' };
       if (method === 'state.get') return structuredClone(state);
       if (method === 'display.list') return { displays };
       if (method === 'config.set' && failSave) throw new Error('保存失败');

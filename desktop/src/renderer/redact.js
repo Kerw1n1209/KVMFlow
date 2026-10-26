@@ -68,7 +68,7 @@
   // diagnostics stay correlatable across a support thread without shipping
   // the full pin material.
   const PUBLIC_KEY_KEYS = new Set(['public_key']);
-  const LAN_ADDRESS_KEYS = new Set(['addr', 'addresses']);
+  const LAN_ADDRESS_KEYS = new Set(['addr', 'pair_addr', 'addresses']);
 
   function redactDiagnostics(payload, { computerName } = {}) {
     const names = new Map();

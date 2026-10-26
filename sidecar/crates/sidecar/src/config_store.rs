@@ -160,13 +160,13 @@ impl Runtime {
         }
     }
 
-    fn bootstrap_loaded_identity(
+    pub(crate) fn bootstrap_loaded_identity(
         &mut self,
         config: MultiDeviceConfig,
         original: &str,
         persist: bool,
     ) -> MultiDeviceConfig {
-        if config.local_device.device_id != kvmflow_core::config::LEGACY_LOCAL_DEVICE_ID {
+        if config.local_device.device_id.starts_with("dev-") {
             return config;
         }
         let mut candidate = config.clone();
@@ -184,6 +184,14 @@ impl Runtime {
         match result {
             Ok(_) => candidate,
             Err(error) => {
+                self.lan_issue(
+                    if legacy_identity_is_paired(&self.config_path, &config) {
+                        "E_LAN_ID_MIGRATION_REQUIRED"
+                    } else {
+                        "E_LAN_IDENTITY_IO"
+                    },
+                    &error.to_string(),
+                );
                 self.emit_event(
                     "lan.identity.bootstrap_failed",
                     Level::Warn,
@@ -279,7 +287,7 @@ impl Runtime {
     }
 
     pub(crate) fn persist_and_apply_config(&mut self, id: u64, mut config: MultiDeviceConfig) {
-        if config.local_device.device_id == kvmflow_core::config::LEGACY_LOCAL_DEVICE_ID {
+        if !config.local_device.device_id.starts_with("dev-") {
             let stable = load_or_create_device_id(&self.config_path);
             match stable.and_then(|stable| {
                 bootstrap_device_identity(
@@ -297,6 +305,16 @@ impl Runtime {
                     return;
                 }
             }
+        }
+        if !self.lan_runtime.device_id.is_empty()
+            && config.local_device.device_id != self.lan_runtime.device_id
+        {
+            self.respond(ResponseLine::err(
+                id,
+                "E_LAN_IDENTITY",
+                "local device ID must match runtime identity",
+            ));
+            return;
         }
         let mut config = match self.prepare_mixed_config(config) {
             Ok(config) => config,
@@ -415,6 +433,18 @@ impl Runtime {
     }
 }
 
+/// Trust references (including tombstones) or an unfinished pairing transaction
+/// mean another machine may already pin this ID. Manual input presets in
+/// `devices` are not LAN members and remain usable after local migration.
+fn legacy_identity_is_paired(path: &Path, config: &MultiDeviceConfig) -> bool {
+    path.with_file_name("pairing.pending.json").exists()
+        || config.switch_group.as_ref().is_some_and(|group| {
+            group.sync.get("members").is_some_and(|members| {
+                !members.is_null() && members.as_array().is_none_or(|m| !m.is_empty())
+            })
+        })
+}
+
 /// Backup before replacing the placeholder, and change memory only after a
 /// successful atomic save. Key generation/storage is owned by LAN S4.
 fn bootstrap_device_identity(
@@ -425,14 +455,25 @@ fn bootstrap_device_identity(
     now: u64,
     persist: bool,
 ) -> std::io::Result<bool> {
-    use kvmflow_core::{config::LEGACY_LOCAL_DEVICE_ID, identity::rename_device_id};
-    if config.local_device.device_id != LEGACY_LOCAL_DEVICE_ID {
+    use kvmflow_core::identity::rename_device_id;
+    if config.local_device.device_id.starts_with("dev-") {
         return Ok(false);
     }
+    if legacy_identity_is_paired(path, config) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData,
+            "Legacy device identity is already paired. Remove the old pairing on both computers and pair again."));
+    }
+    let old = config.local_device.device_id.clone();
     let mut candidate = config.clone();
     let id = stable_id.to_owned();
     if let Some(group) = &mut candidate.switch_group {
-        rename_device_id(group, LEGACY_LOCAL_DEVICE_ID, &id);
+        if group.devices.iter().any(|device| device.device_id == id) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "local identity already belongs to another device",
+            ));
+        }
+        rename_device_id(group, &old, &id);
     }
     candidate.local_device.device_id = id;
     if !persist {
@@ -593,5 +634,138 @@ mod identity_tests {
         assert!(bootstrap_device_identity(&path, &mut c, &original, "dev-test", 1, true).is_err());
         assert_eq!(c, before);
         assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
+}
+
+#[cfg(test)]
+mod legacy_id_regressions {
+    use super::*;
+    fn legacy(old: &str) -> MultiDeviceConfig {
+        let LegacyMigration::Runnable(mut config) =
+            MultiDeviceConfig::migrate_legacy(kvmflow_core::config::example_config())
+        else {
+            panic!()
+        };
+        kvmflow_core::identity::rename_device_id(
+            config.switch_group.as_mut().unwrap(),
+            "legacy-local",
+            old,
+        );
+        config.local_device.device_id = old.into();
+        config
+    }
+    #[test]
+    fn platform_ids_migrate_all_schema_references_atomically_and_only_once() {
+        for old in ["mac", "win", "windows", "legacy-local"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config.json");
+            let id = load_or_create_device_id(&path).unwrap();
+            let mut config = legacy(old);
+            let group = config.switch_group.as_mut().unwrap();
+            let fp = group.devices[0].monitors[0].fingerprint.clone();
+            group.sync = json!({"topology":{"updated_by":old},"mixed":{"updated_by":old},
+                "profile_cache":{old:{"profile_rev":1,"monitors":[]}},
+                "archived_arrivals":{old:format!("builtin:{old}")},
+                "monitor_aliases":{"local-fp":"group-fp"}, "unknown":"keep"});
+            group.mixed = Some(serde_json::from_value(json!({"enabled":false,"revision":1,"assignment":[{"fingerprint":fp,"device_id":old}]})).unwrap());
+            group.devices[0].arrival_layout_id = Some(format!("builtin:{old}"));
+            group.layouts = serde_json::from_value(json!([{"id":format!("migrated:{old}:1"),"name":"saved","source":{"kind":"migrated_follow","device_id":old},"monitors":[{"fingerprint":fp,"target":{"device_id":old}}]}])).unwrap();
+            let original = persisted_config_text(&config);
+            std::fs::write(&path, &original).unwrap();
+            assert!(
+                bootstrap_device_identity(&path, &mut config, &original, &id, 1, true).unwrap()
+            );
+            let value = serde_json::to_value(&config).unwrap();
+            for pointer in [
+                "/local_device/device_id",
+                "/switch_group/devices/0/device_id",
+                "/switch_group/mixed/assignment/0/device_id",
+                "/switch_group/layouts/0/source/device_id",
+                "/switch_group/layouts/0/monitors/0/target/device_id",
+                "/switch_group/sync/topology/updated_by",
+                "/switch_group/sync/mixed/updated_by",
+            ] {
+                assert_eq!(value.pointer(pointer).unwrap(), &id, "{pointer}");
+            }
+            assert_eq!(
+                value["switch_group"]["sync"]["profile_cache"][&id]["profile_rev"],
+                1
+            );
+            assert_eq!(
+                value["switch_group"]["sync"]["archived_arrivals"][&id],
+                format!("builtin:{id}")
+            );
+            assert_eq!(
+                value["switch_group"]["sync"]["monitor_aliases"]["local-fp"],
+                "group-fp"
+            );
+            assert_eq!(value["switch_group"]["sync"]["unknown"], "keep");
+            let bytes = std::fs::read(&path).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<MultiDeviceConfig>(&bytes).unwrap(),
+                config
+            );
+            assert!(!bootstrap_device_identity(
+                &path,
+                &mut config,
+                &original,
+                "dev-different",
+                2,
+                true
+            )
+            .unwrap());
+            assert_eq!(std::fs::read(path).unwrap(), bytes);
+        }
+    }
+    #[test]
+    fn paired_or_pending_legacy_identity_is_preserved_including_tombstones() {
+        for kind in ["member", "removed", "pending", "malformed"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config.json");
+            let mut config = legacy("mac");
+            if kind == "pending" {
+                std::fs::write(dir.path().join("pairing.pending.json"), "{}").unwrap();
+            } else {
+                config.switch_group.as_mut().unwrap().sync = json!({"members":if kind=="malformed" {json!({})} else {json!([{"device_id":"peer","removed":kind=="removed"}])}});
+            }
+            let before = config.clone();
+            let original = persisted_config_text(&config);
+            std::fs::write(&path, &original).unwrap();
+            assert!(
+                bootstrap_device_identity(&path, &mut config, &original, "dev-new", 1, true)
+                    .is_err()
+            );
+            assert_eq!(config, before);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            assert!(!dir.path().join("config.json.pre-identity-1").exists());
+        }
+    }
+}
+
+#[cfg(test)]
+mod identity_atomic_failure_tests {
+    use super::*;
+    #[test]
+    fn failed_atomic_replace_does_not_publish_a_partial_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("preserved"), "original").unwrap();
+        let mut config = MultiDeviceConfig::from_legacy(kvmflow_core::config::example_config());
+        let before = config.clone();
+        let original = persisted_config_text(&config);
+        assert!(
+            bootstrap_device_identity(&path, &mut config, &original, "dev-new", 1, true).is_err()
+        );
+        assert_eq!(config, before);
+        assert_eq!(
+            std::fs::read_to_string(path.join("preserved")).unwrap(),
+            "original"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("config.json.pre-identity-1")).unwrap(),
+            original
+        );
+        assert!(!dir.path().join("config.json.tmp").exists());
     }
 }

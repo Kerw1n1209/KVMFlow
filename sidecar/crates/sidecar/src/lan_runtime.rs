@@ -63,7 +63,7 @@ pub(crate) struct LanRuntime {
     handle: Option<LanHandle>,
     members: Arc<RwLock<Vec<Member>>>,
     public_key: String,
-    device_id: String,
+    pub(crate) device_id: String,
     issues: Vec<Value>,
     sync_states: BTreeMap<String, Value>,
     online: BTreeSet<String>,
@@ -342,6 +342,19 @@ impl Runtime {
         if self.config.as_ref().is_some_and(|c| c.setup_secondary) {
             self.lan_runtime.secondary = true;
         }
+        // Recheck at the transport boundary as config may have been applied
+        // since startup. Never advertise an unsafe legacy identity.
+        if let Some(config) = self.config.clone() {
+            if !config.local_device.device_id.starts_with("dev-") {
+                let original = std::fs::read_to_string(&self.config_path)
+                    .unwrap_or_else(|_| config_store::persisted_config_text(&config));
+                let migrated = self.bootstrap_loaded_identity(config, &original, true);
+                if !migrated.local_device.device_id.starts_with("dev-") {
+                    return;
+                }
+                self.apply_config(migrated);
+            }
+        }
         self.reconcile_pairing_record();
         let outcome = (|| -> lan::Result<LanHandle> {
             let device_id = match self.config.as_ref() {
@@ -424,7 +437,17 @@ impl Runtime {
             .as_ref()
             .map(|h| h.status_json())
             .unwrap_or_else(|| json!({"enabled": false, "peers": [], "issues": []}));
-        state["issues"] = json!(self.lan_runtime.issues);
+        let mut issues = self.lan_runtime.issues.clone();
+        if state["issues"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|issue| issue == "E_LAN_ID_CONFLICT"))
+            && !issues
+                .iter()
+                .any(|issue| issue["code"] == "E_LAN_ID_CONFLICT")
+        {
+            issues.push(json!({"code": "E_LAN_ID_CONFLICT"}));
+        }
+        state["issues"] = json!(issues);
         if let Some(peers) = state.get_mut("peers").and_then(Value::as_array_mut) {
             for peer in peers {
                 if peer.get("platform").is_none_or(Value::is_null) {
@@ -447,7 +470,15 @@ impl Runtime {
         state
     }
 
-    fn lan_issue(&mut self, code: &str, message: &str) {
+    pub(crate) fn lan_issue(&mut self, code: &str, message: &str) {
+        if self
+            .lan_runtime
+            .issues
+            .iter()
+            .any(|issue| issue["code"] == code && issue["message"] == message)
+        {
+            return;
+        }
         if self.lan_runtime.issues.len() >= 32 {
             self.lan_runtime.issues.remove(0);
         }
@@ -670,6 +701,7 @@ impl Runtime {
                         self.lan_send_profile(&id);
                     }
                 }
+                LanEvent::Issue { code, message } => self.lan_issue(&code, &message),
                 LanEvent::Message {
                     device_id,
                     authenticated_key,

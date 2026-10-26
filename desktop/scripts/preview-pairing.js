@@ -20,10 +20,10 @@ const bridge = `
   let pairSeq = 0;
   const pairEvent = data => ({ session_id: 'preview-session', event_seq: ++pairSeq, ...data });
 
-  const peer = { device_id: 'dev-game', name: 'DESKTOP-GAME', platform: 'windows', online: true, addr: '192.168.1.23:47820',
+  const peer = { device_id: 'dev-game', name: 'DESKTOP-GAME', platform: 'windows', online: false, addr: null, pair_addr: '192.168.1.23:47820',
     last_seen_ms: 1, initiator: null, app_version: '0.3.0', connection_id: 'fc3bbde6', key_fp: '8624e75f', last_error: null };
-  const office = { ...peer, device_id: 'dev-mini', name: 'Office-Mini', platform: 'macos', addr: '192.168.1.41:47820' };
-  const offline = { ...peer, device_id: 'dev-old', name: 'Old-Studio', online: false, addr: null };
+  const office = { ...peer, device_id: 'dev-mini', name: 'Office-Mini', platform: 'macos', pair_addr: '192.168.1.41:47820' };
+  const offline = { ...peer, device_id: 'dev-old', name: 'Old-Studio', online: false, addr: null, pair_addr: null };
   const lan = (peers) => ({ enabled: true, listen_port: 47820,
     self: { device_id: 'dev-mac', key_fp: '1f22c9e5', addr: '192.168.1.23' },
     peers, issues: [], sync: {},
@@ -69,10 +69,11 @@ const bridge = `
     }
     if (command === 'runtime_request') {
       const { method, params } = args;
+      if (method === 'lan.identity') return state.lan.self;
       if (method === 'config.get') return config;
       if (method === 'state.get') return snapshot(state);
       if (method === 'lan.pair.window') return { open: params.open };
-      if (method === 'lan.pair.start') return { phase: 'connecting', addr: params.addr,
+      if (method === 'lan.pair.start' || method === 'lan.connect_manual') return { phase: 'connecting', addr: params.addr,
         session_id: 'preview-session', event_seq: 0, local_confirmed: false, peer_confirmed: false };
       if (method === 'lan.pair.confirm') return { phase: params.sas_ok ? 'await_peer_confirm' : 'cancelled', sas: '482 913',
         session_id: 'preview-session', event_seq: ++pairSeq, local_confirmed: params.sas_ok, peer_confirmed: false };

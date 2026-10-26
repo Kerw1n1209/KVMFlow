@@ -102,7 +102,7 @@ test('lan state is included and redacted without any private key material', () =
         enabled: true,
         listen_port: 47820,
         self: { device_id: 'dev-ABC234DEF', key_fp: '1f22c9e5' },
-        peers: [{ device_id: 'dev-XYZ987HIJ', name: 'Alex的MacBook', online: true, addr: '192.168.1.23:47820', key_fp: '0a0b0c0d' }],
+        peers: [{ device_id: 'dev-XYZ987HIJ', name: 'Alex的MacBook', online: true, addr: '192.168.1.23:47820', pair_addr: '192.168.1.24:47820', key_fp: '0a0b0c0d' }],
         issues: [
           { code: 'E_LAN_NOT_MEMBER', message: 'Alex的MacBook 连接未授权' },
           { code: 'E_LAN_IO', message: 'dial 192.168.1.23:47820 and 10.0.0.7 failed' },
@@ -119,6 +119,7 @@ test('lan state is included and redacted without any private key material', () =
     },
   });
   const result = redact(payload(), { computerName: 'Alex的MacBook' });
+  assert.match(result.sidecar.lan.peers[0].pair_addr, /^lan-addr-/);
   const text = JSON.stringify(result);
   // LAN status stays diagnosable through stable IDs, ports and short fingerprints.
   assert.equal(result.sidecar.lan.enabled, true);

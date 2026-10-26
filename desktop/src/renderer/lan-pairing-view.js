@@ -67,6 +67,9 @@
       E_LAN_OFFLINE: 'lan.error.disconnected',
       E_LAN_BUSY: 'lan.error.busy',
       E_LAN_ADDRESS: 'lan.error.address',
+      E_LAN_ID_CONFLICT: 'lan.error.id.conflict',
+      E_LAN_ID_MIGRATION_REQUIRED: 'lan.error.id.migration',
+      E_LAN_IDENTITY_IO: 'lan.error.identity.io',
       E_LAN_DISABLED: 'lan.error.disabled',
       E_LAN_LOCAL_SETUP: 'lan.error.local.setup',
       E_LAN_CONFIG_REFRESH: 'lan.error.config.refresh',
@@ -99,7 +102,9 @@
         // The protocol omits `platform` when the peer never reported one;
         // the row then renders the address alone instead of guessing an OS.
         platform: platformLabel(peer.platform),
-        addr: typeof peer.addr === 'string' ? peer.addr : null,
+        addr: peer.online === true && typeof peer.addr === 'string' ? peer.addr
+          : typeof peer.pair_addr === 'string' ? peer.pair_addr : typeof peer.addr === 'string' ? peer.addr : null,
+        available: peer.online === true || typeof peer.pair_addr === 'string',
         online: peer.online === true,
       }));
   }

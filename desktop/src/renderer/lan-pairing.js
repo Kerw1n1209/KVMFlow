@@ -198,6 +198,24 @@
       <span class="pair-mini-label">${t('monitor.value', { p0: index + 1 })}</span></div>`).join('');
   }
 
+  function identityIssuesHtml() {
+    return (lan?.issues || []).filter(issue => ['E_LAN_ID_CONFLICT', 'E_LAN_ID_MIGRATION_REQUIRED', 'E_LAN_IDENTITY_IO'].includes(issue?.code))
+      .map(issue => `<p class="pair-error" role="alert">${t(View.errorCopy(issue.code).id)}</p>`).join('');
+  }
+  function manualConnectHtml() {
+    return `<details class="pair-ip"><summary>${t('lan.ip.connect')}</summary>
+      <form class="pair-ip-form"><input name="addr" aria-label="${t('lan.ip.address')}" placeholder="192.168.1.23:47820" autocomplete="off" spellcheck="false" required maxlength="21">
+      <button type="submit" class="secondary" ${lan?.enabled === false ? 'disabled' : ''}>${t('lan.connect')}</button></form></details>`;
+  }
+  document.addEventListener('submit', event => {
+    if (!event.target.matches('.pair-ip-form')) return;
+    event.preventDefault();
+    const value = event.target.elements.addr.value.trim();
+    if (!value || (session && !terminal())) return;
+    dialPeer = { addr: value, name: value, manual: true };
+    void beginPairing();
+  });
+
   function errorHtml(phase, compact) {
     const copy = View.errorCopy(phase.code, phase.message);
     return `<p class="pair-error${compact ? ' pair-pending' : ''}">${t(copy.id, { p0: esc(copy.code), p1: esc(phase.message || '') })}</p>`;
@@ -349,6 +367,7 @@
         return `<h2 id="pairing-title">${t('lan.select.title')}</h2>
           <p class="sub">${t('lan.select.copy')}</p>
           <div class="pair-peer-list" id="pair-peer-list"></div>
+          ${manualConnectHtml()}
           <p class="hint pair-search-hint">${t(lan?.enabled === false ? 'lan.list.empty.offline' : 'lan.searching')}</p>
           <div class="confirmation-actions">
             <button class="secondary" data-pair-action="close">${t('cancel')}</button>
@@ -364,7 +383,7 @@
     // the explicit committing notification may never arrive separately.
     const effective = phase.state === 'resolve' && note?.phase === 'ready_to_commit' && note?.initiator !== false
       ? { state: 'committing' } : phase;
-    const body = dialogBody(effective);
+    const body = identityIssuesHtml() + dialogBody(effective);
     if (root.dataset.rendered !== body) {
       root.dataset.rendered = body;
       byId('pairing-body').innerHTML = body;
@@ -379,15 +398,15 @@
     const list = byId('pair-peer-list');
     if (!list) return;
     const rows = peerRows();
-    const items = rows.map(row => `<button type="button" class="pair-peer${dialPeer?.deviceId === row.deviceId ? ' selected' : ''}${row.online && row.addr ? '' : ' offline'}"
-        data-pair-peer="${esc(row.deviceId)}" aria-pressed="${dialPeer?.deviceId === row.deviceId}" ${row.online && row.addr ? '' : 'disabled'}>
+    const items = rows.map(row => `<button type="button" class="pair-peer${dialPeer?.deviceId === row.deviceId ? ' selected' : ''}${row.available && row.addr ? '' : ' offline'}"
+        data-pair-peer="${esc(row.deviceId)}" aria-pressed="${dialPeer?.deviceId === row.deviceId}" ${row.available && row.addr ? '' : 'disabled'}>
         <span class="pair-peer-copy"><strong>${esc(row.name)}</strong>
         <span class="hint">${esc([row.platform, hostOf(row.addr)].filter(Boolean).join(' · ') || t('lan.peer.unreachable'))}</span></span>
         ${dialPeer?.deviceId === row.deviceId ? `<span class="settings-tag">${t('lan.selected')}</span>` : ''}</button>`).join('');
     const html = items || `<p class="hint pair-empty">${t(lan?.enabled === false ? 'lan.list.empty.offline' : 'lan.list.empty')}</p>`;
     if (list.dataset.rendered !== html) { list.dataset.rendered = html; list.innerHTML = html; }
     const connect = byId('pair-connect');
-    if (connect) connect.disabled = !(dialPeer?.online && dialPeer?.addr);
+    if (connect) connect.disabled = !(dialPeer?.available && dialPeer?.addr);
   }
 
   // ---- primary wizard pages --------------------------------------------------
@@ -396,14 +415,16 @@
     const rows = peerRows();
     const disabled = lan?.enabled === false;
     const cards = rows.map(row => `<div class="pair-card${dialPeer?.deviceId === row.deviceId ? ' selected' : ''}">
-      <div><strong>${esc(row.name)}</strong><span class="hint">${row.online && row.addr ? t('lan.peer.ready') : t('lan.peer.unreachable')}</span></div>
-      <button class="primary" data-pair-peer="${esc(row.deviceId)}" ${row.online && row.addr ? '' : 'disabled'}>${t('lan.connect')}</button></div>`).join('');
+      <div><strong>${esc(row.name)}</strong><span class="hint">${row.available && row.addr ? t('lan.peer.ready') : t('lan.peer.unreachable')}</span></div>
+      <button class="primary" data-pair-peer="${esc(row.deviceId)}" ${row.available && row.addr ? '' : 'disabled'}>${t('lan.connect')}</button></div>`).join('');
     const empty = disabled
       ? `<div class="pair-card empty"><div><strong>${t('lan.list.empty.offline')}</strong></div></div>`
       : `<div class="pair-card empty"><div><strong>${t('lan.searching')}</strong><span class="hint">${t('lan.list.empty')}</span></div></div>`;
     return `<div class="wizard-head"><h1>${t('lan.add.title')}</h1>
       <p class="sub">${t('lan.add.copy')}</p></div>
+      ${identityIssuesHtml()}
       <div class="pair-cards">${cards || empty}</div>
+      ${manualConnectHtml()}
       ${disabled ? '' : `<p class="hint pair-search-hint">${t('lan.searching')}</p>`}
       <div class="wizard-footer">
         <p class="pair-manual"><span class="hint">${t('lan.no.lan')}</span> <button class="link pair-link" data-pair-action="manual">${t('lan.manual.fill')}</button></p>
@@ -580,6 +601,7 @@
           <p>${t('lan.secondary.request', { p0: esc(peerName) })}</p>
           ${sasHtml(phase.sas, phase.flags)}
         </div>
+        ${identityIssuesHtml()}
         <p class="hint pair-self">${esc(selfLine)}</p>
         <div class="wizard-footer">${manual}
           <div class="pair-footer-actions">
@@ -595,6 +617,7 @@
       <p class="sub">${t('lan.secondary.wait.copy')}</p></div>
       <div class="pair-waiting"><div class="pair-spinner"></div><div><strong>${t('lan.secondary.wait.standby')}</strong>
         <p class="hint">${busyText}</p></div></div>
+      ${identityIssuesHtml()}
       <p class="hint pair-self">${esc(selfLine)}</p>
       <div class="wizard-footer">${manual}
         <button class="secondary" data-pair-action="role-back">${t('back')}</button></div>`;
@@ -725,7 +748,7 @@
     const peerCard = event.target.closest('[data-pair-peer]');
     if (peerCard && !peerCard.disabled) {
       const row = peerRows().find(entry => entry.deviceId === peerCard.dataset.pairPeer);
-      if (row?.online && row?.addr) {
+      if (row?.available && row?.addr) {
         dialPeer = row;
         peerName = row.name;
         if (dialog()?.open) renderDialog();
@@ -777,11 +800,11 @@
     try {
       await cleanupPending;
       if (session !== current) return;
-      await window.KVMFlowPairingConfig.preparePrimary(lan?.self);
+      await window.KVMFlowPairingConfig.preparePrimary();
       if (session !== current) return;
       await openPairingWindow();
       if (session !== current) return;
-      await pairRequest('lan.pair.start', { addr: row.addr });
+      await pairRequest(row.manual ? 'lan.connect_manual' : 'lan.pair.start', { addr: row.addr, ...(row.manual ? { pair: true } : {}) });
     } catch (error) {
       if (session === current && !terminal()) {
         requestError = error?.code || 'E_LAN_LOCAL_SETUP';
@@ -995,6 +1018,14 @@
     }
     render();
   });
+  window.kvmflow?.onNotification?.('lan.sync', data => {
+    if (Array.isArray(data?.issues)) {
+      const issues = new Map((lan?.issues || []).map(issue => [issue.code, issue]));
+      for (const issue of data.issues) issues.set(issue.code, issue);
+      lan = { ...(lan || {}), issues: [...issues.values()] };
+      render();
+    }
+  });
   window.kvmflow?.onNotification?.('lan.peers', (data) => {
     if (Array.isArray(data?.peers)) lan = { ...(lan || {}), peers: data.peers };
     renderPeerList();
@@ -1086,7 +1117,7 @@
     startRoleChoice: () => { mode = 'role'; roleChoice = null; autoRole = false; renderWizard(); },
     pairWith: (deviceId) => {
       const row = View.discoveryList(lan).find(entry => entry.deviceId === deviceId);
-      if (!row?.addr || row.online === false) return;
+      if (!row?.addr || row.available === false) return;
       if (window.KVMFlowPairingConfig?.isTrusted(deviceId)) {
         void window.kvmflow.request('lan.connect.manual', { addr: row.addr }).catch(error => {
           const copy = View.errorCopy(error?.code, error?.message);

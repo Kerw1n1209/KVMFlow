@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "local_device": {
-    "device_id": "mac",
+    "device_id": "dev-mac",
     "host_label": "Mac",
     "monitors": [
       {
@@ -23,17 +23,17 @@
       "assignment": [
         {
           "fingerprint": "SAC-2763-S:0000000000001",
-          "device_id": "mac"
+          "device_id": "dev-mac"
         },
         {
           "fingerprint": "SAC-2466-S:0000000000000",
-          "device_id": "windows"
+          "device_id": "dev-windows"
         }
       ]
     },
     "devices": [
       {
-        "device_id": "mac",
+        "device_id": "dev-mac",
         "name": "Mac",
         "port_index": 1,
         "monitors": [
@@ -48,7 +48,7 @@
         ]
       },
       {
-        "device_id": "windows",
+        "device_id": "dev-windows",
         "name": "PC",
         "port_index": 2,
         "monitors": [
