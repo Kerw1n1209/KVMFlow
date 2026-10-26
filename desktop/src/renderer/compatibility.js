@@ -20,9 +20,10 @@
   let collectionSequence = 0, opening = false;
   const formControls = [...dialog.querySelectorAll('input, textarea')];
   const selectedKind = () => dialog.querySelector('input[name="feedback-kind"]:checked')?.value || '';
-  const validDraft = () => selectedKind() && Array.from(message.value).length <= 2000 && Array.from(contact.value).length <= 200 && !/[\x00-\x1f\x7f-\x9f]/.test(contact.value);
+  const cleanText = value => value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ');
+  const validDraft = () => selectedKind() && Array.from(cleanText(message.value)).length <= 2000 && Array.from(cleanText(contact.value)).length <= 200;
   function render() {
-    if (report) payload = { schema: 1, kind: selectedKind(), message: message.value, contact: contact.value, report, diagnostics: include.checked ? diagnostics : null };
+    if (report) payload = { schema: 1, kind: selectedKind(), message: cleanText(message.value), contact: cleanText(contact.value), report, diagnostics: include.checked ? diagnostics : null };
     preview.textContent = payload ? JSON.stringify(payload, null, 2) : '';
     const tooLarge = payload && bytes(JSON.stringify(payload)) > 64 * 1024;
     send.disabled = pending || collecting || Boolean(collectionError) || !report || !validDraft() || tooLarge;
@@ -106,7 +107,7 @@
     if (github.disabled) return;
     // Contact and optional private diagnostics never enter the public issue.
     const kind = selectedKind();
-    const text = reportAPI.renderReport(report, t) + (kind ? `\n\n## ${t(kind === 'works' ? 'feedback.works' : 'feedback.problem')}` : '') + (message.value ? `\n\n${message.value}` : '');
+    const text = reportAPI.renderReport(report, t) + (kind ? `\n\n## ${t(kind === 'works' ? 'feedback.works' : 'feedback.problem')}` : '') + (payload.message ? `\n\n${payload.message}` : '');
     const target = reportAPI.submission(text);
     github.disabled = true;
     try {

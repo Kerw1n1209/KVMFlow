@@ -154,6 +154,20 @@ test('display probe failure falls back to existing evidence and still opens the 
   assert.equal(empty.dialog.open, true); assert.deepEqual(JSON.parse(empty.preview()).report.monitors, []);
 });
 
+test('C0, DEL and C1 controls are replaced before preview, copying and sending; whitespace stays', async t => {
+  const c = await setup(t, { sendError: 'network' }); await c.click('submit-device'); c.choose();
+  const bad = Array.from({ length: 160 }, (_, n) => n).filter(n => n <= 8 || n === 11 || n === 12 || n >= 14 && n <= 31 || n >= 127).map(n => String.fromCharCode(n)).join('');
+  c.fill('feedback-message', 'before' + bad + '\t\n\rafter');
+  c.fill('feedback-contact', 'user' + bad + '\t@example.com');
+  const payload = JSON.parse(c.preview());
+  assert.equal(payload.message, 'before' + ' '.repeat(bad.length) + '\t\n\nafter');
+  assert.equal(payload.contact, 'user' + ' '.repeat(bad.length) + '\t@example.com');
+  assert.equal(c.byId('feedback-send').disabled, false);
+  await c.click('feedback-send'); assert.deepEqual(c.sent[0], payload);
+  await c.click('copy-compatibility'); assert.deepEqual(JSON.parse(c.copied[0]), payload);
+});
+
+
 test('reopening after a receipt also preserves all entered fields and the diagnostics choice', async t => {
   const c = await setup(t); await c.click('submit-device'); c.choose('problem');
   c.fill('feedback-message', 'Keep this text'); c.fill('feedback-contact', 'person@example.com');

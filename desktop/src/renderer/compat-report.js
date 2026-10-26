@@ -21,7 +21,7 @@
     };
     collect(data);
     array(config.switch_group?.devices).forEach(device => { if (typeof device?.name === 'string' && device.name) secrets.add(device.name.toLowerCase()); });
-    const unsafe = /(?:https?:|[\\/@]|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[A-Z0-9]{3}-[0-9A-F]{4}-|\b[0-9a-f]{32,}\b|[0-9a-f]*:[0-9a-f:]*:[0-9a-f:]*|[\x00-\x1f\x7f])/i;
+    const unsafe = /(?:https?:|[\\/@]|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[A-Z0-9]{3}-[0-9A-F]{4}-|\b[0-9a-f]{32,}\b|[0-9a-f]*:[0-9a-f:]*:[0-9a-f:]*|[\x00-\x1f\x7f-\x9f])/i;
     const text = value => {
       if (typeof value !== 'string' || !value.trim() || unsafe.test(value) || [...secrets].some(secret => value.toLowerCase().includes(secret))) return null;
       return codepoints(value.trim(), 64);

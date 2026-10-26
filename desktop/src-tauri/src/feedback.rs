@@ -38,6 +38,16 @@ fn text(value: &Value, max: usize, controls: bool) -> bool {
         s.chars().count() <= max && (!controls || !s.chars().any(char::is_control))
     })
 }
+// Match the renderer/service rule exactly: tab, LF and CR are allowed.
+// Other C0 controls, DEL and C1 controls must have been replaced in preview.
+fn feedback_text(value: &Value, max: usize) -> bool {
+    value.as_str().is_some_and(|s| {
+        s.chars().count() <= max
+            && !s
+                .chars()
+                .any(|c| matches!(c as u32, 0..=8 | 11..=12 | 14..=31 | 127..=159))
+    })
+}
 fn nullable_text(value: &Value, max: usize) -> bool {
     value.is_null() || text(value, max, true)
 }
@@ -73,8 +83,8 @@ fn encode_payload(payload: &Value) -> Result<Vec<u8>, FeedbackError> {
         ],
     ) && payload["schema"].as_u64() == Some(1)
         && one_of(&payload["kind"], &["works", "problem"])
-        && text(&payload["message"], 2000, false)
-        && text(&payload["contact"], 200, true)
+        && feedback_text(&payload["message"], 2000)
+        && feedback_text(&payload["contact"], 200)
         && (payload["diagnostics"].is_null()
             || payload["diagnostics"]
                 .as_str()
@@ -231,7 +241,7 @@ mod tests {
         p["message"] = json!("🙂".repeat(2001));
         assert_eq!(encode_payload(&p).unwrap_err().code, "invalid_feedback");
         p = payload();
-        p["contact"] = json!("hello\nworld");
+        p["contact"] = json!("hello\u{0085}world");
         assert!(encode_payload(&p).is_err());
         p = payload();
         p["diagnostics"] = json!("中".repeat(MAX_DIAGNOSTICS / 3));
@@ -245,6 +255,32 @@ mod tests {
         assert_eq!(encode_payload(&p).unwrap().len(), MAX_BODY);
         p["report"]["os"]["version"] = json!("a".repeat(padding + 1));
         assert_eq!(encode_payload(&p).unwrap_err().code, "too_large");
+    }
+
+    #[test]
+    fn feedback_control_rules_match_preview_for_c0_del_c1_and_whitespace() {
+        for code in 0..=0x9f {
+            let ch = char::from_u32(code).unwrap();
+            let forbidden = matches!(code, 0..=8 | 11..=12 | 14..=31 | 127..=159);
+            for field in ["message", "contact"] {
+                let mut p = payload();
+                p[field] = json!(format!("before{ch}after"));
+                assert_eq!(
+                    encode_payload(&p).is_err(),
+                    forbidden,
+                    "{field}: U+{code:04X}"
+                );
+                if forbidden {
+                    p[field] = json!("before after");
+                    assert!(encode_payload(&p).is_ok());
+                }
+            }
+        }
+        let mut p = payload();
+        p["message"] = json!("keep\tthese\nline\rbreaks");
+        p["contact"] = json!("optional\t\n\rcontact");
+        let bytes = encode_payload(&p).unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), p);
     }
 
     #[test]
