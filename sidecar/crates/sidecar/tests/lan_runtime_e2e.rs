@@ -2259,3 +2259,43 @@ fn pairing_write_failure_is_reported_to_both_hosts_and_can_be_retried() {
     complete_pairing(&mut a, &mut b);
     wait_complete_topology(&mut a, &mut b);
 }
+
+/// Before pairing, the primary dials every discovered computer and unpaired
+/// ones refuse it. That refusal is expected: it must not surface as the
+/// "pairing revoked, pair again" issue on either end.
+#[test]
+fn unpaired_refusals_are_not_reported_as_revoked_pairing() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let (mut mac, mut win, _mac_addr, _win_addr) =
+        pair_two_runtimes(dir.path(), mac_config(), win_config());
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let refused = loop {
+        let status = win.request("lan.status", json!({}));
+        if status["peers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["last_error"] == "E_LAN_NOT_MEMBER")
+        {
+            break true;
+        }
+        if std::time::Instant::now() > deadline {
+            break false;
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+    assert!(refused, "the unpaired dial must be refused first");
+    thread::sleep(Duration::from_millis(300));
+    for runtime in [&mut mac, &mut win] {
+        let issues = runtime.request("lan.status", json!({}))["issues"].clone();
+        assert!(
+            !issues
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|i| i["code"] == "E_LAN_NOT_MEMBER"),
+            "an unpaired refusal is not a revoked pairing: {issues}"
+        );
+    }
+}

@@ -207,6 +207,16 @@ impl Runtime {
     /// True when an authenticated frame/refusal came from the exact key the
     /// record pinned for its peer. One-sided reconciliation and record
     /// confirmation must never trust an address alone (N9/P3).
+    fn is_active_member_key(&self, key: &[u8; 32]) -> bool {
+        let key = public_key_string(key);
+        self.lan_runtime
+            .members
+            .read()
+            .unwrap()
+            .iter()
+            .any(|member| !member.removed && member.public_key == key)
+    }
+
     fn record_key_matches(record: &Value, key: &[u8; 32]) -> bool {
         Self::record_peer_key(record) == Some(public_key_string(key).as_str())
     }
@@ -867,6 +877,21 @@ impl Runtime {
                                 }
                             }
                         }
+                    }
+                    // Dialing every discovered computer means unpaired ones
+                    // refuse us as a matter of course; only a refusal from a
+                    // computer we pinned says our pairing was revoked.
+                    if code == "E_LAN_NOT_MEMBER"
+                        && !authenticated_key
+                            .as_ref()
+                            .is_some_and(|key| self.is_active_member_key(key))
+                    {
+                        self.emit_event(
+                            "lan.peer.unpaired_refusal",
+                            Level::Debug,
+                            json!({"code":code}),
+                        );
+                        continue;
                     }
                     if code == "E_LAN_NOT_MEMBER" && self.lan_runtime.pair.is_some() {
                         self.emit_event(
