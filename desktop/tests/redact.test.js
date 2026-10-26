@@ -120,12 +120,13 @@ test('lan state is included and redacted without any private key material', () =
   });
   const result = redact(payload(), { computerName: 'Elliott的MacBook' });
   const text = JSON.stringify(result);
-  // LAN status stays diagnosable: ports, device IDs, short fingerprints.
+  // LAN status stays diagnosable through stable IDs, ports and short fingerprints.
   assert.equal(result.sidecar.lan.enabled, true);
   assert.equal(result.sidecar.lan.listen_port, 47820);
   assert.equal(result.sidecar.lan.peers[0].online, true);
   assert.equal(result.sidecar.lan.self.key_fp, '1f22c9e5');
-  assert.equal(result.sidecar.lan.peers[0].device_id, 'dev-XYZ987HIJ');
+  assert.match(result.sidecar.lan.peers[0].device_id, /^device-\d+$/);
+  assert.equal(result.sidecar.lan.peers[0].device_id, Object.keys(result.sidecar.lan.sync)[0]);
   // LAN addresses (IPs) are replaced with stable placeholders (P2-7), and
   // bare private IPs embedded in free text (messages, events) map to the
   // same placeholder as the full address (P3).
@@ -152,4 +153,32 @@ test('lan state is included and redacted without any private key material', () =
   // No private-key material of any shape appears: the payload never
   // contains the identity file's contents (header + 32 raw bytes).
   assert.equal(text.includes('KVMFLOW-LAN-KEY'), false);
+});
+
+
+test('unpaired peer names, UUID values and keys, IPs and instance paths are redacted together', () => {
+  const { backend, secrets } = require('./fixtures/diagnostics-private');
+  const original = { sidecar: backend() };
+  const result = load()(original);
+  const text = JSON.stringify(result);
+  for (const secret of secrets) assert.equal(text.includes(secret), false, `${secret} leaked`);
+  const lan = result.sidecar.lan;
+  assert.match(lan.self.device_id, /^device-\d+$/);
+  assert.match(lan.peers[0].device_id, /^device-\d+$/);
+  assert.notEqual(lan.self.device_id, lan.peers[0].device_id);
+  assert.equal(lan.peers[0].connection_id, lan.self.device_id);
+  assert.equal(lan.peers[0].initiator, lan.peers[0].device_id);
+  assert.equal(Object.keys(lan.sync)[0], lan.peers[0].device_id);
+  assert.match(lan.peers[0].name, /^Computer \d+$/);
+  assert.ok(result.sidecar.events[0].fields.message.includes(lan.peers[0].device_id));
+  assert.deepEqual(original, { sidecar: backend() });
+});
+
+test('IPv6 forms are masked without mistaking VID:PID or USB serial keys for addresses', () => {
+  const ips = ['::1', '::', '2001:db8:85a3:0:0:8a2e:370:7334', '2001:db8::1', '::ffff:203.0.113.9', 'fe80::1234%en0'];
+  const result = load()({ errors: ips.map(ip => `dial [${ip}]:47820 failed`), hardware: ['3837:303c', '3837:303c:serial-1', '15 (0x0F)'] });
+  const text = JSON.stringify(result);
+  for (const ip of ips.filter(ip => ip !== '::')) assert.equal(text.includes(ip), false, ip);
+  assert.deepEqual(Array.from(result.hardware), ['3837:303c', '3837:303c:serial-1', '15 (0x0F)']);
+  assert.ok(result.errors.every(error => error.includes('lan-ip-')));
 });

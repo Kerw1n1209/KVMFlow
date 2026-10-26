@@ -404,7 +404,7 @@ test('diagnostics use the native save bridge once with UI and backend evidence',
   instance.win.document.querySelector('#export-log').click();
   await new Promise(resolve => setTimeout(resolve, 10));
   const payload = instance.export();
-  assert.equal(payload.config.local_device.device_id, 'host-win');
+  assert.match(payload.config.local_device.device_id, /^device-\d+$/);
   assert.equal(payload.sidecar.backend, 'test');
   assert.ok(payload.ui.computers);
   assert.equal(instance.requests.filter(entry => entry.method === 'diagnostics.collect').length, 1);
@@ -662,4 +662,22 @@ test('feedback uses the same redacted diagnostics collector as native export', a
   const partialExport = await failed.win.kvmflow.collectRedactedDiagnostics();
   assert.equal(partialExport.sidecar, null);
   assert.equal(partialExport.redacted, true);
+});
+
+
+test('native export and actual feedback attachment both remove unpaired peer identities and addresses', async t => {
+  const { backend, secrets } = require('./fixtures/diagnostics-private');
+  const c = await client(t, { request: async method => method === 'diagnostics.collect' ? backend() : undefined });
+  c.win.document.querySelector('#export-log').click(); await tick();
+  const exported = c.export(); assert.equal(exported.redacted, true);
+  c.navigate('diagnostics#feedback'); await tick();
+  c.win.document.querySelector('[name="feedback-kind"][value="works"]').click();
+  c.win.document.querySelector('#feedback-diagnostics').click(); await tick();
+  const preview = JSON.parse(c.win.document.querySelector('#compatibility-report').textContent);
+  let sent;
+  c.win.kvmflow.sendFeedback = async payload => { sent = payload; return { ok: true, id: 'fb_01JABCDEF0123456789ABCDEFG' }; };
+  c.win.document.querySelector('#feedback-send').click(); await tick();
+  assert.equal(sent.diagnostics, preview.diagnostics);
+  for (const text of [JSON.stringify(exported), sent.diagnostics]) for (const secret of secrets) assert.equal(text.includes(secret), false, `${secret} leaked`);
+  assert.deepEqual(JSON.parse(sent.diagnostics).sidecar, JSON.parse(JSON.stringify(exported.sidecar)));
 });
