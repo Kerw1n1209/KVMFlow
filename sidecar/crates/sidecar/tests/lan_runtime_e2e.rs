@@ -33,8 +33,17 @@ impl Client {
         self.rx.try_recv().ok()
     }
     fn spawn(config_path: &std::path::Path, lan_port: u16, peers: &[SocketAddr]) -> Self {
+        Self::spawn_scenario(config_path, lan_port, peers, "idle")
+    }
+
+    fn spawn_scenario(
+        config_path: &std::path::Path,
+        lan_port: u16,
+        peers: &[SocketAddr],
+        scenario: &str,
+    ) -> Self {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_kvmflow-sidecar"));
-        cmd.args(["--backend", "simulated", "--scenario", "idle", "--config"])
+        cmd.args(["--backend", "simulated", "--scenario", scenario, "--config"])
             .arg(config_path)
             .arg("--log-dir")
             .arg(config_path.parent().unwrap().join("logs"))
@@ -71,6 +80,12 @@ impl Client {
     }
 
     fn request(&mut self, method: &str, params: Value) -> Value {
+        let response = self.response(method, params);
+        assert_eq!(response["ok"], true, "request {method} failed: {response}");
+        response["result"].clone()
+    }
+
+    fn response(&mut self, method: &str, params: Value) -> Value {
         self.next_id += 1;
         let id = self.next_id;
         let line = json!({"v":1, "id": id, "method": method, "params": params});
@@ -86,8 +101,7 @@ impl Client {
             );
             match self.rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(v) if v.get("id") == Some(&json!(id)) => {
-                    assert_eq!(v["ok"], true, "request {method} failed: {v}");
-                    return v["result"].clone();
+                    return v;
                 }
                 Ok(v) => self.held.push(v),
                 Err(RecvTimeoutError::Timeout) => continue,
@@ -548,42 +562,7 @@ fn s7_offline_edit_converges_and_old_snapshots_are_ignored() {
     }
 }
 
-fn complete_pairing(a: &mut Client, b: &mut Client) {
-    // The responder is on its pairing screen (the product flow opens the
-    // inbound admission window there); the initiator opens it via
-    // lan.pair.start.
-    b.request("lan.pair.window", json!({"open": true}));
-    a.request(
-        "lan.pair.start",
-        json!({"addr": format!("127.0.0.1:{}", b.request("lan.status", json!({}))["listen_port"].as_u64().unwrap())}),
-    );
-    a.wait_for(
-        |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "await_confirm",
-        Duration::from_secs(20),
-    )
-    .unwrap();
-    b.wait_for(
-        |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "await_confirm",
-        Duration::from_secs(20),
-    )
-    .unwrap();
-    a.request("lan.pair.confirm", json!({"sas_ok": true}));
-    b.request("lan.pair.confirm", json!({"sas_ok": true}));
-    // Collect the issues the initiator reports and resolve every choice with
-    // its default: monitor alias "same display" and mixed "use basis".
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    let issues = loop {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "plan issues never arrived"
-        );
-        if let Some(v) = a.wait_for(
-            |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "await_resolve",
-            Duration::from_millis(300),
-        ) {
-            break v["data"]["issues"].clone();
-        }
-    };
+fn default_pair_choices(issues: &Value) -> Value {
     let mut aliases = serde_json::Map::new();
     let mut mixed = None;
     for issue in issues.as_array().cloned().unwrap_or_default() {
@@ -610,20 +589,82 @@ fn complete_pairing(a: &mut Client, b: &mut Client) {
     if let Some(mixed) = mixed {
         params["mixed"] = json!(mixed);
     }
-    let result = a.request("lan.pair.resolve", params);
-    assert_ne!(
-        result["phase"], "await_resolve",
-        "resolve left issues open: {result}"
+    params
+}
+
+fn complete_pairing(a: &mut Client, b: &mut Client) {
+    // The responder is on its pairing screen (the product flow opens the
+    // inbound admission window there); the initiator opens it via
+    // lan.pair.start.
+    b.request("lan.pair.window", json!({"open": true}));
+    let started=a.request(
+        "lan.pair.start",
+        json!({"addr": format!("127.0.0.1:{}", b.request("lan.status", json!({}))["listen_port"].as_u64().unwrap())}),
     );
-    let _ = a
+    let session = started["session_id"].clone();
+    a.wait_for(
+        |v| {
+            v["notification"] == "lan.pair"
+                && v["data"]["session_id"] == session
+                && v["data"]["phase"] == "await_confirm"
+        },
+        Duration::from_secs(20),
+    )
+    .unwrap();
+    let peer_prompt = b
         .wait_for(
-            |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "committed",
-            Duration::from_secs(30),
+            |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "await_confirm",
+            Duration::from_secs(20),
         )
-        .expect("a commit");
+        .unwrap();
+    a.request("lan.pair.confirm", json!({"sas_ok": true}));
+    b.request("lan.pair.confirm", json!({"sas_ok": true}));
+    // Collect the issues the initiator reports and resolve every choice with
+    // its default: monitor alias "same display" and mixed "use basis".
+    let planned = a
+        .wait_for(
+            |v| {
+                v["notification"] == "lan.pair"
+                    && v["data"]["session_id"] == session
+                    && ["await_resolve", "ready_to_commit", "committed"]
+                        .contains(&v["data"]["phase"].as_str().unwrap_or_default())
+            },
+            Duration::from_secs(20),
+        )
+        .expect("pair plan or automatic commit");
+    let issues = planned["data"]["issues"].clone();
+    let params = default_pair_choices(&issues);
+    if planned["data"]["phase"] == "await_resolve" {
+        let result = a.request("lan.pair.resolve", params);
+        assert_ne!(
+            result["phase"], "await_resolve",
+            "resolve left issues open: {result}"
+        );
+    }
+    if planned["data"]["phase"] != "committed" {
+        let outcome = a
+            .wait_for(
+                |v| {
+                    v["notification"] == "lan.pair"
+                        && v["data"]["session_id"] == session
+                        && ["committed", "failed"]
+                            .contains(&v["data"]["phase"].as_str().unwrap_or_default())
+                },
+                Duration::from_secs(30),
+            )
+            .expect("a commit or failure");
+        assert_eq!(
+            outcome["data"]["phase"], "committed",
+            "pairing failed: {outcome}"
+        );
+    }
     let _ = b
         .wait_for(
-            |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "committed",
+            |v| {
+                v["notification"] == "lan.pair"
+                    && v["data"]["session_id"] == peer_prompt["data"]["session_id"]
+                    && v["data"]["phase"] == "committed"
+            },
             Duration::from_secs(30),
         )
         .expect("b commit");
@@ -631,7 +672,11 @@ fn complete_pairing(a: &mut Client, b: &mut Client) {
     // frame arrives (peer_committed notification); wait for it so callers
     // see a fully finished pairing with no late frames in flight.
     let _ = a.wait_for(
-        |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "peer_committed",
+        |v| {
+            v["notification"] == "lan.pair"
+                && v["data"]["session_id"] == session
+                && v["data"]["phase"] == "peer_committed"
+        },
         Duration::from_secs(10),
     );
 }
@@ -965,6 +1010,9 @@ fn try_switch_start_and_stop_share_the_test_id_and_aggregate_shape() {
     complete_pairing(&mut a, &mut b);
     wait_mutually_online(&mut a, &mut b);
 
+    let mut confirmed = a.request("config.get", json!({}));
+    confirmed["switch_group"]["sync"]["ports_confirmed"] = json!(true);
+    a.request("config.set", json!({"config":confirmed}));
     let started = a.request("lan.test.start", json!({"duration_ms": 5000}));
     let test_id = started["test_id"].as_str().expect("test_id").to_string();
     assert!(started["ends_ms"].as_u64().unwrap() > 0);
@@ -1067,6 +1115,8 @@ fn rejecting_monitor_alias_commits_pin_only() {
 /// (dial backoff, load-dependent); edits made before this point can lose
 /// their one-shot snapshot broadcast.
 fn wait_mutually_online(a: &mut Client, b: &mut Client) {
+    let ida = a.request("lan.identity", json!({}))["device_id"].clone();
+    let idb = b.request("lan.identity", json!({}))["device_id"].clone();
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {
         assert!(
@@ -1078,13 +1128,13 @@ fn wait_mutually_online(a: &mut Client, b: &mut Client) {
             .cloned()
             .unwrap_or_default()
             .iter()
-            .any(|p| p["device_id"] == "dev-win" && p["online"] == json!(true));
+            .any(|p| p["device_id"] == idb && p["online"] == json!(true));
         let b_sees_a = b.request("lan.status", json!({}))["peers"]
             .as_array()
             .cloned()
             .unwrap_or_default()
             .iter()
-            .any(|p| p["device_id"] == "dev-mac" && p["online"] == json!(true));
+            .any(|p| p["device_id"] == ida && p["online"] == json!(true));
         if a_sees_b && b_sees_a {
             return;
         }
@@ -1869,6 +1919,9 @@ fn impostor_not_member_refusal_cannot_undo_a_pinned_record() {
     let (mut a, mut b, _a_addr, _b_addr) =
         pair_two_runtimes(dir.path(), mac_config(), win_config());
     complete_pairing(&mut a, &mut b);
+    // Observe a real authenticated member session before killing B. A
+    // never-yet-online row is not evidence that its handshake has drained.
+    wait_mutually_online(&mut a, &mut b);
 
     let members = a.request("config.get", json!({}))["switch_group"]["sync"]["members"].clone();
     let b_addr = mac_pair_target(&mut b);
@@ -1951,4 +2004,258 @@ fn impostor_not_member_refusal_cannot_undo_a_pinned_record() {
         .iter()
         .any(|v| v["notification"] == "lan.pair" && v["data"]["code"] == "E_LAN_PAIR_ONESIDED");
     assert!(!one_sided, "no one-sided undo may be reported");
+}
+
+fn wait_complete_topology(a: &mut Client, b: &mut Client) -> (Value, Value) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(25);
+    loop {
+        let ca = a.request("config.get", json!({}));
+        let cb = b.request("config.get", json!({}));
+        if ca["switch_group"]["devices"]
+            .as_array()
+            .is_some_and(|d| d.len() == 2)
+            && cb["switch_group"]["devices"]
+                .as_array()
+                .is_some_and(|d| d.len() == 2)
+            && ca["switch_group"]["devices"] == cb["switch_group"]["devices"]
+        {
+            return (ca, cb);
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "topology never completed: a={ca} b={cb}"
+        );
+        thread::sleep(Duration::from_millis(150));
+    }
+}
+
+#[test]
+fn fresh_initialization_pair_profiles_confirm_try_persists_two_owners_on_both_hosts() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    for scenario in ["idle", "manual_layout"] {
+        let dir = tempfile::tempdir().unwrap();
+        let pa = dir.path().join("primary/config.json");
+        let pb = dir.path().join("secondary/config.json");
+        std::fs::create_dir_all(pa.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(pb.parent().unwrap()).unwrap();
+        let mut a = Client::spawn(&pa, 0, &[]);
+        let mut b = Client::spawn_scenario(&pb, 0, &[], scenario);
+        let primary = a.request("lan.identity", json!({}))["device_id"].clone();
+        let secondary = b.request("lan.identity", json!({}))["device_id"].clone();
+        // The primary wizard records its own Windows input dialect (16/8).
+        // The secondary's simulated displays will actively learn their 15/7.
+        let displays = a.request("display.list", json!({}))["displays"].clone();
+        let monitors: Vec<Value> = displays
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                json!({
+                    "fingerprint":d["edid_id"], "label":d["model_name"],
+                    "local_input":if i==0 {16} else {8}, "source":"learned_active_read"
+                })
+            })
+            .collect();
+        let cfg = json!({"schema_version":2,"local_device":{"device_id":primary,"host_label":"Windows primary","monitors":monitors},
+        "trigger":{"anchor":{"vid_pid":"1a40:0101"},"members":[{"vid_pid":"3837:303c"}],"debounce":{"t_stable_ms":0,"t_absent_ms":0,"t_cooldown_ms":1000}},
+        "advanced":{"ddc_retry":{"attempts":1,"delay_ms":0}}});
+        a.request("config.set", json!({"config":cfg}));
+        b.request("lan.setup.secondary", json!({"host_label":"Studio Mac"}));
+        complete_pairing(&mut a, &mut b);
+        if scenario == "manual_layout" {
+            // The second simulated monitor is still showing the other input.
+            // Trust must survive a restart while the complete topology is blocked.
+            for path in [&pa, &pb] {
+                let cfg: kvmflow_core::config::MultiDeviceConfig =
+                    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+                cfg.validate().unwrap();
+                assert!(cfg.switch_group.as_ref().unwrap().devices.is_empty());
+                assert!(cfg
+                    .switch_group
+                    .as_ref()
+                    .unwrap()
+                    .sync
+                    .get("setup_pending")
+                    .is_some());
+            }
+            assert_eq!(
+                a.response("lan.test.start", json!({}))["error"]["code"],
+                "E_LAN_SETUP_PENDING"
+            );
+            drop(b);
+            // Restart with both monitor inputs showing the secondary, just as
+            // when the user brings its picture back. Polling must resume setup.
+            b = Client::spawn(&pb, 0, &[a_port(&mut a)]);
+            a.request(
+                "lan.connect.manual",
+                json!({"addr":mac_pair_target(&mut b)}),
+            );
+        }
+        a.request("lan.profile.refresh", json!({}));
+        b.request("lan.profile.refresh", json!({}));
+        let (mut ca, cb) = wait_complete_topology(&mut a, &mut b);
+        for config in [&ca, &cb] {
+            assert!(config["switch_group"]["sync"]
+                .get("setup_pending")
+                .is_none());
+            for id in [&primary, &secondary] {
+                assert!(config["switch_group"]["devices"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|d| &d["device_id"] == id));
+            }
+            let peer = config["switch_group"]["devices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|d| d["device_id"] == secondary)
+                .unwrap();
+            assert_eq!(peer["name"], "Studio Mac");
+            assert_eq!(peer["monitors"].as_array().unwrap().len(), 2);
+        }
+        assert_eq!(
+            a.response("lan.test.start", json!({}))["error"]["code"],
+            "E_LAN_SETUP_PENDING",
+            "monitor confirmation is required after topology save"
+        );
+        // The actual confirmation page persists ports_confirmed before entering Try.
+        ca["switch_group"]["sync"]["ports_confirmed"] = json!(true);
+        a.request("config.set", json!({"config":ca}));
+        let started = a.request("lan.test.start", json!({"duration_ms":5000}));
+        assert!(started["test_id"].is_string());
+        a.request("lan.test.stop", json!({}));
+        for path in [&pa, &pb] {
+            let persisted: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            assert_eq!(
+                persisted["switch_group"]["devices"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2
+            );
+        }
+        wait_mutually_online(&mut a, &mut b);
+        for runtime in [&mut a, &mut b] {
+            let issues = runtime.request("lan.status", json!({}))["issues"].clone();
+            assert!(
+                !issues
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|i| i["code"] == "E_LAN_NOT_MEMBER"),
+                "historical refusal must clear after authenticated connection: {issues}"
+            );
+        }
+    }
+}
+
+#[test]
+fn old_03_mac_win_upgrade_pairs_real_owners_without_placeholder_displays() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let mut primary = mac_config();
+    let mut secondary = win_config();
+    for config in [&mut primary, &mut secondary] {
+        config["local_device"]["device_id"] = json!("mac");
+        config["switch_group"]["group_id"] = json!("local-switch-group");
+        config["switch_group"]["devices"][0]["device_id"] = json!("mac");
+        config["switch_group"]["devices"][1]["device_id"] = json!("win");
+        config["switch_group"]["devices"][1]["name"] = json!("old remote placeholder");
+    }
+    let (mut a, mut b, _, _) = pair_two_runtimes(dir.path(), primary, secondary);
+    let ida = a.request("lan.identity", json!({}))["device_id"].clone();
+    let idb = b.request("lan.identity", json!({}))["device_id"].clone();
+    assert_ne!(ida, idb);
+    complete_pairing(&mut a, &mut b);
+    let (ca, cb) = wait_complete_topology(&mut a, &mut b);
+    for config in [&ca, &cb] {
+        let devices = config["switch_group"]["devices"].as_array().unwrap();
+        assert!(devices
+            .iter()
+            .all(|d| d["device_id"] != "mac" && d["device_id"] != "win"));
+        let peer = devices.iter().find(|d| d["device_id"] == idb).unwrap();
+        assert_eq!(peer["port_index"], 2);
+        assert_eq!(peer["name"], "游戏 PC");
+        assert_eq!(peer["monitors"].as_array().unwrap().len(), 2);
+        assert!(peer["monitors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["local_input"] == 17));
+    }
+    for host in ["a", "b"] {
+        let persisted: Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join(host).join("config.json")).unwrap(),
+        )
+        .unwrap();
+        let mut expected = ca["switch_group"]["devices"].clone();
+        // Built-in availability is an ephemeral observation, intentionally not persisted.
+        for device in expected.as_array_mut().unwrap() {
+            device
+                .as_object_mut()
+                .unwrap()
+                .remove("available_builtin_screens");
+        }
+        assert_eq!(persisted["switch_group"]["devices"], expected);
+    }
+}
+
+#[test]
+fn pairing_write_failure_is_reported_to_both_hosts_and_can_be_retried() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, mut b, _, _) = pair_two_runtimes(dir.path(), mac_config(), win_config());
+    b.request("lan.pair.window", json!({"open":true}));
+    a.request("lan.pair.start", json!({"addr":mac_pair_target(&mut b)}));
+    for runtime in [&mut a, &mut b] {
+        runtime
+            .wait_for(
+                |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "await_confirm",
+                Duration::from_secs(15),
+            )
+            .expect("SAS");
+        runtime.request("lan.pair.confirm", json!({"sas_ok":true}));
+    }
+    let choices = a
+        .wait_for(
+            |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "await_resolve",
+            Duration::from_secs(15),
+        )
+        .expect("choices");
+    // A directory at the destination makes the atomic replace fail even
+    // under an elevated test runner; no host permissions are changed.
+    let path = dir.path().join("a/config.json");
+    let saved = dir.path().join("a/config.saved");
+    std::fs::rename(&path, &saved).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    a.request(
+        "lan.pair.resolve",
+        default_pair_choices(&choices["data"]["issues"]),
+    );
+    for runtime in [&mut a, &mut b] {
+        let failed = runtime
+            .wait_for(
+                |v| v["notification"] == "lan.pair" && v["data"]["phase"] == "failed",
+                Duration::from_secs(5),
+            )
+            .expect("write failure must be published to both UIs");
+        assert_eq!(failed["data"]["code"], "E_CONFIG_IO");
+        assert!(failed["data"]["session_id"].is_string());
+        assert!(
+            runtime.request("config.get", json!({}))["switch_group"]["sync"]["members"]
+                .as_array()
+                .is_none_or(|m| m.is_empty()),
+            "failed write cannot publish member pins"
+        );
+    }
+    assert!(
+        !dir.path().join("a/pairing.pending.json").exists(),
+        "an uncommitted failed attempt must not leave a revocation record"
+    );
+    std::fs::remove_dir(&path).unwrap();
+    std::fs::rename(&saved, &path).unwrap();
+    complete_pairing(&mut a, &mut b);
+    wait_complete_topology(&mut a, &mut b);
 }

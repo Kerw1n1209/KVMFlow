@@ -24,6 +24,7 @@ use std::{
 
 mod commands;
 mod pairing;
+mod setup;
 mod test_evidence;
 
 pub struct RuntimeLanOptions {
@@ -402,14 +403,21 @@ impl Runtime {
                 None => Box::new(MdnsDiscovery::new(transport.address_policy.clone())?)
                     as Box<dyn Discovery>,
             };
-            LanHandle::start(
+            let requested_port = transport.listen_port;
+            let handle = LanHandle::start(
                 identity,
                 hello,
                 label,
                 self.lan_runtime.members.clone(),
                 discovery,
                 transport,
-            )
+            )?;
+            let actual_port = handle.status().listen_port;
+            if requested_port != 0 && actual_port != requested_port {
+                self.emit_event("lan.listen.fallback", Level::Warn,
+                    json!({"requested_port":requested_port,"listen_port":actual_port,"reason":"address_in_use"}));
+            }
+            Ok(handle)
         })();
         match outcome {
             Ok(handle) => {
@@ -516,6 +524,10 @@ impl Runtime {
         self.config
             .as_ref()
             .and_then(|c| c.switch_group.as_ref())
+            .filter(|g| {
+                kvmflow_core::identity::legacy_placeholders(g, &self.lan_runtime.device_id)
+                    .is_empty()
+            })
             .map(|g| serde_json::to_value(SyncSummary::from_snapshot(g)).unwrap_or(Value::Null))
             .unwrap_or(json!({}))
     }
@@ -620,6 +632,16 @@ impl Runtime {
     }
 
     fn send_snapshot(&mut self, id: &str, g: &SwitchGroupSnapshot, reason: &str) {
+        if !kvmflow_core::identity::legacy_placeholders(g, &self.lan_runtime.device_id).is_empty() {
+            // Old manual presets remain locally usable, but never claim to
+            // be remote owners. The authenticated peer report replaces them.
+            self.lan_send_profile(id);
+            let _ = self.lan_send(
+                id,
+                Envelope::new("resync", json!({"reason":"legacy_placeholder"})),
+            );
+            return;
+        }
         let _ = self.lan_request(
             id,
             "snapshot",
@@ -679,6 +701,18 @@ impl Runtime {
                         .collect::<Vec<_>>()
                     {
                         self.lan_sync_state(&id, "pending", Some("E_LAN_OFFLINE"));
+                    }
+                    if !online.is_empty()
+                        && self
+                            .lan_runtime
+                            .issues
+                            .iter()
+                            .any(|issue| issue["code"] == "E_LAN_NOT_MEMBER")
+                    {
+                        self.lan_runtime
+                            .issues
+                            .retain(|issue| issue["code"] != "E_LAN_NOT_MEMBER");
+                        self.notify("lan.sync", json!({"resolved":["E_LAN_NOT_MEMBER"]}));
                     }
                     self.lan_runtime.online = online;
                     let mut peers = peers;
@@ -834,6 +868,14 @@ impl Runtime {
                             }
                         }
                     }
+                    if code == "E_LAN_NOT_MEMBER" && self.lan_runtime.pair.is_some() {
+                        self.emit_event(
+                            "lan.pair.admission_pending",
+                            Level::Debug,
+                            json!({"code":code}),
+                        );
+                        continue;
+                    }
                     self.lan_issue(&code, lan_hint(&code));
                 }
                 LanEvent::PairReady(link) => self.lan_pair_ready(link),
@@ -960,6 +1002,23 @@ impl Runtime {
         {
             return Err(CoreError::new(E_LAN_GROUP_CONFLICT, "different groups"));
         }
+        if !remote.devices.is_empty()
+            && !remote
+                .devices
+                .iter()
+                .any(|d| d.device_id == cfg.local_device.device_id)
+        {
+            let code = "E_LAN_TOPOLOGY_MISSING_SELF";
+            self.lan_issue(
+                code,
+                "对方的配置缺少本机，正在用本机资料修复；若未恢复，请在主力机重新添加这台电脑。",
+            );
+            self.lan_send_profile(&source.device_id);
+            return Err(CoreError::new(
+                code,
+                "snapshot omits the receiving computer; resend topology with its owner profile",
+            ));
+        }
         // Trust can converge before topology: merge the member list first
         // (authenticated against this session's key), then the sections.
         let (members, _) = sync::merge_members(
@@ -974,6 +1033,10 @@ impl Runtime {
         let mut gs = trusted.group_sync();
         gs.members = members;
         trusted.set_group_sync(gs);
+        if local.sync.get("setup_pending").is_some() && remote.devices.is_empty() {
+            self.lan_send_profile(&source.device_id);
+            return Ok(json!({"pending":true}));
+        }
         let (merged, changed) = sync::merge_group(
             &trusted,
             &remote,
@@ -1037,6 +1100,7 @@ impl Runtime {
                 self.lan_sync_state(&member.device_id, "pending", Some("E_LAN_OFFLINE"));
             }
         }
+        self.clear_topology_issue();
         self.lan_sync_state(&source.device_id, "synced", None);
         self.reconcile_pairing_record_from_peer(source, &remote);
         Ok(json!({
@@ -1258,7 +1322,11 @@ impl Runtime {
                 .peer_platforms
                 .insert(report.device_id.clone(), report.platform.clone());
         }
-        let changed = self.apply_peer_profile(source, &report);
+        let changed = if self.resume_pair_setup(source, &report) {
+            true
+        } else {
+            self.apply_peer_profile(source, &report)
+        };
         let _ = changed;
         self.notify(
             "lan.profile",
@@ -1284,6 +1352,20 @@ impl Runtime {
     /// Fold a peer's owner report into our snapshot as a section edit on the
     /// sender's side (merge_group accepts owner-vetted relay through the
     /// authenticated source). Simplest correct route: bump our copy via merge.
+    fn clear_topology_issue(&mut self) {
+        let count = self.lan_runtime.issues.len();
+        self.lan_runtime
+            .issues
+            .retain(|issue| issue["code"] != "E_LAN_TOPOLOGY_MISSING_SELF");
+        if count == self.lan_runtime.issues.len() {
+            return;
+        }
+        self.notify(
+            "lan.sync",
+            json!({"status":"synced","resolved":["E_LAN_TOPOLOGY_MISSING_SELF"]}),
+        );
+    }
+
     fn apply_peer_profile(&mut self, source: &Source, report: &ProfileReport) -> bool {
         let Some(cfg) = self.config.clone() else {
             return false;
@@ -1299,6 +1381,28 @@ impl Runtime {
         // resolves here: the owner's direct report supplies the profile, so
         // the device entry is created if the relay never placed it.
         let mut remote = local.clone();
+        match kvmflow_core::identity::replace_legacy_placeholder(
+            &mut remote,
+            &cfg.local_device.device_id,
+            report,
+            now_ms(),
+        ) {
+            Ok(true) => {
+                let mut updated = cfg.clone();
+                updated.switch_group = Some(remote);
+                if self.lan_save(updated).is_err() {
+                    return false;
+                }
+                self.clear_topology_issue();
+                self.lan_broadcast_snapshot("legacy_placeholder_repaired");
+                return true;
+            }
+            Err(error) => {
+                self.lan_issue("E_LAN_TOPOLOGY_MISSING_SELF", &error.message);
+                return false;
+            }
+            Ok(false) => {}
+        }
         let mut next_rev = report.profile_rev;
         let has_device = remote
             .devices
@@ -1311,26 +1415,18 @@ impl Runtime {
                 // report itself) but cannot enter the routed device entry:
                 // a guessed local_input of 0 would collide across devices
                 // and display.push would treat it as a real value (P2-4).
-                let monitors: Vec<_> = report
-                    .monitors
-                    .iter()
-                    .filter(|m| !m.builtin)
-                    .filter_map(|m| match &m.input {
-                        kvmflow_core::pairing::ProfileInput::Value { value, .. } => {
-                            Some(kvmflow_core::multidevice::MonitorInput {
-                                local_fingerprint: None,
-                                fingerprint: m.fingerprint.clone(),
-                                label: m.name.clone(),
-                                local_input: *value,
-                                follow: true,
-                            })
-                        }
-                        kvmflow_core::pairing::ProfileInput::Pending => {
-                            pending_monitors.push(m.fingerprint.clone());
-                            None
-                        }
-                    })
-                    .collect();
+                let monitors = kvmflow_core::identity::routed_profile_monitors(
+                    report,
+                    &device.monitors,
+                    false,
+                );
+                pending_monitors.extend(
+                    report
+                        .monitors
+                        .iter()
+                        .filter(|m| matches!(m.input, kvmflow_core::pairing::ProfileInput::Pending))
+                        .map(|m| m.fingerprint.clone()),
+                );
                 if monitors.is_empty() && !report.monitors.is_empty() {
                     return false; // still pending; nothing to fold
                 }
@@ -1524,6 +1620,9 @@ impl Runtime {
                         "lan.profile",
                         json!({"learned": learned, "phase": "inputs_learned"}),
                     );
+                    for peer in self.lan_runtime.online.clone() {
+                        self.lan_send_profile(&peer);
+                    }
                     if !disk_is_v1 {
                         self.lan_broadcast_snapshot("change");
                     }
@@ -1789,6 +1888,209 @@ mod record_key_tests {
         [byte; 32]
     }
 
+    fn runtime(dir: &Path) -> Runtime {
+        Runtime {
+            runtime_seq: 0,
+            lan_runtime: lan_runtime::LanRuntime::default(),
+            backend: Box::new(backends::simulated::SimulatedBackend::new("idle")),
+            topology: Box::new(topology::NoopDisplayTopology),
+            released_topology: None,
+            released_enabled: false,
+            mixed_runtime: mixed::MixedRuntime::default(),
+            tracker: None,
+            fsm: SwitchFsm::new(),
+            config: None,
+            enabled: true,
+            last_multi_device_report: None,
+            last_layout_application: None,
+            bounce_watch: None,
+            usb_snapshot_initialized: false,
+            config_path: dir.join("config.json"),
+            log: SessionLog::open(dir.join("test.jsonl")),
+            stdout: std::io::stdout(),
+            notification: Some(Arc::new(|_, _| {})),
+            reply: None,
+            last_snapshot: Vec::new(),
+            learning_baseline: None,
+            last_candidates: None,
+            wizard_active: false,
+            config_recovery: None,
+        }
+    }
+
+    fn owner_config() -> MultiDeviceConfig {
+        serde_json::from_value(json!({
+            "schema_version":2,
+            "local_device":{"device_id":"dev-local","host_label":"Primary","monitors":[
+                {"fingerprint":"SAC-2763-local","label":"G73","local_input":16,"source":"learned_active_read"},
+                {"fingerprint":"SAC-2466-local","label":"G52","local_input":8,"source":"learned_active_read"}]},
+            "switch_group":{"group_id":"grp-ready","revision":1,"devices":[
+                {"device_id":"dev-local","name":"Primary","port_index":1,"monitors":[{"fingerprint":"SAC-2763-local","local_input":16},{"fingerprint":"SAC-2466-local","local_input":8}]},
+                {"device_id":"win","name":"Old guess","port_index":2,"monitors":[{"fingerprint":"SAC-2763-local","local_input":17},{"fingerprint":"SAC-2466-local","local_input":9}]}]},
+            "trigger":{"anchor":{"vid_pid":"1a40:0101"},"members":[{"vid_pid":"3837:303c"}]}
+        })).unwrap()
+    }
+
+    #[test]
+    fn builtin_profile_cleanup_removes_the_old_routed_internal_screen() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = runtime(dir.path());
+        let mut cfg = owner_config();
+        let mut internal = cfg.local_device.monitors[0].clone();
+        internal.fingerprint = "UNK-internal".into();
+        cfg.local_device.monitors.push(internal);
+        let owner = &mut cfg.switch_group.as_mut().unwrap().devices[0];
+        let mut routed = owner.monitors[0].clone();
+        routed.fingerprint = "UNK-internal".into();
+        owner.monitors.push(routed);
+        rt.mixed_runtime
+            .displays
+            .push(kvmflow_core::mixed::TopologyDisplay {
+                fingerprint: "UNK-internal".into(),
+                builtin: true,
+                connected: true,
+            });
+        rt.strip_builtin_profile(&mut cfg);
+        cfg.validate().unwrap();
+        assert_eq!(cfg.local_device.monitors.len(), 2);
+        assert_eq!(
+            cfg.switch_group.as_ref().unwrap().devices[0].monitors.len(),
+            2
+        );
+        let once = cfg.clone();
+        rt.strip_builtin_profile(&mut cfg);
+        assert_eq!(cfg, once);
+    }
+
+    #[test]
+    fn every_snapshot_command_withholds_unpaired_legacy_devices() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = runtime(dir.path());
+        rt.lan_runtime.device_id = "dev-local".into();
+        let group = owner_config().switch_group.unwrap();
+        let error = rt
+            .lan_request(
+                "dev-peer",
+                "snapshot",
+                json!({"snapshot":group}),
+                Duration::from_secs(1),
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(error.code, "E_LAN_SETUP_PENDING");
+        assert!(rt.lan_summary().as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn missing_self_snapshot_returns_actionable_error_without_mutating_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = runtime(dir.path());
+        let cfg = owner_config();
+        let original = serde_json::to_value(&cfg).unwrap();
+        rt.config = Some(cfg.clone());
+        let mut incoming = cfg.switch_group.unwrap();
+        incoming.devices[0].device_id = "dev-other".into();
+        let source = Source {
+            device_id: "dev-peer".into(),
+            key: key(2),
+            generation: SessionGeneration::for_test(),
+        };
+        let result = rt.lan_merge(
+            &source,
+            &json!({"group_id":incoming.group_id,"snapshot":incoming}),
+        );
+        assert_eq!(result.unwrap_err().code, "E_LAN_TOPOLOGY_MISSING_SELF");
+        assert_eq!(
+            serde_json::to_value(rt.config.as_ref().unwrap()).unwrap(),
+            original
+        );
+        assert!(rt
+            .lan_runtime
+            .issues
+            .iter()
+            .any(|issue| issue["code"] == "E_LAN_TOPOLOGY_MISSING_SELF"));
+    }
+
+    #[test]
+    fn authenticated_owner_profile_repairs_placeholder_and_removes_ghost_displays() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = runtime(dir.path());
+        rt.config = Some(owner_config());
+        let source = Source {
+            device_id: "dev-peer".into(),
+            key: key(2),
+            generation: SessionGeneration::for_test(),
+        };
+        let report: ProfileReport = serde_json::from_value(json!({"device_id":"dev-peer","name":"Studio Mac","platform":"macos","profile_rev":3,"monitors":[
+            {"fingerprint":"SAC-2763-owner","name":"G73","builtin":false,"input":{"state":"value","value":15,"source":"learned_active_read"}},
+            {"fingerprint":"SAC-2466-owner","name":"G52","builtin":false,"input":{"state":"value","value":7,"source":"learned_active_read"}},
+            {"fingerprint":"UNK-internal","name":"Internal","builtin":true,"input":{"state":"pending"}}
+        ]})).unwrap();
+        assert!(rt.apply_peer_profile(&source, &report));
+        let cfg = rt.config.as_ref().unwrap();
+        let group = cfg.switch_group.as_ref().unwrap();
+        assert_eq!(group.devices.len(), 2);
+        let peer = group
+            .devices
+            .iter()
+            .find(|d| d.device_id == "dev-peer")
+            .unwrap();
+        assert_eq!(peer.name, "Studio Mac");
+        assert_eq!(peer.port_index, 2);
+        assert_eq!(peer.monitors.len(), 2);
+        assert_eq!(peer.available_builtin_screens, Some(1));
+        assert!(peer
+            .monitors
+            .iter()
+            .all(|m| m.backend_fingerprint().ends_with("owner")));
+        let persisted: MultiDeviceConfig =
+            serde_json::from_slice(&std::fs::read(&rt.config_path).unwrap()).unwrap();
+        assert_eq!(
+            config_store::persisted_config_text(&persisted),
+            config_store::persisted_config_text(cfg)
+        );
+        assert!(
+            !rt.apply_peer_profile(&source, &report),
+            "same owner report must be idempotent"
+        );
+    }
+
+    #[test]
+    fn startup_repairs_beta3_snapshot_that_displaced_the_local_owner_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rt = runtime(dir.path());
+        let mut cfg = owner_config();
+        cfg.local_device.device_id = "dev-secondary".into();
+        cfg.local_device.host_label = "Studio Mac".into();
+        cfg.local_device.monitors[0].local_input = 15;
+        cfg.local_device.monitors[1].local_input = 7;
+        std::fs::write(&rt.config_path, config_store::persisted_config_text(&cfg)).unwrap();
+        rt.load_config();
+        let loaded = rt.config.as_ref().unwrap();
+        loaded.validate().unwrap();
+        let peer = loaded
+            .switch_group
+            .as_ref()
+            .unwrap()
+            .devices
+            .iter()
+            .find(|d| d.device_id == "dev-secondary")
+            .unwrap();
+        assert_eq!(peer.port_index, 2);
+        assert_eq!(peer.name, "Studio Mac");
+        let once = std::fs::read(&rt.config_path).unwrap();
+        rt.load_config();
+        assert_eq!(std::fs::read(&rt.config_path).unwrap(), once);
+        assert_eq!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().contains("pre-placeholder"))
+                .count(),
+            1
+        );
+    }
+
     #[test]
     fn record_confirmation_requires_the_pinned_peer_key() {
         let record = json!({
@@ -1816,33 +2118,7 @@ mod record_key_tests {
     #[test]
     fn refusal_ack_inner_dispatch_preserves_the_pairing_record() {
         let dir = tempfile::tempdir().unwrap();
-        let mut rt = Runtime {
-            runtime_seq: 0,
-            lan_runtime: lan_runtime::LanRuntime::default(),
-            backend: Box::new(backends::simulated::SimulatedBackend::new("idle")),
-            topology: Box::new(topology::NoopDisplayTopology),
-            released_topology: None,
-            released_enabled: false,
-            mixed_runtime: mixed::MixedRuntime::default(),
-            tracker: None,
-            fsm: SwitchFsm::new(),
-            config: None,
-            enabled: true,
-            last_multi_device_report: None,
-            last_layout_application: None,
-            bounce_watch: None,
-            usb_snapshot_initialized: false,
-            config_path: dir.path().join("config.json"),
-            log: SessionLog::open(dir.path().join("test.jsonl")),
-            stdout: std::io::stdout(),
-            notification: Some(Arc::new(|_, _| {})),
-            reply: None,
-            last_snapshot: Vec::new(),
-            learning_baseline: None,
-            last_candidates: None,
-            wizard_active: false,
-            config_recovery: None,
-        };
+        let mut rt = runtime(dir.path());
 
         let record_path = dir.path().join("pairing.pending.json");
         let record = json!({

@@ -64,6 +64,7 @@ impl Runtime {
                 Ok(ConfigDocument::LegacyV1(cfg)) => self.migrate_loaded_legacy_config(cfg, &text),
                 Ok(ConfigDocument::MultiDeviceV2(cfg)) => {
                     let cfg = self.bootstrap_loaded_identity(cfg, &text, true);
+                    let cfg = self.repair_loaded_placeholder(cfg);
                     if let Err(e) = cfg.validate() {
                         self.emit_event(
                             kinds::CONFIG_SAVED,
@@ -197,6 +198,62 @@ impl Runtime {
                     Level::Warn,
                     json!({"error":error.to_string()}),
                 );
+                config
+            }
+        }
+    }
+
+    fn repair_loaded_placeholder(&mut self, config: MultiDeviceConfig) -> MultiDeviceConfig {
+        let mut candidate = config.clone();
+        let report =
+            kvmflow_core::pairing::ProfileReport::from_config(&config, std::env::consts::OS);
+        let Some(group) = candidate.switch_group.as_mut() else {
+            return config;
+        };
+        let slots = kvmflow_core::identity::legacy_placeholders(group, &report.device_id);
+        if slots.is_empty() {
+            return config;
+        }
+        self.emit_event(
+            "lan.legacy.placeholders",
+            Level::Info,
+            json!({"count":slots.len(), "sync":"withheld_until_owner_profile"}),
+        );
+        // A beta.3 snapshot may already have displaced this machine. Its
+        // local profile is authoritative and can repair that one legacy slot.
+        let result = (|| -> std::io::Result<bool> {
+            let changed = kvmflow_core::identity::replace_legacy_placeholder(
+                candidate.switch_group.as_mut().unwrap(),
+                &report.device_id,
+                &report,
+                now_ms(),
+            )
+            .map_err(std::io::Error::other)?;
+            if !changed {
+                return Ok(false);
+            }
+            candidate.validate().map_err(std::io::Error::other)?;
+            let original = std::fs::read(&self.config_path)?;
+            let backup = self.config_path.with_file_name(format!(
+                "{}.pre-placeholder-{}",
+                self.config_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                now_ms()
+            ));
+            write_atomically(&backup, &original)?;
+            write_atomically(
+                &self.config_path,
+                persisted_config_text(&candidate).as_bytes(),
+            )?;
+            Ok(true)
+        })();
+        match result {
+            Ok(true) => candidate,
+            Ok(false) => config,
+            Err(e) => {
+                self.lan_issue("E_LAN_TOPOLOGY_MISSING_SELF", &e.to_string());
                 config
             }
         }

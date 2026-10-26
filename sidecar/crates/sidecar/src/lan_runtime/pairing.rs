@@ -151,6 +151,48 @@ impl Runtime {
 
     /// An inbound or dialed pairing session completed the commit-reveal SAS.
     /// No configuration data is exchanged here: only the SAS is on screen.
+    pub(super) fn strip_builtin_profile(&mut self, cfg: &mut MultiDeviceConfig) {
+        let builtin_ids: BTreeSet<String> = self
+            .mixed_runtime
+            .displays
+            .iter()
+            .filter(|d| d.builtin)
+            .map(|d| d.fingerprint.clone())
+            .chain(
+                self.backend
+                    .list_displays()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|d| d.builtin)
+                    .map(|d| d.edid_id),
+            )
+            .collect();
+        cfg.local_device
+            .monitors
+            .retain(|m| !builtin_ids.contains(&m.fingerprint));
+        if let Some(group) = cfg.switch_group.as_mut() {
+            if let Some(owner) = group
+                .devices
+                .iter_mut()
+                .find(|d| d.device_id == cfg.local_device.device_id)
+            {
+                owner
+                    .monitors
+                    .retain(|m| !builtin_ids.contains(m.backend_fingerprint()));
+            }
+            for layout in &mut group.layouts {
+                layout
+                    .monitors
+                    .retain(|m| !builtin_ids.contains(&m.fingerprint));
+            }
+            if let Some(mixed) = group.mixed.as_mut() {
+                mixed
+                    .assignment
+                    .retain(|m| !builtin_ids.contains(&m.fingerprint));
+            }
+        }
+    }
+
     pub(crate) fn lan_pair_ready(&mut self, link: Arc<crate::lan::pair_link::PairLink>) {
         if self.lan_runtime.pair.is_some() {
             link.close();
@@ -159,10 +201,12 @@ impl Runtime {
         // A secondary without a config can still pair (its minimal config is
         // created by lan.setup.secondary); a primary with no config at all
         // cannot offer a side.
-        let Some(cfg) = self.config.clone() else {
+        let Some(mut cfg) = self.config.clone() else {
             link.close();
             return;
         };
+        self.strip_builtin_profile(&mut cfg);
+        self.config = Some(cfg.clone());
         let side = PairSide::from_config(&cfg, std::env::consts::OS, &self.lan_runtime.public_key);
         // Outbound attempts claim the id minted by `lan.pair.start`; inbound
         // attempts mint their own. Either way this pairing flow starts a new
@@ -845,26 +889,43 @@ impl Runtime {
     /// (`pair.committed` on the initiator, send of `pair.committed` on the
     /// responder) or reconciled at startup.
     pub(crate) fn lan_pair_commit(&mut self) -> Result<(), CoreError> {
-        let Some(pair) = self.lan_runtime.pair.take() else {
+        let Some(mut pair) = self.lan_runtime.pair.take() else {
             return Err(CoreError::new(E_INTERNAL, "no pairing to commit"));
         };
+        let result = self.commit_pair_plan(&mut pair);
+        if result.is_err() {
+            if let Some(record) = self.read_pairing_record() {
+                if record.get("session_id").and_then(Value::as_str)
+                    == self.lan_runtime.pair_session_id.as_deref()
+                    && !self.record_members_match(&record)
+                {
+                    // This attempt never committed locally. A stale transaction
+                    // must not revoke the peer when the user retries.
+                    self.clear_pairing_record();
+                }
+            }
+        }
+        // Keep the session until the caller publishes success or failure.
+        // In particular a validation/backup/write error must reach pair_fail.
+        self.lan_runtime.pair = Some(pair);
+        result
+    }
+
+    fn commit_pair_plan(&mut self, pair: &mut Pairing) -> Result<(), CoreError> {
         // The local user must have confirmed before anything touches disk.
         if !pair.local_confirmed || !pair.peer_confirmed {
-            self.lan_runtime.pair = Some(pair);
             return Err(CoreError::new(
                 "E_LAN_PAIR_NOT_CONFIRMED",
                 "commit attempted before both users confirmed",
             ));
         }
         let Some(plan) = pair.plan.clone() else {
-            self.lan_runtime.pair = Some(pair);
             return Err(CoreError::new(E_INTERNAL, "no computed pair plan"));
         };
-        // Pin-only path (blocked configuration): fix the member pins and
-        // nothing else; both computers keep their current configurations.
+        // Blocked topology: persist trust plus the SAS-confirmed plan;
+        // owner input reports resume it without another numeric check.
         if plan.snapshot.is_none() {
             if plan.needs_choice() {
-                self.lan_runtime.pair = Some(pair);
                 return Err(CoreError::new(
                     E_CONFIG_INVALID,
                     "plan has unresolved choices",
@@ -873,16 +934,17 @@ impl Runtime {
             return self.lan_pair_pin_only(pair, &plan);
         }
         let Some(snapshot) = plan.snapshot.clone() else {
-            self.lan_runtime.pair = Some(pair);
             return Err(CoreError::new(
                 E_CONFIG_INVALID,
                 "plan has unresolved issues",
             ));
         };
         let Some(mut cfg) = self.config.clone() else {
-            self.lan_runtime.pair = Some(pair);
             return Err(CoreError::new(E_CONFIG_INVALID, "no local config"));
         };
+        let mut checked = cfg.clone();
+        checked.switch_group = Some(snapshot.clone());
+        checked.validate()?;
         // 1. Backup before replacing anything (both ends do this locally).
         let backup = self.config_path.with_file_name(format!(
             "{}.pre-pair-{}",
@@ -941,16 +1003,14 @@ impl Runtime {
             "renames": plan.renames,
         });
         self.pair_emit(notification);
-        self.lan_runtime.pair = Some(pair);
         Ok(())
     }
 
     /// Pin member keys after both numeric confirmations while configuration
     /// blockers remain (plan §1.4: "只完成配对（固定公钥），不合并配置").
-    /// Configs stay untouched on both ends.
-    fn lan_pair_pin_only(&mut self, pair: Pairing, plan: &PairPlan) -> Result<(), CoreError> {
+    /// Persist trust and the confirmed plan so owner profiles can finish setup.
+    fn lan_pair_pin_only(&mut self, pair: &mut Pairing, plan: &PairPlan) -> Result<(), CoreError> {
         let Some(cfg) = self.config.clone() else {
-            self.lan_runtime.pair = Some(pair);
             return Err(CoreError::new(E_CONFIG_INVALID, "no local config"));
         };
         // A fresh secondary has no switch group yet: the pin-only commit
@@ -989,6 +1049,11 @@ impl Runtime {
             }
         }
         sync.members.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+        sync.ports_confirmed = false;
+        sync.extra.insert(
+            "setup_pending".into(),
+            json!({"side":pair.side,"peer_side":pair.peer_side,"options":pair.options}),
+        );
         group.set_group_sync(sync);
         let mut updated = cfg.clone();
         updated.switch_group = Some(group);
@@ -1013,7 +1078,7 @@ impl Runtime {
                     Level::Warn,
                     json!({"error": error.to_string()}),
                 );
-                // Memory-only pin: apply the group without persisting.
+                self.lan_issue("E_LAN_SETUP_PENDING", &error.to_string());
                 self.config = Some(updated);
             }
         }
@@ -1026,7 +1091,6 @@ impl Runtime {
             "renames": plan.renames,
         });
         self.pair_emit(notification);
-        self.lan_runtime.pair = Some(pair);
         Ok(())
     }
 }
