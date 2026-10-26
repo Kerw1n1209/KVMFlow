@@ -34,7 +34,7 @@ KVMFlow is for a desk where multiple computers share a keyboard, mouse, and one 
 
 - **Keep your existing USB switch.** Identify the shared device group during setup.
 - **Record each monitor’s inputs.** Map the raw DDC/CI input values to the connected computers.
-- **Work locally.** USB detection and input switching run on each computer. Automatic update checks use the update service.
+- **Work locally.** USB detection and input switching run on each computer. Automatic update checks use the update service, and feedback is sent only when you choose to send it.
 - **Stay in control.** Run from the tray, launch at login, pause automatic switching, and export diagnostics.
 - **Mixed mode (beta).** Assign each monitor to one computer. The USB switch then moves only the keyboard and mouse while the pictures stay put; turning mixed mode off asks the other computer to switch its screens back.
 - **LAN pairing (beta).** Both computers find each other on the local network and pair after you compare a 6-digit code. You then set everything up on the primary computer, without typing input values on the secondary.

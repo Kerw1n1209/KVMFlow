@@ -1,6 +1,6 @@
 [package]
 name = "kvmflow-desktop"
-version = "0.4.0-beta.1"
+version = "0.4.0-beta.2"
 description = "KVMFlow tray client with an embedded Rust hardware runtime"
 edition = "2021"
 license = "MIT"
