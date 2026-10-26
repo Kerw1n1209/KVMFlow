@@ -653,8 +653,8 @@
     if (navState) {
       // The role choice is not the secondary lifecycle yet; keep the regular status.
       if (mode === 'role') window.navState?.();
-      else if (mode === 'secondary-wait') navState.textContent = t('nav.waiting.pair');
-      else if (mode === 'secondary-done') navState.textContent = t('nav.paired', { p0: esc(peerName || t('other.computer')) });
+      else if (mode === 'secondary-wait') { navState.textContent = t('nav.waiting.pair'); navState.title = navState.textContent; }
+      else if (mode === 'secondary-done') { navState.textContent = t('nav.paired', { p0: esc(peerName || t('other.computer')) }); navState.title = navState.textContent; }
     }
     const html = wizardHtml();
     if (html !== null && root.dataset.pairRendered !== html) {

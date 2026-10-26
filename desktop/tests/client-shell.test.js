@@ -424,13 +424,13 @@ test('diagnostics use the native save bridge once with UI and backend evidence',
 test('paused and failed backend states stay visible and do not claim picture success', async t => {
   const { win, subscriptions } = await client(t);
   subscriptions.get('state')({ state: 'armed', enabled: false });
-  assert.match(win.document.querySelector('#nav-state').textContent, /自动切换已暂停/);
+  assert.match(win.document.querySelector('#nav-state').textContent, /已暂停/);
   assert.equal(win.document.querySelector('#nav-state').title, win.document.querySelector('#nav-state').textContent);
   subscriptions.get('switch.report')({ per_monitor: [{ commanded: true }] });
   assert.equal(win.document.querySelector('#last-title').textContent, '最近一次切换');
   assert.match(win.document.querySelector('#last-copy').textContent, /已向.*发送显示器切换命令/);
   subscriptions.get('runtime.error')({ message: '请重启' });
-  assert.equal(win.document.querySelector('#nav-state').textContent, '后台组件不可用');
+  assert.equal(win.document.querySelector('#nav-state').textContent, '后台不可用');
 });
 
 test('USB calibration ignores a peripheral departure and requires the physical hub', async t => {
@@ -458,8 +458,8 @@ test('English renders dynamic status, setup, timing and local-input confirmation
   const doc = c.win.document;
   assert.equal(doc.documentElement.lang, 'en');
   assert.equal(doc.querySelector('[data-computer="host-win"] strong').textContent, '工作电脑');
-  assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB Switch');
-  assert.equal(doc.querySelector('#nav-state').title, 'Waiting for USB Switch');
+  assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB');
+  assert.equal(doc.querySelector('#nav-state').title, 'Waiting for USB');
   c.win.navigate('guide');
   assert.equal(doc.querySelector('#steps .active').textContent, '1 Identify USB Switch');
   c.win.navigate('settings');
@@ -648,4 +648,28 @@ test('a config migrated from v1 opens with both computers and keeps its device i
   const saved = requests.findLast(entry => entry.method === 'config.set').params.config;
   assert.equal(saved.local_device.device_id, 'legacy-local');
   assert.equal(JSON.stringify(saved.switch_group.devices.map(device => device.device_id).sort()), '["legacy-local","legacy-remote"]');
+});
+
+test('sidebar status uses short fixed labels and keeps the full title in both languages', async t => {
+  const cases = [
+    ['zh-CN', ['等待 USB Switch', '正在识别', '正在发送指令', '已暂停', '后台不可用']],
+    ['en', ['Waiting for USB', 'Identifying', 'Sending switch', 'Paused', 'Backend down']],
+  ];
+  for (const [language, labels] of cases) {
+    const { win, subscriptions } = await client(t, { language, config: automaticConfig() });
+    const nav = win.document.querySelector('#nav-state');
+    const check = expected => {
+      assert.equal(nav.textContent, expected);
+      assert.equal(nav.title, expected);
+    };
+    check(labels[0]);
+    subscriptions.get('state')({ state: 'learning', enabled: true });
+    check(labels[1]);
+    subscriptions.get('state')({ state: 'pushing', enabled: true });
+    check(labels[2]);
+    subscriptions.get('state')({ state: 'armed', enabled: false });
+    check(labels[3]);
+    subscriptions.get('runtime.error')({ message: 'boom' });
+    check(labels[4]);
+  }
 });

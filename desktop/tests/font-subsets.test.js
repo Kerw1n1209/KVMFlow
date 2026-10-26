@@ -123,6 +123,69 @@ test('bundled font files match the subset manifest', () => {
   assert.ok(total < 3 * 1024 * 1024, `fonts total ${total} bytes`);
 });
 
+test('sidebar fixed labels use dedicated short keys', () => {
+  const shell = fs.readFileSync(path.join(renderer, 'shell.js'), 'utf8');
+  for (const key of [
+    'nav.unavailable',
+    'nav.setup.required',
+    'nav.identifying',
+    'nav.sending',
+    'nav.paused',
+    'nav.waiting',
+  ]) {
+    assert.match(shell, new RegExp(`t\\("${key.replaceAll('.', '\\.')}"\\)`));
+    assert.equal(typeof messages.messages['zh-CN'][key], 'string', `${key} zh-CN`);
+    assert.equal(typeof messages.messages.en[key], 'string', `${key} en`);
+  }
+  assert.equal(messages.messages['zh-CN']['nav.waiting.pair'], '等待配对');
+  assert.equal(messages.messages.en['nav.waiting.pair'], 'Waiting to pair');
+});
+
+test('sidebar fixed labels fit the narrow layout with the bundled font metrics', (t) => {
+  const probe = spawnSync('python3', ['-c', 'import fontTools'], { encoding: 'utf8' });
+  if (probe.error || probe.status !== 0) {
+    t.skip('python3 with fontTools is unavailable');
+    return;
+  }
+  const script = [
+    'import json, sys',
+    'from fontTools.ttLib import TTFont',
+    'from fontTools.varLib.instancer import instantiateVariableFont',
+    "base = 'src/renderer/assets/fonts/'",
+    "latin = instantiateVariableFont(TTFont(base + 'KVMFlowSerif-Variable.woff2'), {'wght': 400, 'opsz': 8})",
+    "cjk = instantiateVariableFont(TTFont(base + 'NotoSerifSC-Variable.woff2'), {'wght': 400})",
+    'def cmap(font):',
+    '    table = {}',
+    "    for subtable in font['cmap'].tables: table.update(subtable.cmap)",
+    '    return table',
+    'lc, cc = cmap(latin), cmap(cjk)',
+    'def width(text, size, spacing):',
+    '    total = 0.0',
+    '    for char in text:',
+    '        code = ord(char)',
+    '        font, table = (latin, lc) if code in lc else (cjk, cc)',
+    "        glyph = table.get(code, '.notdef')",
+    "        total += font['hmtx'][glyph][0] * size / font['head'].unitsPerEm",
+    '    return total + (len(text) - 1) * spacing',
+    "messages = json.load(open('src/renderer/i18n/messages.json', encoding='utf-8'))['messages']",
+    "keys = ['nav.setup.required', 'nav.identifying', 'nav.sending', 'nav.paused', 'nav.unavailable', 'nav.waiting', 'nav.waiting.pair']",
+    'failed = False',
+    "for language, budget840, budget1020, spacing in [('zh-CN', 89, 103, -0.22), ('en', 89, 103, -0.22)]:",
+    '    for key in keys:',
+    '        text = messages[language][key]',
+    '        w840 = width(text, 11, spacing)',
+    '        w1020 = width(text, 12, 0)',
+    "        print(f'{language} {key}: 840={w840:.1f}/{budget840} 1020={w1020:.1f}/{budget1020} {text}')",
+    '        failed = failed or w840 > budget840 or w1020 > budget1020',
+    'sys.exit(1 if failed else 0)',
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', script], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
 test('the woff2 cmap actually contains the subset characters', (t) => {
   const probe = spawnSync('python3', ['-c', 'import fontTools'], { encoding: 'utf8' });
   if (probe.error || probe.status !== 0) {
