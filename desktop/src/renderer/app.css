@@ -91,6 +91,21 @@ html, body { overflow: hidden; }
 #nav-state { font-size: 12px; }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
+@font-face {
+  font-family: "KVMFlow Serif";
+  src: url("assets/fonts/KVMFlowSerif-Variable.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Serif SC";
+  src: url("assets/fonts/NotoSerifSC-Variable.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Keep the paper palette, with lighter system typography and explicit control states. */
 :root {
   --bg: #f5f4ed;
@@ -104,7 +119,7 @@ html, body { overflow: hidden; }
   --line-strong: #8e8b80;
   --accent: #141413;
   --accent-soft: #e8e6dc;
-  --font-family: Charter, "Songti SC", "Noto Serif CJK SC", "SimSun", Georgia, serif;
+  --font-family: "KVMFlow Serif", "Noto Serif SC", Charter, "Songti SC", "Noto Serif CJK SC", "SimSun", Georgia, serif;
   --heading-font: var(--font-family);
   font-family: var(--font-family);
 }

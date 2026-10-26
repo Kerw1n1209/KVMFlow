@@ -75,3 +75,6 @@ cloudflare/api/.dev.vars
 .credentials*
 .npmrc
 .netrc
+
+# Font subset build cache (desktop/scripts/build-font-subsets.py)
+desktop/.font-cache/
