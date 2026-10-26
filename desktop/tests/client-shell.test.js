@@ -710,7 +710,8 @@ test('cold tray feedback actively probes display metadata without needing cached
 
 test('native export and actual feedback attachment both remove unpaired peer identities and addresses', async t => {
   const { backend, secrets } = require('./fixtures/diagnostics-private');
-  const c = await client(t, { request: async method => method === 'diagnostics.collect' ? backend() : undefined });
+  const diagnostics = () => ({...backend(),legacy:{local_device:{device_id:'mac'},devices:[{device_id:'win'}],platform:'macos',peer:{platform:'windows',backend:'windows_dxva2'},event:'mac -> win; macos windows'}});
+  const c = await client(t, { request: async method => method === 'diagnostics.collect' ? diagnostics() : undefined });
   c.win.document.querySelector('#export-log').click(); await tick();
   const exported = c.export(); assert.equal(exported.redacted, true);
   c.navigate('diagnostics#feedback'); await tick();
@@ -726,6 +727,11 @@ test('native export and actual feedback attachment both remove unpaired peer ide
     assert.equal(text.includes(JSON.stringify(secret).slice(1, -1)), false, `${secret} leaked as escaped JSON`);
   }
   for (const data of [exported, JSON.parse(sent.diagnostics)]) {
+    assert.equal(data.sidecar.legacy.platform,'macos');
+    assert.equal(data.sidecar.legacy.peer.platform,'windows');
+    assert.equal(data.sidecar.legacy.peer.backend,'windows_dxva2');
+    assert.match(data.sidecar.legacy.local_device.device_id,/^device-\d+$/);
+    assert.match(data.sidecar.legacy.event,/^device-\d+ -> device-\d+; macos windows$/);
     assert.match(data.sidecar.events[0].fields.instance, /^device-path-\d+$/);
     assert.match(data.sidecar.events[0].fields.usb, /^device-path-\d+$/);
   }

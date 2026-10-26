@@ -92,6 +92,10 @@
   };
 
   function applySidecarConfig(config, displayResponse) {
+    const devices = config?.switch_group?.devices;
+    if (devices?.length && config?.local_device?.device_id && !devices.some(d => d.device_id === config.local_device.device_id)) {
+      throw Object.assign(new Error(t('lan.error.topology.self')), { code: 'E_LAN_TOPOLOGY_MISSING_SELF' });
+    }
     sidecarConfig = config || null;
     if (!config) {
       model = { ...structuredClone(defaults), events: model.events };
@@ -355,7 +359,24 @@
     storePrototypeModel();
     return config;
   }
+  const completePairTopology = (config, peerId) => {
+    const devices = config?.switch_group?.devices || [];
+    return devices.length >= 2 && devices.some(d => d.device_id === config.local_device?.device_id)
+      && devices.some(d => d.device_id === peerId);
+  };
   window.KVMFlowPairingConfig = {
+    hasTopology: peerId => completePairTopology(sidecarConfig, peerId),
+    confirmTopology: (peerId, name) => serializeConfigWrite(async () => {
+      const config = await S.request('config.get');
+      if (!completePairTopology(config, peerId)) throw Object.assign(new Error(t('lan.error.setup.pending')), { code: 'E_LAN_SETUP_PENDING' });
+      const peer = config.switch_group.devices.find(d => d.device_id === peerId);
+      if (name?.trim()) peer.name = name.trim();
+      config.switch_group.sync ||= {};
+      config.switch_group.sync.ports_confirmed = true;
+      await S.request('config.set', { config });
+      applySidecarConfig(config, null); redrawAll();
+      return config;
+    }),
     isTrusted: id => (sidecarConfig?.switch_group?.sync?.members || []).some(member => member.device_id === id && member.removed !== true),
     refresh: () => {
       pairingConfigStale = true;

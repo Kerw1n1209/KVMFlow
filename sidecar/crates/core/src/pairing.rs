@@ -148,6 +148,8 @@ pub enum Blocking {
     InputPending {
         device_id: String,
         fingerprint: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prefill: Option<u16>,
     },
     SetupRequired {
         device_id: String,
@@ -268,9 +270,17 @@ fn normalized_side(
     renames: &mut Vec<(String, String)>,
 ) -> Option<SwitchGroupSnapshot> {
     let mut g = side.switch_group.clone()?;
-    if g.devices.len() == 2 && g.devices.iter().any(|d| d.device_id == "legacy-remote") {
-        rename_device_id(&mut g, "legacy-remote", other);
-        renames.push(("legacy-remote".into(), other.into()));
+    let slots = crate::identity::legacy_placeholders(&g, &side.device_id);
+    if slots.len() == 1 && owner(&g, other).is_none() {
+        rename_device_id(&mut g, &slots[0], other);
+        // The draft's label is not the authenticated computer name.
+        g.devices
+            .iter_mut()
+            .find(|d| d.device_id == other)
+            .unwrap()
+            .name
+            .clear();
+        renames.push((slots[0].clone(), other.into()));
     }
     normalize_snapshot(&mut g);
     Some(g)
@@ -389,7 +399,15 @@ pub fn plan_pair(a: &PairSide, b: &PairSide, options: &PairOptions) -> Result<Pa
         updated_by: basis.device_id.clone(),
     };
     // Re-pair never touches display configuration, mode, counters or names.
-    if same_group {
+    if same_group
+        && a.established
+        && b.established
+        && basis.switch_group.as_ref().is_some_and(|g| {
+            owner(g, &a.device_id).is_some()
+                && owner(g, &b.device_id).is_some()
+                && crate::identity::legacy_placeholders(g, &basis.device_id).is_empty()
+        })
+    {
         let mut g = basis.switch_group.clone().unwrap();
         let mut sync = g.group_sync();
         update_members(&mut sync, basis, joiner, &meta, true)?;
@@ -407,6 +425,7 @@ pub fn plan_pair(a: &PairSide, b: &PairSide, options: &PairOptions) -> Result<Pa
         plan.issues.push(PairIssue::Info(Info::RepairedKeys));
         return Ok(plan);
     }
+    plan.re_pair = false;
     let mut bg = normalized_side(basis, &joiner.device_id, &mut plan.renames);
     let mut jg = normalized_side(joiner, &basis.device_id, &mut plan.renames);
     // A lost installation can inherit an offline same-name/same-platform slot.
@@ -660,6 +679,10 @@ pub fn plan_pair(a: &PairSide, b: &PairSide, options: &PairOptions) -> Result<Pa
                     plan.issues
                         .push(PairIssue::Blocking(Blocking::InputPending {
                             device_id: side.device_id.clone(),
+                            prefill: existing
+                                .as_ref()
+                                .and_then(|d| d.monitors.iter().find(|v| v.fingerprint == fp))
+                                .map(|m| m.local_input),
                             fingerprint: fp,
                         }));
                 }
@@ -701,15 +724,6 @@ pub fn plan_pair(a: &PairSide, b: &PairSide, options: &PairOptions) -> Result<Pa
     }
     // Any remaining placeholder cannot be trusted as a third owner profile.
     g.devices.retain(|d| d.device_id != "legacy-remote");
-    if g.devices.len() == 2 {
-        let basis_port = owner(&g, &basis.device_id).unwrap().port_index;
-        let joiner_port = if basis_port == 1 { 2 } else { 1 };
-        g.devices
-            .iter_mut()
-            .find(|d| d.device_id == joiner.device_id)
-            .unwrap()
-            .port_index = joiner_port;
-    }
     for (recorded_by, observed) in [(basis, &bg), (joiner, &jg)] {
         for side in [basis, joiner] {
             if recorded_by.device_id == side.device_id {

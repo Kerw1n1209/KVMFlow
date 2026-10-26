@@ -136,3 +136,127 @@ pub fn rename_pending_remote(
         );
     }
 }
+
+/// Old UI drafts are local presets, never LAN identities. A pinned old ID
+/// (including a tombstone) must not be guessed to belong to a new peer.
+pub fn legacy_placeholders(group: &SwitchGroupSnapshot, local: &str) -> Vec<String> {
+    let members = group.group_sync().members;
+    group
+        .devices
+        .iter()
+        .filter(|d| {
+            d.device_id != local
+                && !d.device_id.starts_with("dev-")
+                && !members.iter().any(|m| m.device_id == d.device_id)
+        })
+        .map(|d| d.device_id.clone())
+        .collect()
+}
+
+/// Fold an authenticated owner report into a single old remote slot. Keep its
+/// physical port and layout references, but never retain its name or monitors.
+/// Pending input is not a routed value. The pairing planner exposes the old
+/// guess separately as a prefill while it still blocks configuration commit.
+pub fn replace_legacy_placeholder(
+    group: &mut SwitchGroupSnapshot,
+    local: &str,
+    report: &crate::pairing::ProfileReport,
+    now: u64,
+) -> Result<bool, crate::errors::CoreError> {
+    if group
+        .devices
+        .iter()
+        .any(|d| d.device_id == report.device_id)
+    {
+        return Ok(false);
+    }
+    let slots = legacy_placeholders(group, local);
+    if slots.len() != 1 {
+        return Ok(false);
+    }
+    let old = &slots[0];
+    let mut candidate = group.clone();
+    rename_device_id(&mut candidate, old, &report.device_id);
+    let device = candidate
+        .devices
+        .iter_mut()
+        .find(|d| d.device_id == report.device_id)
+        .unwrap();
+    let existing = device.monitors.clone();
+    device.name = report.name.clone();
+    device.monitors = routed_profile_monitors(report, &existing, true);
+    device.profile_rev = report.profile_rev;
+    device.available_builtin_screens =
+        Some(report.monitors.iter().filter(|m| m.builtin).count() as u32);
+    let mut sync = candidate.group_sync();
+    sync.profile_cache.remove(&report.device_id);
+    sync.archived_arrivals.remove(&report.device_id);
+    sync.topology = crate::sync::SectionMeta {
+        updated_by: local.into(),
+        updated_at_ms: now.max(sync.topology.updated_at_ms.checked_add(1).ok_or_else(|| {
+            crate::errors::CoreError::new("E_CONFIG_INVALID", "topology revision overflow")
+        })?),
+    };
+    candidate.revision = candidate.revision.checked_add(1).ok_or_else(|| {
+        crate::errors::CoreError::new("E_CONFIG_INVALID", "group revision overflow")
+    })?;
+    candidate.set_group_sync(sync);
+    candidate
+        .validate()
+        .map_err(|e| crate::errors::CoreError::new("E_CONFIG_INVALID", e.to_string()))?;
+    *group = candidate;
+    Ok(true)
+}
+
+/// Keep confirmed alias identities when the owner refreshes its profile.
+/// Legacy slots can also match one unambiguous vendor/product pair; multiple
+/// same-model displays are never guessed to be the same physical monitor.
+pub fn routed_profile_monitors(
+    report: &crate::pairing::ProfileReport,
+    existing: &[crate::multidevice::MonitorInput],
+    legacy: bool,
+) -> Vec<crate::multidevice::MonitorInput> {
+    report
+        .monitors
+        .iter()
+        .filter(|m| !m.builtin)
+        .filter_map(|m| {
+            let crate::pairing::ProfileInput::Value { value, .. } = m.input else {
+                return None;
+            };
+            let exact = existing.iter().find(|v| {
+                v.backend_fingerprint() == m.fingerprint || v.fingerprint == m.fingerprint
+            });
+            let prefix = |fp: &str| fp.split('-').take(2).collect::<Vec<_>>().join("-");
+            let canonical = exact.or_else(|| {
+                if !legacy {
+                    return None;
+                }
+                let matches: Vec<_> = existing
+                    .iter()
+                    .filter(|v| prefix(&v.fingerprint) == prefix(&m.fingerprint))
+                    .collect();
+                (matches.len() == 1
+                    && report
+                        .monitors
+                        .iter()
+                        .filter(|other| {
+                            !other.builtin && prefix(&other.fingerprint) == prefix(&m.fingerprint)
+                        })
+                        .count()
+                        == 1)
+                    .then(|| matches[0])
+            });
+            let fingerprint = canonical
+                .map(|v| v.fingerprint.clone())
+                .unwrap_or_else(|| m.fingerprint.clone());
+            Some(crate::multidevice::MonitorInput {
+                local_fingerprint: (fingerprint != m.fingerprint).then(|| m.fingerprint.clone()),
+                fingerprint,
+                label: m.name.clone(),
+                local_input: value,
+                follow: true,
+            })
+        })
+        .collect()
+}

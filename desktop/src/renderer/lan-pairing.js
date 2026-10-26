@@ -37,7 +37,7 @@
   const retiredSessions = new Set();
   const phaseRank = { connecting: 0, await_confirm: 1, await_peer_confirm: 2, peer_confirmed: 2,
     await_resolve: 3, ready_to_commit: 4, committing: 4, committed: 5, peer_committed: 6 };
-  const terminal = () => ['committed', 'peer_committed', 'failed', 'cancelled'].includes(note?.phase);
+  const terminal = () => Boolean(requestError) || ['committed', 'peer_committed', 'failed', 'cancelled'].includes(note?.phase);
   function resetSession(row = null) {
     if (session?.id) retiredSessions.add(session.id);
     if (retiredSessions.size > 32) retiredSessions.delete(retiredSessions.values().next().value);
@@ -154,7 +154,7 @@
   const openPairingWindow = () => setPairingWindow(true);
   const closePairingWindow = (force = false) => setPairingWindow(false, force);
   function endPairing(force = false) {
-    const cancel = session && !terminal();
+    const cancel = session && !['committed', 'peer_committed', 'failed', 'cancelled'].includes(note?.phase);
     retireSession();
     cleanupPending = cleanupPending.then(async () => {
       await closePairingWindow(force);
@@ -199,7 +199,7 @@
   }
 
   function identityIssuesHtml() {
-    return (lan?.issues || []).filter(issue => ['E_LAN_ID_CONFLICT', 'E_LAN_ID_MIGRATION_REQUIRED', 'E_LAN_IDENTITY_IO'].includes(issue?.code))
+    return (lan?.issues || []).filter(issue => ['E_LAN_ID_CONFLICT', 'E_LAN_ID_MIGRATION_REQUIRED', 'E_LAN_IDENTITY_IO', 'E_LAN_TOPOLOGY_MISSING_SELF', 'E_LAN_SETUP_PENDING'].includes(issue?.code))
       .map(issue => `<p class="pair-error" role="alert">${t(View.errorCopy(issue.code).id)}</p>`).join('');
   }
   function manualConnectHtml() {
@@ -218,7 +218,7 @@
 
   function errorHtml(phase, compact) {
     const copy = View.errorCopy(phase.code, phase.message);
-    return `<p class="pair-error${compact ? ' pair-pending' : ''}">${t(copy.id, { p0: esc(copy.code), p1: esc(phase.message || '') })}</p>`;
+    return `<p role="alert" class="pair-error${compact ? ' pair-pending' : ''}">${t(copy.id, { p0: esc(copy.code), p1: esc(phase.message || '') })}</p>`;
   }
 
   // ---- pairing dialog ------------------------------------------------------
@@ -433,7 +433,7 @@
 
   function confirmHtml() {
     if (!profileNote) return `<div class="wizard-head"><h1>${t('lan.profile.waiting')}</h1><p class="sub">${t('lan.profile.waiting.copy')}</p></div>
-      <div class="pair-waiting"><div class="pair-spinner"></div></div><div class="wizard-footer"><span></span><button class="primary" data-pair-action="done" disabled>${t('lan.done')}</button></div>`;
+      ${requestError ? errorHtml({code: requestError}, true) : ''}<div class="pair-waiting"><div class="pair-spinner"></div></div><div class="wizard-footer"><button class="secondary" data-pair-action="retry-setup">${t('retry')}</button><button class="primary" data-pair-action="done" disabled>${t('lan.done')}</button></div>`;
     const rows = View.profileRows(profileNote, localNamesByFingerprint());
     const pending = View.pendingCount(rows);
     const peerDevice = model.computers?.find(computer => !computer.local);
@@ -447,11 +447,13 @@
       <div class="field"><label for="pair-peer-name">${t('computer.name')}</label>
         <input id="pair-peer-name" value="${esc(peerName)}" maxlength="32"></div>
       <p class="hint pair-port">${t('usb.switch.port')}：${port} <span class="settings-tag">${t('lan.port.inferred')}</span></p>
+      ${requestError ? errorHtml({code: requestError}, true) : ''}
+      ${note?.config_merged === false ? `<p class="hint">${t('lan.error.setup.pending')}</p>` : ''}
       <div class="form-section"><h3>${t('monitor.input.values')}</h3><div class="pair-monitors">${monitorCards}</div>
         <p class="hint pair-mixed-later">${t('lan.confirm.mixed.later')}</p></div>
       <div class="wizard-footer">
-        ${pending ? `<span class="hint" id="pair-pending-count">${t('lan.pending.count', { p0: String(pending) })}</span>` : '<span></span>'}
-        <button class="primary" data-pair-action="done" ${pending || !['committed', 'peer_committed'].includes(note?.phase) || requestError ? 'disabled' : ''}>${t('lan.done')}</button></div>`;
+        ${requestError || note?.config_merged === false ? `<button class="secondary" data-pair-action="retry-setup">${t('retry')}</button>` : pending ? `<span class="hint" id="pair-pending-count">${t('lan.pending.count', { p0: String(pending) })}</span>` : '<span></span>'}
+        <button class="primary" data-pair-action="done" ${pending || session?.topologyPending || note?.config_merged === false || !['committed', 'peer_committed'].includes(note?.phase) || requestError ? 'disabled' : ''}>${t('lan.done')}</button></div>`;
   }
 
   function localNamesByFingerprint() {
@@ -469,8 +471,19 @@
 
   let tryRun = null;
   async function startTry() {
-    if (mode !== 'confirm' || !['committed', 'peer_committed'].includes(note?.phase)
+    if (mode !== 'confirm' || !session || session.topologyPending || !['committed', 'peer_committed'].includes(note?.phase)
       || !profileNote || View.pendingCount(View.profileRows(profileNote)) || requestError) return;
+    const current = session;
+    const editedName = byId('pair-peer-name')?.value;
+    current.topologyPending = true;
+    renderWizard();
+    try {
+      await window.KVMFlowPairingConfig.confirmTopology(current.deviceId, editedName);
+    } catch (error) {
+      if (session === current) { current.topologyPending = false; requestError = error?.code || 'E_LAN_SETUP_PENDING'; renderWizard(); }
+      return;
+    } finally { current.topologyPending = false; }
+    if (session !== current || mode !== 'confirm') return;
     mode = 'try'; tryReports = []; step = 3;
     const run = tryRun = { peerId: session.deviceId, localId: model.localId, started: false,
       startedMs: Date.now(), id: null, seen: new Set(), evidence: new Map(), stopPromise: null };
@@ -593,7 +606,7 @@
         <div class="wizard-footer">${manual}
           <button class="secondary" data-pair-action="wait-again">${t('lan.retry.pair')}</button></div>`;
     }
-    if (phase.state === 'committed' || phase.state === 'peer_committed') return secondaryDoneHtml();
+    if ((phase.state === 'committed' || phase.state === 'peer_committed') && note?.config_merged !== false) return secondaryDoneHtml();
     if (phase.state === 'sas') {
       return `<div class="wizard-head"><h1>${t('lan.secondary.wait.title')}</h1>
         <p class="sub">${t('lan.secondary.wait.copy')}</p></div>
@@ -609,7 +622,7 @@
             <button class="primary" data-pair-action="confirm">${t('lan.sas.agree')}</button>`}</div></div>`;
     }
     // connecting / resolve / committing: the primary drives the flow.
-    const busyText = phase.state === 'connecting' ? t('lan.connecting.copy')
+    const busyText = note?.config_merged === false ? t('lan.error.setup.pending') : phase.state === 'connecting' ? t('lan.connecting.copy')
       : phase.state === 'committing' ? t('lan.committing.copy')
       : phase.state === 'resolve' ? t('lan.secondary.resolving')
       : t('lan.secondary.wait.standby');
@@ -620,7 +633,7 @@
       ${identityIssuesHtml()}
       <p class="hint pair-self">${esc(selfLine)}</p>
       <div class="wizard-footer">${manual}
-        <button class="secondary" data-pair-action="role-back">${t('back')}</button></div>`;
+        ${note?.config_merged === false ? `<button class="secondary" data-pair-action="retry-setup">${t('retry')}</button>` : `<button class="secondary" data-pair-action="role-back">${t('back')}</button>`}</div>`;
   }
 
   function secondaryDoneHtml() {
@@ -663,11 +676,13 @@
     if (!root) return;
     root.classList.toggle('pair-wizard', Boolean(mode));
     if (!mode) return;
-    if (mode === 'secondary-wait' && (activePairPhase().state === 'committed' || activePairPhase().state === 'peer_committed')) {
+    if (mode === 'secondary-wait' && !session && !requestError && !windowWanted && byId('guide-page') && !byId('guide-page').classList.contains('hidden')) void openPairingWindow();
+    if (mode === 'secondary-wait' && note?.config_merged !== false && (activePairPhase().state === 'committed' || activePairPhase().state === 'peer_committed')) {
       mode = 'secondary-done';
     }
     // The secondary's pages are not part of the 4-step primary wizard.
     const secondary = mode === 'role' || mode === 'secondary-wait' || mode === 'secondary-done';
+    if (!secondary) renderSteps();
     byId('steps')?.classList.toggle('hidden', secondary);
     const counter = byId('guide-count');
     if (counter && secondary) counter.textContent = '';
@@ -730,11 +745,8 @@
   const originalRenderGuide = window.renderGuide;
   window.renderGuide = function overriddenRenderGuide(...args) {
     maybeChooseRole();
+    if (mode) { renderWizard(); return; }
     originalRenderGuide(...args);
-    if (mode) {
-      byId('guide-content').dataset.pairRendered = '';
-      renderWizard();
-    }
   };
 
   function render() {
@@ -824,11 +836,14 @@
         dialPeer = null;
         renderWizard();
         return;
-      case 'restart':
-        await endPairing(); dialPeer = null;
-        await openPairingWindow();
-        renderDialog();
+      case 'restart': {
+        const retryPeer = dialPeer;
+        await endPairing();
+        dialPeer = retryPeer;
+        if (retryPeer?.addr) await beginPairing();
+        else { await openPairingWindow(); renderDialog(); }
         return;
+      }
       case 'connect':
         await beginPairing();
         return;
@@ -867,6 +882,10 @@
           if (mode === 'add' || mode === 'confirm') { mode = 'confirm'; renderWizard(); }
         }
         return;
+      case 'retry-setup':
+        requestError = null;
+        try { await window.KVMFlowPairingConfig.refresh(); if (note && window.KVMFlowPairingConfig.hasTopology(session?.deviceId)) note = { ...note, config_merged: true }; await request('lan.profile.refresh', {}); } catch (error) { requestError = error?.code || 'E_LAN_SETUP_PENDING'; }
+        render(); return;
       case 'done':
         await startTry();
         return;
@@ -888,15 +907,18 @@
         renderGuide();
         return;
       case 'role-next':
+        if (!roleChoice) return;
         if (roleChoice === 'secondary') {
           autoRole = false;
           await startSecondary();
         } else {
+          await endPairing();
           primaryChosen = true; autoRole = false;
           exitWizard(0);
         }
         return;
       case 'wait-again':
+        await endPairing();
         await startSecondary();
         return;
       case 'role-back':
@@ -918,7 +940,7 @@
     try {
       await cleanupPending;
       if (generation !== currentGeneration) return;
-      const result = await request('lan.setup.secondary', {});
+      const result = await request('lan.setup.secondary', { host_label: model.computers?.find(c => c.local)?.name || '' });
       if (generation !== currentGeneration) {
         await closePairingWindow(true);
         return;
@@ -1002,9 +1024,9 @@
       await closePairingWindow();
       await window.KVMFlowPairingConfig?.refresh().then(() => {
         if (session === current && requestError === 'E_LAN_CONFIG_REFRESH') requestError = null;
-      }).catch(() => { if (session === current) requestError = 'E_LAN_CONFIG_REFRESH'; });
+      }).catch(error => { if (session === current) requestError = error?.code || 'E_LAN_CONFIG_REFRESH'; });
       if (session !== current || note !== accepted) return;
-      log(t('lan.log.committed'), t(note.config_merged === false ? 'lan.committed.pin.copy' : 'lan.committed.copy'));
+      log(t(note.config_merged === false ? 'lan.log.connected' : 'lan.log.committed'), t(note.config_merged === false ? 'lan.committed.pin.copy' : 'lan.committed.copy'));
       markWindowClosed();
       if (mode === 'confirm' || mode === 'add') { /* stay until 完成 */ }
     } else if (note?.phase === 'peer_committed') {
@@ -1018,13 +1040,19 @@
     }
     render();
   });
-  window.kvmflow?.onNotification?.('lan.sync', data => {
+  window.kvmflow?.onNotification?.('lan.sync', async data => {
+    if (Array.isArray(data?.resolved)) {
+      lan = { ...(lan || {}), issues: (lan?.issues || []).filter(issue => !data.resolved.includes(issue.code)) };
+      if (data.resolved.includes('E_LAN_TOPOLOGY_MISSING_SELF')) {
+        try { await window.KVMFlowPairingConfig?.refresh(); } catch { /* Keep the last coherent UI snapshot. */ }
+      }
+    }
     if (Array.isArray(data?.issues)) {
       const issues = new Map((lan?.issues || []).map(issue => [issue.code, issue]));
       for (const issue of data.issues) issues.set(issue.code, issue);
       lan = { ...(lan || {}), issues: [...issues.values()] };
-      render();
     }
+    render();
   });
   window.kvmflow?.onNotification?.('lan.peers', (data) => {
     if (Array.isArray(data?.peers)) lan = { ...(lan || {}), peers: data.peers };
@@ -1038,7 +1066,7 @@
       const current = session;
       await window.KVMFlowPairingConfig?.refresh().then(() => {
         if (session === current && requestError === 'E_LAN_CONFIG_REFRESH') requestError = null;
-      }).catch(() => { if (session === current) requestError = 'E_LAN_CONFIG_REFRESH'; });
+      }).catch(error => { if (session === current) requestError = error?.code || 'E_LAN_CONFIG_REFRESH'; });
       if (session !== current || (session?.deviceId && data.device_id !== session.deviceId)) return;
       if (profileNote && (data.profile_rev ?? 0) < (profileNote.profile_rev ?? 0)) return;
       if (!session?.deviceId || data.device_id !== session.deviceId) return;
@@ -1058,7 +1086,11 @@
       }
     }
   });
-  window.kvmflow?.onNotification?.('lan.setup', (data) => {
+  window.kvmflow?.onNotification?.('lan.setup', async (data) => {
+    if (data?.phase === 'topology_ready') {
+      lan = { ...(lan || {}), issues: (lan?.issues || []).filter(issue => issue.code !== 'E_LAN_SETUP_PENDING') };
+      try { await window.KVMFlowPairingConfig.refresh(); if (note) note = { ...note, config_merged: true }; requestError = null; } catch (error) { requestError = error?.code || 'E_LAN_SETUP_PENDING'; }
+    }
     secondaryNote = data || null;
     renderWizard();
   });
@@ -1104,7 +1136,6 @@
     if (page !== 'guide' && (mode || windowOwned || dialog()?.open || setupPending)) {
       leavePairing();
       byId('guide-content')?.classList.toggle('pair-wizard', Boolean(mode));
-      byId('steps')?.classList.remove('hidden');
       navState();
     }
     return originalNavigate(page, options);

@@ -90,6 +90,20 @@ impl Runtime {
         timeout: Duration,
         kind: Option<PendingKind>,
     ) -> Result<u64, CoreError> {
+        if t == "snapshot" {
+            if let Some(snapshot) = body.get("snapshot") {
+                let group: SwitchGroupSnapshot = serde_json::from_value(snapshot.clone())
+                    .map_err(|e| core_err(E_CONFIG_INVALID, e.to_string()))?;
+                if !kvmflow_core::identity::legacy_placeholders(&group, &self.lan_runtime.device_id)
+                    .is_empty()
+                {
+                    return Err(core_err(
+                        "E_LAN_SETUP_PENDING",
+                        "unpaired legacy presets cannot be sent as owners",
+                    ));
+                }
+            }
+        }
         let handle = self
             .lan_runtime
             .handle
@@ -138,6 +152,15 @@ impl Runtime {
     fn lan_step_result(&mut self, pending: &Pending, ok: bool, body: Value) {
         match &pending.kind {
             PendingKind::Snapshot => {
+                if !ok && body["code"] == "E_LAN_TOPOLOGY_MISSING_SELF" {
+                    self.lan_issue("E_LAN_TOPOLOGY_MISSING_SELF", "对方报告配置缺少它的设备，正在重新获取资料；若未恢复，请重新添加对方电脑。");
+                    let _ = self.lan_send(
+                        &pending.device_id,
+                        Envelope::new("resync", json!({"reason":"topology_missing_self"})),
+                    );
+                } else if ok {
+                    self.clear_topology_issue();
+                }
                 // Phase B gate (N2): H acknowledged the snapshot request we
                 // issued. The gate criterion is H's REPORTED applied mixed
                 // revision (from this ack's summary or its status frames):
@@ -957,6 +980,7 @@ impl Runtime {
                                 .list_displays()
                                 .unwrap_or_default()
                                 .into_iter()
+                                .filter(|d| !d.builtin)
                                 .map(|d| kvmflow_core::config::LocalMonitorConfig {
                                     fingerprint: d.edid_id,
                                     label: d.model_name,
@@ -984,6 +1008,7 @@ impl Runtime {
                             }
                         }
                     };
+                    self.strip_builtin_profile(&mut cfg);
                     if !cfg.setup_secondary {
                         cfg.setup_secondary = true;
                         created = true; // needs persisting
@@ -1037,6 +1062,20 @@ impl Runtime {
                 self.respond(ResponseLine::ok(id, json!({"scheduled": true})));
             }
             "lan.test.start" => {
+                if !self.config.as_ref().is_some_and(|cfg| {
+                    cfg.ready_for_group_switch()
+                        && cfg
+                            .switch_group
+                            .as_ref()
+                            .is_some_and(|g| g.devices.len() >= 2)
+                }) {
+                    self.respond(ResponseLine::err(
+                        id,
+                        "E_LAN_SETUP_PENDING",
+                        "complete and confirm the two-computer topology before testing",
+                    ));
+                    return;
+                }
                 let duration = params
                     .get("duration_ms")
                     .and_then(Value::as_u64)

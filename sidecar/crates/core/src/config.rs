@@ -292,7 +292,42 @@ impl MultiDeviceConfig {
             }
         }
         if let Some(group) = &self.switch_group {
-            if let Err(error) = group.validate() {
+            let members = group.group_sync().members;
+            let pending = group.devices.is_empty()
+                && !group.group_id.trim().is_empty()
+                && group.layouts.is_empty()
+                && group.sync.get("setup_pending").is_some_and(|state| {
+                    let local = &state["side"];
+                    let peer = &state["peer_side"];
+                    let pinned = |owner: &Value| {
+                        members.iter().any(|m| {
+                            !m.removed
+                                && !m.public_key.is_empty()
+                                && owner["device_id"].as_str() == Some(m.device_id.as_str())
+                                && owner["public_key"].as_str() == Some(m.public_key.as_str())
+                        })
+                    };
+                    local["device_id"].as_str() == Some(self.local_device.device_id.as_str())
+                        && peer["device_id"] != local["device_id"]
+                        && pinned(local)
+                        && pinned(peer)
+                        && [local["device_id"].clone(), peer["device_id"].clone()]
+                            .contains(&state["options"]["initiator_device_id"])
+                })
+                && members.len() <= crate::sync::MAX_PROFILE_REGISTERS
+                && members
+                    .iter()
+                    .map(|m| &m.device_id)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    == members.len()
+                && !group
+                    .mixed
+                    .as_ref()
+                    .is_some_and(|m| m.enabled || !m.assignment.is_empty());
+            if pending {
+                // Durable trust-only setup, never an executable topology.
+            } else if let Err(error) = group.validate() {
                 problems.push(format!("switch_group: {error}"));
             } else if let Some(device) = group
                 .devices
@@ -351,7 +386,8 @@ impl MultiDeviceConfig {
     pub fn ready_for_group_switch(&self) -> bool {
         self.validate().is_ok()
             && self.switch_group.as_ref().is_some_and(|g| {
-                g.sync.get("ports_confirmed").and_then(Value::as_bool) != Some(false)
+                g.devices.len() >= 2
+                    && g.sync.get("ports_confirmed").and_then(Value::as_bool) != Some(false)
             })
             && self.has_valid_trigger()
     }
@@ -678,6 +714,48 @@ mod tests {
 
     fn valid() -> Config {
         example_config()
+    }
+
+    #[test]
+    fn pending_pair_setup_is_durable_but_cannot_arm_or_bypass_topology_validation() {
+        let LegacyMigration::Runnable(mut config) = MultiDeviceConfig::migrate_legacy(valid())
+        else {
+            panic!("fixture")
+        };
+        let side = crate::pairing::PairSide::from_config(&config, "windows", "local-key");
+        let mut peer = side.clone();
+        peer.device_id = "dev-peer".into();
+        peer.public_key = "peer-key".into();
+        let group = config.switch_group.as_mut().unwrap();
+        group.devices.clear();
+        group.layouts.clear();
+        group.mixed = None;
+        group.sync = serde_json::json!({"members":[
+            {"device_id":side.device_id,"public_key":side.public_key},
+            {"device_id":peer.device_id,"public_key":peer.public_key}],
+            "ports_confirmed":false,
+            "setup_pending":{"side":side,"peer_side":peer,"options":{"initiator_device_id":config.local_device.device_id}}});
+        config.validate().unwrap();
+        let serialized = serde_json::to_string(&config).unwrap();
+        let reloaded: MultiDeviceConfig = serde_json::from_str(&serialized).unwrap();
+        reloaded.validate().unwrap();
+        assert!(!reloaded.ready_for_group_switch());
+        let mut invalid = config.clone();
+        invalid.switch_group.as_mut().unwrap().sync["members"][1]["public_key"] = "impostor".into();
+        assert!(invalid.validate().is_err());
+        invalid = config.clone();
+        invalid
+            .switch_group
+            .as_mut()
+            .unwrap()
+            .sync
+            .as_object_mut()
+            .unwrap()
+            .remove("setup_pending");
+        assert!(
+            invalid.validate().is_err(),
+            "an unexplained empty topology must still be invalid"
+        );
     }
 
     #[test]

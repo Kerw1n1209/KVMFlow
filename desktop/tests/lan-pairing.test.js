@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { client, v2, tick, mixedState } = require('./client-helper');
+const { client, v2, tick, mixedState, pairedV2 } = require('./client-helper');
 
 const state = (mixed, lan) => ({ state: 'idle', enabled: true, mixed, ...(lan ? { lan } : {}) });
 const text = (win, selector) => win.document.querySelector(selector).textContent;
@@ -285,7 +285,7 @@ test('primary confirmation page lists the secondary profile with pending rows an
   await tick();
   assert.equal(win.KVMFlowPairing.activeMode(), 'confirm');
   const guide = text(win, '#guide-content');
-  assert.match(guide, /已就绪/);
+  assert.match(guide, /确认.*显示器/);
   assert.match(guide, /DELL U2723/);
   assert.match(guide, /✓ 已读取/);
   assert.match(guide, /用显示器上的按键把输入切到 DESKTOP-GAME 一次/);
@@ -328,7 +328,7 @@ test('three pending monitors and a single read one all render; learned inputs un
 });
 
 test('single-monitor groups still pair; the try step summarizes two switch reports', async t => {
-  const single = structuredClone(v2);
+  const single = pairedV2();
   single.local_device.monitors.splice(1);
   single.switch_group.devices.forEach(d => d.monitors = d.monitors.filter(m => m.fingerprint === 'display-b'));
   single.switch_group.devices = single.switch_group.devices.filter(d => d.monitors.length || d.device_id === 'host-win');
@@ -518,7 +518,7 @@ test('read monitor cards drop the raw input row and pending count shares the 完
 });
 
 test('finishing the primary confirmation moves the wizard to step 4', async t => {
-  const { win, subscriptions } = await client(t, { state: state(mixedState(), peers([discovered()])) });
+  const { win, subscriptions } = await client(t, { config: pairedV2(), state: state(mixedState(), peers([discovered()])) });
   win.navigate('guide');
   win.nextStep(); win.nextStep();
   win.document.querySelector('[data-pair-action="add-via-lan"]').click();

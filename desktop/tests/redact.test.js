@@ -188,3 +188,17 @@ test('IPv6 forms are masked without mistaking VID:PID or USB serial keys for add
   assert.deepEqual(Array.from(result.hardware), ['3837:303c', '3837:303c:serial-1', '15 (0x0F)']);
   assert.ok(result.errors.every(error => error.includes('lan-ip-')));
 });
+
+test('short legacy IDs redact whole tokens without corrupting platform or backend enums', () => {
+  const redact = load();
+  const result = redact({ config: { local_device: { device_id: 'mac' }, switch_group: { devices: [{ device_id: 'win' }, { device_id: 'id[7]' }] } },
+    platform: 'macos', peer: { platform: 'windows', backend: 'windows_dxva2' },
+    windowsId: { device_id: 'windows' }, more: { platform: 'windows' },
+    event: 'mac -> win, builtin:mac; macos windows windows_dxva2 id[7] xid[7]suffix',
+  });
+  assert.equal(result.platform, 'macos'); assert.equal(result.peer.platform, 'windows');
+  assert.equal(result.more.platform, 'windows'); assert.equal(result.peer.backend, 'windows_dxva2');
+  assert.match(result.event, /^device-\d+ -> device-\d+, builtin:device-\d+;/);
+  assert.match(result.event, /macos device-\d+ windows_dxva2 device-\d+ xid\[7\]suffix/);
+  assert.match(result.windowsId.device_id, /^device-\d+$/);
+});

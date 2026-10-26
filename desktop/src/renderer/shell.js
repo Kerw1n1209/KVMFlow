@@ -68,6 +68,7 @@ function renderStatus() {
 
 const labels = ["identify.usb.switch", "record.this.computer", "add.the.other.computer", "try.switching"];
 function renderSteps() {
+  $('#steps').classList.remove('hidden');
   $('#steps').innerHTML = labels.map((label, i) =>
     `<div class="step ${i === step ? 'active' : ''} ${i < step ? 'done' : ''}">${i + 1} ${t(label)}</div>`).join('');
   $('#guide-count').textContent = t("step.value.of.4", {
