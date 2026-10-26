@@ -425,6 +425,7 @@ test('paused and failed backend states stay visible and do not claim picture suc
   const { win, subscriptions } = await client(t);
   subscriptions.get('state')({ state: 'armed', enabled: false });
   assert.match(win.document.querySelector('#nav-state').textContent, /自动切换已暂停/);
+  assert.equal(win.document.querySelector('#nav-state').title, win.document.querySelector('#nav-state').textContent);
   subscriptions.get('switch.report')({ per_monitor: [{ commanded: true }] });
   assert.equal(win.document.querySelector('#last-title').textContent, '最近一次切换');
   assert.match(win.document.querySelector('#last-copy').textContent, /已向.*发送显示器切换命令/);
@@ -458,6 +459,7 @@ test('English renders dynamic status, setup, timing and local-input confirmation
   assert.equal(doc.documentElement.lang, 'en');
   assert.equal(doc.querySelector('[data-computer="host-win"] strong').textContent, '工作电脑');
   assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB Switch');
+  assert.equal(doc.querySelector('#nav-state').title, 'Waiting for USB Switch');
   c.win.navigate('guide');
   assert.equal(doc.querySelector('#steps .active').textContent, '1 Identify USB Switch');
   c.win.navigate('settings');

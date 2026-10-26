@@ -95,6 +95,11 @@ test('renderer bundles the fonts with swap, a packaged-first stack, and local CS
   const shell = fs.readFileSync(path.join(renderer, 'shell.css'), 'utf8');
   assert.doesNotMatch(shell, /font-family/, 'shell.css must not override the app font stack');
 
+  const navState = css.match(/\.nav \.nav-state \{([^}]*)\}/)[1];
+  assert.match(navState, /white-space:\s*nowrap/);
+  assert.match(navState, /text-overflow:\s*ellipsis/);
+  assert.doesNotMatch(navState, /white-space:\s*normal/);
+
   const tauri = JSON.parse(
     fs.readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'),
   );

@@ -3,7 +3,7 @@
 
 /* ---- pairing dialog ---- */
 #pairing-dialog {
-  width: min(452px, calc(100vw - 48px));
+  width: min(476px, calc(100vw - 48px));
   padding: 28px;
   color: var(--ink);
   background: var(--surface);

@@ -341,7 +341,13 @@ input, select { font-weight: 400; }
 .nav { border-right-color: var(--line); }
 .nav-item.active::before { width: 1px; top: 10px; bottom: 10px; }
 .nav-item.active { border-radius: 3px; }
-.nav .nav-state { flex: 1; min-width: 0; overflow: visible; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.nav .nav-state { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; overflow-wrap: normal; line-height: 1.5; }
+.nav-bottom { gap: 6px; padding-left: 6px; padding-right: 6px; }
+@media (max-width: 850px) {
+  .nav-bottom { gap: 4px; padding-left: 3px; padding-right: 3px; }
+  .nav .gear { width: 32px; min-width: 32px; }
+  .nav #nav-state { font-size: 11px; letter-spacing: -.02em; }
+}
 .page > section > .header { min-height: 104px; margin-bottom: 28px; border-color: var(--line); }
 .header h1 { font-size: 30px; line-height: 1.3; }
 .header .sub { margin-top: 8px; font-size: 13px; }
