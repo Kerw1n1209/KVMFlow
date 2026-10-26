@@ -580,3 +580,129 @@ fn rejected_monitor_alias_stays_unmatched_instead_of_guessing() {
         "E_CONFIG_INVALID"
     );
 }
+
+// The 0.3 UI wrote the same group ID and mac/win draft IDs on both hosts.
+fn old_ui_sides() -> (PairSide, PairSide, PairOptions) {
+    let mut primary = config(
+        "dev-MAC",
+        "Windows workstation",
+        "windows",
+        [16, 8],
+        [15, 7],
+        true,
+    );
+    let mut secondary = config("dev-WIN", "Studio Mac", "macos", [15, 7], [16, 8], true);
+    for side in [&mut primary, &mut secondary] {
+        let group = side.switch_group.as_mut().unwrap();
+        group.group_id = "local-switch-group".into();
+        rename_device_id(group, "legacy-remote", "win");
+        group
+            .devices
+            .iter_mut()
+            .find(|d| d.device_id == "win")
+            .unwrap()
+            .name = "Old other computer".into();
+    }
+    let mut opts = options();
+    opts.mixed = Some(MixedChoice::Basis);
+    (primary, secondary, opts)
+}
+
+#[test]
+fn old_ui_group_id_collision_replaces_unpinned_win_slot_with_real_owner() {
+    let (a, b, opts) = old_ui_sides();
+    let plan = pair(&a, &b, &opts);
+    let group = plan
+        .snapshot
+        .expect("legacy group ID equality is not an authenticated re-pair");
+    assert_eq!(group.devices.len(), 2);
+    let other = group
+        .devices
+        .iter()
+        .find(|d| d.device_id == b.device_id)
+        .unwrap();
+    assert_eq!(other.port_index, 2);
+    assert_eq!(other.name, "Studio Mac");
+    assert_eq!(
+        other
+            .monitors
+            .iter()
+            .map(|m| m.local_input)
+            .collect::<Vec<_>>(),
+        vec![15, 7]
+    );
+    assert!(!group.devices.iter().any(|d| d.device_id == "win"));
+    assert!(group
+        .group_sync()
+        .members
+        .iter()
+        .any(|m| m.device_id == b.device_id));
+}
+
+#[test]
+fn legacy_slot_keeps_physical_port_and_pending_input_only_offers_a_prefill() {
+    let (a, mut b, opts) = old_ui_sides();
+    let mut a = a;
+    a.switch_group
+        .as_mut()
+        .unwrap()
+        .devices
+        .iter_mut()
+        .find(|d| d.device_id == "win")
+        .unwrap()
+        .port_index = 7;
+    b.profile.monitors[0].input = ProfileInput::Pending;
+    let pending = pair(&a, &b, &opts);
+    assert!(pending.snapshot.is_none());
+    let data = serde_json::to_value(&pending).unwrap();
+    assert!(data["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| i["detail"]["kind"] == "input_pending" && i["detail"]["prefill"] == 15));
+    assert_eq!(
+        pending
+            .proposed_snapshot
+            .unwrap()
+            .devices
+            .iter()
+            .find(|d| d.device_id == b.device_id)
+            .unwrap()
+            .port_index,
+        7
+    );
+    b.profile.monitors[0].input = ProfileInput::Value {
+        value: 19,
+        source: InputSource::LearnedActiveRead,
+    };
+    let actual = pair(&a, &b, &opts).snapshot.unwrap();
+    let other = actual
+        .devices
+        .iter()
+        .find(|d| d.device_id == b.device_id)
+        .unwrap();
+    assert_eq!(other.port_index, 7);
+    assert_eq!(other.monitors[0].local_input, 19);
+}
+
+#[test]
+fn a_pinned_old_id_is_never_claimed_as_an_unpaired_placeholder() {
+    let (mut a, b, opts) = old_ui_sides();
+    let g = a.switch_group.as_mut().unwrap();
+    let mut sync = g.group_sync();
+    sync.members.push(kvmflow_core::sync::Member {
+        device_id: "win".into(),
+        public_key: "other-pin".into(),
+        platform: "windows".into(),
+        ..Default::default()
+    });
+    g.set_group_sync(sync);
+    a.established = true;
+    let plan = pair(&a, &b, &opts);
+    assert!(plan
+        .proposed_snapshot
+        .unwrap()
+        .devices
+        .iter()
+        .any(|d| d.device_id == "win"));
+}
