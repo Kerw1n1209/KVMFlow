@@ -35,8 +35,10 @@ const markComputerSettingsStructureChanged = () => {
   }));
 };
 
+// Events from earlier launches belong to whatever configuration existed then.
+const eventSession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 function log(title, copy) {
-  model.events.unshift({ title, copy, titleMessage: window.KVMFlowI18n.describe(title), copyMessage: window.KVMFlowI18n.describe(copy), time: new Date().toLocaleTimeString(window.KVMFlowI18n.locale, { hour: '2-digit', minute: '2-digit' }) });
+  model.events.unshift({ title, copy, session: eventSession, titleMessage: window.KVMFlowI18n.describe(title), copyMessage: window.KVMFlowI18n.describe(copy), time: new Date().toLocaleTimeString(window.KVMFlowI18n.locale, { hour: '2-digit', minute: '2-digit' }) });
   model.events = model.events.slice(0, 8);
   save(); renderDiagnostics();
 }

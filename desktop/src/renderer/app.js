@@ -98,7 +98,9 @@
     }
     sidecarConfig = config || null;
     if (!config) {
-      model = { ...structuredClone(defaults), events: model.events };
+      // Without a configuration, earlier launches' history (e.g. a finished
+      // pairing) describes a setup that no longer exists.
+      model = { ...structuredClone(defaults), events: model.events.filter(event => event.session === eventSession) };
       // Drafts contain user-entered computer details, not proof of hardware setup.
       try {
         const draft = JSON.parse(localStorage.getItem(computerGroupDraftKey));

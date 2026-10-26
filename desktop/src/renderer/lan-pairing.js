@@ -428,7 +428,7 @@
       ${disabled ? '' : `<p class="hint pair-search-hint">${t('lan.searching')}</p>`}
       <div class="wizard-footer">
         <p class="pair-manual"><span class="hint">${t('lan.no.lan')}</span> <button class="link pair-link" data-pair-action="manual">${t('lan.manual.fill')}</button></p>
-        <button class="secondary" data-action="previousStep">${t('back')}</button></div>`;
+        <button class="secondary" data-pair-action="add-back">${t('back')}</button></div>`;
   }
 
   function confirmHtml() {
@@ -671,6 +671,7 @@
     }
   }
 
+  let pairRenderedNode = null;
   function renderWizard() {
     const root = byId('guide-content');
     if (!root) return;
@@ -695,9 +696,12 @@
       else if (mode === 'secondary-done') { navState.textContent = t('nav.paired', { p0: esc(peerName || t('other.computer')) }); navState.title = navState.textContent; }
     }
     const html = wizardHtml();
-    if (html !== null && root.dataset.pairRendered !== html) {
+    // The classic guide writes the same container, so the cached HTML only
+    // counts while the content on screen is still the node we rendered.
+    if (html !== null && (root.dataset.pairRendered !== html || root.firstElementChild !== pairRenderedNode)) {
       root.dataset.pairRendered = html;
       root.innerHTML = html;
+      pairRenderedNode = root.firstElementChild;
     }
     if (mode === 'add' || mode === 'confirm') renderPeerList();
   }
@@ -897,6 +901,10 @@
         closeDialog();
         exitWizard(2);
         choice = 'known';
+        return;
+      case 'add-back':
+        closeDialog();
+        exitWizard(1);
         return;
       case 'add-via-lan':
         mode = 'add'; dialPeer = null;

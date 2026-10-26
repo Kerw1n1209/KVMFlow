@@ -454,3 +454,39 @@ test('a removed editor target cannot transfer its unsaved fields onto the local 
   await emit(c, 'lan.profile', { device_id: 'dev-peer', profile_rev: 9, monitors: [] });
   assert.equal(c.win.document.querySelector('#edit-name').value, 'Windows');
 });
+
+const guideTitle = win => win.document.querySelector('#guide-content h1')?.textContent.trim();
+const activeStep = win => win.document.querySelector('#steps .step.active')?.textContent.trim();
+
+test('back from the LAN add page returns to the previous step content, not just the stepper', async t => {
+  const c = await client(t, { state: state([]) }); c.win.navigate('guide'); await choosePrimary(c.win);
+  c.win.nextStep(); c.win.nextStep(); click(c.win, '[data-pair-action="add-via-lan"]'); await tick();
+  const addTitle = guideTitle(c.win);
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'add');
+  click(c.win, '#guide-content .wizard-footer button.secondary'); await tick();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), null);
+  assert.notEqual(guideTitle(c.win), addTitle);
+  assert.match(activeStep(c.win), /^2/);
+});
+
+test('LAN add entry re-renders after another page rewrote the guide', async t => {
+  const c = await client(t, { state: state([]) }); c.win.navigate('guide'); await choosePrimary(c.win);
+  c.win.nextStep(); c.win.nextStep(); click(c.win, '[data-pair-action="add-via-lan"]'); await tick();
+  const addTitle = guideTitle(c.win);
+  c.win.navigate('status'); c.win.navigate('guide'); await tick();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), null);
+  while (!c.win.document.querySelector('[data-pair-action="add-via-lan"]')) { c.win.nextStep(); await tick(); }
+  click(c.win, '[data-pair-action="add-via-lan"]'); await tick();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'add');
+  assert.equal(guideTitle(c.win), addTitle);
+});
+
+test('events from an earlier configuration do not survive into a fresh setup', async t => {
+  const stale = { localId: 'draft-local', nextId: 'draft-remote', usbConfirmed: true, displays: [],
+    computers: [{ id: 'draft-local', name: 'MAC', port: 1, local: true, sources: [] }],
+    events: [{ title: '配对完成', copy: '旧配置', time: '10:00' }] };
+  const c = await client(t, { config: null, state: state([]), storage: { 'kvmflow-local-prototype-v2': JSON.stringify(stale) } });
+  assert.doesNotMatch(c.win.document.querySelector('#event-list').textContent, /旧配置/);
+  c.win.log('本次事件', '新会话');
+  assert.match(c.win.document.querySelector('#event-list').textContent, /新会话/);
+});

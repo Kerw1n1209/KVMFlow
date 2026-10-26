@@ -538,7 +538,8 @@ test('stored legacy diagnostic events follow language without changing unknown e
     { title: '本地配置未保存', copy: '请先检测显示器，再保存设置。', titleMessage: '本地配置未保存', time: '17:44' },
     { title: '设备原始记录 <script>bad()</script>', copy: '用户设备名称 工作电脑', time: '12:00' },
   ];
-  const c = await client(t, { config: null, computerName: '工作电脑', storage: { 'kvmflow-local-prototype-v2': JSON.stringify({
+  // Configured: without a configuration, earlier launches' events are dropped.
+  const c = await client(t, { computerName: '工作电脑', storage: { 'kvmflow-local-prototype-v2': JSON.stringify({
     localId: 'mac', nextId: 'win', usbConfirmed: false, displays: [], events,
     computers: [{ id: 'mac', name: '工作电脑', port: 1, local: true, sources: [] }],
   }) } });
@@ -551,8 +552,6 @@ test('stored legacy diagnostic events follow language without changing unknown e
   assert.match(list.textContent, /Detect the monitors before saving settings/);
   assert.match(list.textContent, /用户设备名称 工作电脑/);
   assert.equal(list.querySelector('script'), null);
-  c.win.navigate('settings');
-  assert.equal(c.win.document.querySelector('#edit-name').value, '工作电脑');
   c.win.KVMFlowI18n.setPreference('zh-CN');
   assert.match(list.textContent, /电脑配置已保存/);
   assert.match(list.textContent, /本地配置未保存/);
