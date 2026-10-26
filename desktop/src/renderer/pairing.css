@@ -2,7 +2,8 @@
    the secondary's waiting screens. Shares the paper token set. */
 
 /* ---- pairing dialog ---- */
-#pairing-dialog {
+#pairing-dialog,
+#compatibility-dialog {
   width: min(452px, calc(100vw - 48px));
   padding: 28px;
   color: var(--ink);
@@ -17,7 +18,8 @@
 #pairing-dialog:focus,
 #pairing-dialog:focus-visible { outline: none; }
 #pairing-dialog.pair-wide { width: min(580px, calc(100vw - 48px)); }
-#pairing-dialog::backdrop { background: rgba(0, 0, 0, .22); }
+#pairing-dialog::backdrop,
+#compatibility-dialog::backdrop { background: rgba(0, 0, 0, .22); }
 #pairing-dialog h2 { font-size: 18px; }
 #pairing-dialog .sub { margin-top: 10px; color: var(--sub); font-size: 13px; line-height: 1.7; }
 #pairing-dialog .hint { overflow-wrap: anywhere; }
@@ -257,3 +259,12 @@
 .pair-choice-section > .hint { margin-top: 10px; }
 .pair-choice-identity { margin-top: 12px; cursor: default; overflow-wrap: anywhere; }
 .pair-choice-identity > span { min-width: 0; }
+
+/* The report shares the pairing surface and keeps every line reachable. */
+#compatibility-dialog { width: min(680px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); }
+#compatibility-report { max-height: calc(100dvh - 184px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; line-height: 1.6; margin: 0; }
+#compatibility-dialog .confirmation-actions { gap: 10px; flex-wrap: wrap; }
+#compatibility-dialog button:active { transform: translateY(1px); }
+.diagnostics-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+#compatibility-status:empty { display: none; }
+#compatibility-status { margin: 0 0 20px; color: var(--sub); font-size: 13px; }

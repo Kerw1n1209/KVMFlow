@@ -51,7 +51,7 @@
           <div id="startup-list" class="response-list"><div class="response-row startup-row"><div class="response-copy"><strong data-i18n="launch.at.login">开机自动启动</strong></div><label class="toggle-control" for="startup-at-login"><input id="startup-at-login" type="checkbox" disabled=""><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label" data-i18n="configure.in.the.app">正在读取</span></label></div></div>
         </section>
       </section>
-      <section id="diagnostics-page" class="hidden"><header class="header"><h1 data-i18n="diagnostics">诊断</h1><button id="export-log" class="secondary" data-i18n="export.records">导出诊断记录</button></header><section class="panel"><div class="panel-title"><h2 data-i18n="recent.events">最近事件</h2><span class="hint" data-i18n="only.the.8.most.recent.events">最近 8 条</span></div><div id="event-list" class="event-box"></div></section><section class="panel"><h2 data-i18n="the.picture.did.not.switch">画面没有切换</h2><div class="recovery"><div class="recovery-row"><span class="number">1</span><div><strong data-i18n="open.the.monitor.menu.and.check.the.input.source">打开显示器菜单，确认输入源</strong></div></div><div class="recovery-row"><span class="number">2</span><div><strong data-i18n="check.the.other.computer.s.values.in.computers.and.monitors">在设置的“电脑与显示器”中核对输入值</strong></div></div><div class="recovery-row"><span class="number">3</span><div><strong data-i18n="reconnect.the.video.cable.and.try.again">重新连接视频线后再试一次</strong></div></div></div></section></section>
+      <section id="diagnostics-page" class="hidden"><header class="header"><h1 data-i18n="diagnostics">诊断</h1><div class="diagnostics-actions"><button id="submit-device" class="secondary" data-i18n="compat.submit">提交我的设备</button><button id="export-log" class="secondary" data-i18n="export.records">导出诊断记录</button></div></header><p id="compatibility-status" role="status" aria-live="polite"></p><section class="panel"><div class="panel-title"><h2 data-i18n="recent.events">最近事件</h2><span class="hint" data-i18n="only.the.8.most.recent.events">最近 8 条</span></div><div id="event-list" class="event-box"></div></section><section class="panel"><h2 data-i18n="the.picture.did.not.switch">画面没有切换</h2><div class="recovery"><div class="recovery-row"><span class="number">1</span><div><strong data-i18n="open.the.monitor.menu.and.check.the.input.source">打开显示器菜单，确认输入源</strong></div></div><div class="recovery-row"><span class="number">2</span><div><strong data-i18n="check.the.other.computer.s.values.in.computers.and.monitors">在设置的“电脑与显示器”中核对输入值</strong></div></div><div class="recovery-row"><span class="number">3</span><div><strong data-i18n="reconnect.the.video.cable.and.try.again">重新连接视频线后再试一次</strong></div></div></div></section></section>
     </div></main></div>
 
 
@@ -59,6 +59,10 @@
     <h2 id="local-input-confirmation-title" data-i18n="change.this.computer.s.monitor.input.values">修改本机显示器输入值？</h2>
     <p id="local-input-confirmation-copy"></p>
     <div class="confirmation-actions"><button id="cancel-local-input" autofocus="" data-i18n="cancel">取消</button><button id="confirm-local-input" class="primary" data-i18n="confirm.change">确认修改</button></div>
+  </dialog>
+  <dialog id="compatibility-dialog" aria-label="设备报告" data-i18n-aria-label="compat.report">
+    <pre id="compatibility-report" tabindex="0"></pre>
+    <div class="confirmation-actions"><button id="cancel-compatibility" autofocus="" data-i18n="cancel">取消</button><button id="copy-compatibility" data-i18n="compat.copy">复制</button><button id="open-compatibility" class="primary" data-i18n="compat.open">打开 GitHub</button></div>
   </dialog>
   <dialog id="pairing-dialog" aria-labelledby="pairing-title">
     <div id="pairing-body"></div>

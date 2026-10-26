@@ -2154,6 +2154,7 @@ version = "0.4.0-beta.1"
 dependencies = [
  "kvmflow-core",
  "kvmflow-sidecar",
+ "os_info",
  "serde",
  "serde_json",
  "tauri",

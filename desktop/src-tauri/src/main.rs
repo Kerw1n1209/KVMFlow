@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod compatibility;
 mod host_name;
 mod locale;
 mod mixed_menu;
@@ -354,6 +355,8 @@ fn host_info(app: AppHandle) -> Value {
     json!({
         "version": app.package_info().version.to_string(),
         "platform": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "osVersion": os_info::get().version().to_string(),
         "computerName": host_name::computer_name(),
         "initialPage": *app.state::<Host>().page.lock().unwrap(),
         "languagePreference": app.state::<locale::Locale>().preference(),
@@ -512,7 +515,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
-        .invoke_handler(tauri::generate_handler![runtime_request, host_info, locale_set, client_ready, startup_get, startup_set, export_diagnostics, confirm_delete, confirm_local_input, updates::update_check, updates::update_set_beta, updates::update_download, updates::update_install, updates::update_open_download])
+        .invoke_handler(tauri::generate_handler![runtime_request, host_info, compatibility::compatibility_open_issue, locale_set, client_ready, startup_get, startup_set, export_diagnostics, confirm_delete, confirm_local_input, updates::update_check, updates::update_set_beta, updates::update_download, updates::update_install, updates::update_open_download])
         .setup(|app| {
             let handle = app.handle().clone();
             let data_dir = paths::data_dir()?;
