@@ -57,7 +57,7 @@ const bridge = `
     handlers.get(kind).add(cb);
     return () => handlers.get(kind).delete(cb);
   } }, core: { invoke: async (command, args = {}) => {
-    if (command === 'host_info') return { version: '0.3.0', platform: 'preview', computerName: 'MacBook Pro',
+    if (command === 'host_info') return { version: '0.3.0', platform: scenarioName === 'compat-report' ? 'macos' : 'preview', arch: 'aarch64', osVersion: '15.7.1', computerName: 'MacBook Pro',
       languagePreference: query.get('lang') || 'zh-CN', initialPage: 'wizard' };
     if (command === 'runtime_request') {
       const { method, params } = args;
@@ -73,7 +73,11 @@ const bridge = `
       if (method === 'lan.test.start') return { test_id: 'preview-test', duration_ms: params.duration_ms };
       if (method === 'lan.test.stop') return { test_id: 'preview-test', events: [] };
       if (method === 'lan.setup.secondary') return { secondary: true, phase: 'waiting_for_primary' };
-      if (method === 'display.list') return { displays: [] };
+      if (method === 'usb.snapshot') return { devices: [{ vid_pid: '1234:5678', vendor: 'UGREEN', product: 'USB Switch' }] };
+      if (method === 'display.list') return { displays: scenarioName === 'compat-report' ? [
+        { edid_id: 'DEL-A0F1-A', manufacturer: 'DEL', model_name: 'DELL U2723QE', ddc: { state: 'available', input: 15 } },
+        { edid_id: 'DEL-A0F1-B', manufacturer: 'AOC', model_name: 'Q27G2', ddc: { state: 'unavailable' } },
+      ] : [] };
       return {};
     }
     if (command === 'startup_get') return false;
@@ -109,6 +113,17 @@ const bridge = `
       document.querySelector('#pairing-body [data-pair-action="finish"]').click(); await sleep(40);
     };
     switch (scenarioName) {
+      case 'compat-report': {
+        await window.kvmflow.request('display.list');
+        window.navigate('diagnostics');
+        document.getElementById('submit-device').click();
+        if (query.get('reportEnd') === '1') {
+          await waitFor(() => document.getElementById('compatibility-dialog').open);
+          const report = document.getElementById('compatibility-report');
+          report.scrollTop = report.scrollHeight;
+        }
+        break;
+      }
       case 'pair-select': {
         S.openDialog();
         await sleep(30);
