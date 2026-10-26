@@ -102,6 +102,11 @@ fn instance_name(label: &str) -> &str {
 const MAX_SERVICE_NAMES: usize = 128;
 const MAX_NAMES_PER_DEVICE: usize = 4;
 const SERVICE_HINT_TTL: Duration = Duration::from_secs(300);
+/// mdns-sd only emits `ServiceResolved` when a record changes, so a peer that
+/// keeps advertising unchanged records would never refresh its hint and would
+/// expire after `SERVICE_HINT_TTL`. Browsing again replays every live cached
+/// service; it must stay well under the hint TTL.
+const REBROWSE_INTERVAL: Duration = Duration::from_secs(120);
 struct ServiceHint {
     id: String,
     seen: Instant,
@@ -234,6 +239,8 @@ pub struct MdnsDiscovery {
     fullname: Option<String>,
     cache: MdnsCache,
     policy: AddressPolicy,
+    browsed_at: Instant,
+    rebrowse_interval: Duration,
 }
 impl MdnsDiscovery {
     pub fn new(policy: AddressPolicy) -> Result<Self> {
@@ -251,6 +258,8 @@ impl MdnsDiscovery {
             fullname: None,
             cache: MdnsCache::default(),
             policy,
+            browsed_at: Instant::now(),
+            rebrowse_interval: REBROWSE_INTERVAL,
         })
     }
 }
@@ -293,13 +302,24 @@ impl Discovery for MdnsDiscovery {
         Ok(())
     }
     fn poll(&mut self) -> Result<Vec<DiscoveryEvent>> {
-        let mut events = self.cache.expire(Instant::now());
+        let now = Instant::now();
+        let mut events = vec![];
         for _ in 0..64 {
             let Ok(event) = self.receiver.try_recv() else {
                 break;
             };
-            events.extend(self.cache.handle(event, self.policy, Instant::now()));
+            events.extend(self.cache.handle(event, self.policy, now));
         }
+        if now.saturating_duration_since(self.browsed_at) >= self.rebrowse_interval {
+            // Replacing the listener replays the daemon's live cache into the
+            // new receiver; the old one stops receiving. Keep the old receiver
+            // on failure so discovery degrades to the previous behaviour.
+            if let Ok(receiver) = self.daemon.browse(SERVICE_TYPE) {
+                self.receiver = receiver;
+            }
+            self.browsed_at = now;
+        }
+        events.extend(self.cache.expire(now));
         Ok(events)
     }
     fn stop(&mut self) -> Result<()> {
@@ -344,6 +364,67 @@ mod tests {
         .unwrap();
         assert_eq!(info.get_property_val_str("id"), Some("a"));
         assert_eq!(info.get_port(), 47820);
+    }
+    /// mdns-sd stays silent while an advertisement is unchanged, so without
+    /// re-browsing an unpaired secondary that waits longer than the hint TTL
+    /// silently drops out of the primary's list. Uses real daemons on this
+    /// host's interfaces; skipped where multicast is unavailable.
+    #[test]
+    fn rebrowse_replays_unchanged_live_services() {
+        let Ok(publisher) = ServiceDaemon::new() else {
+            return;
+        };
+        let txt = [("v", "1"), ("id", "dev-rebrowse-fixture")];
+        let info = ServiceInfo::new(
+            SERVICE_TYPE,
+            "rebrowse-fixture",
+            "kvmflow-rebrowse-fixture.local.",
+            "",
+            47999,
+            &txt[..],
+        )
+        .unwrap()
+        .enable_addr_auto();
+        publisher.register(info).unwrap();
+        let mut browser = MdnsDiscovery::new(AddressPolicy::from_env()).unwrap();
+        browser.rebrowse_interval = Duration::from_secs(3600);
+        let upserts = |browser: &mut MdnsDiscovery, window: Duration| {
+            let deadline = Instant::now() + window;
+            let mut count = 0;
+            while Instant::now() < deadline {
+                count += browser
+                    .poll()
+                    .unwrap()
+                    .iter()
+                    .filter(|event| {
+                        matches!(event, DiscoveryEvent::Upsert(peer) if peer.device_id == "dev-rebrowse-fixture")
+                    })
+                    .count();
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            count
+        };
+        if upserts(&mut browser, Duration::from_secs(6)) == 0 {
+            // No usable private interface or multicast on this host.
+            let _ = publisher.shutdown();
+            return;
+        }
+        // Let the registration announcements settle: from here on the
+        // advertisement is unchanged and mdns-sd emits nothing on its own.
+        let mut quiet = false;
+        for _ in 0..10 {
+            if upserts(&mut browser, Duration::from_secs(3)) == 0 {
+                quiet = true;
+                break;
+            }
+        }
+        assert!(quiet, "announcements never settled");
+        browser.browsed_at = Instant::now() - browser.rebrowse_interval;
+        assert!(
+            upserts(&mut browser, Duration::from_secs(3)) > 0,
+            "an unchanged live service must be replayed after re-browsing"
+        );
+        let _ = publisher.shutdown();
     }
     fn resolved(name: &str, id: &str) -> ServiceEvent {
         let txt = [("v", "1"), ("id", id)];
