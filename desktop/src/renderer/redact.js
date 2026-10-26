@@ -114,6 +114,15 @@
     const serialPlaceholders = sortedByLength(serials);
     const namePlaceholders = sortedByLength(names);
     const idPlaceholders = sortedByLength(identifiers);
+    const escapeId = id => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedIds = [...idPlaceholders.keys()].map(escapeId);
+    const idPattern = escapedIds.length ? new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:${escapedIds.join('|')})(?![\p{L}\p{N}_])`, 'gu') : null;
+    const replaceIds = (text, key) => {
+      if (key === 'platform' && ['macos', 'windows', 'linux', 'darwin', 'win32'].includes(text)) return text;
+      if (key === 'backend' && ['simulated', 'macos_m1ddc', 'windows_dxva2'].includes(text)) return text;
+      if (idPlaceholders.has(text)) return idPlaceholders.get(text);
+      return idPattern ? text.replace(idPattern, id => idPlaceholders.get(id)) : text;
+    };
     const instancePaths = new Map();
     const lanAddresses = new Set();
     collectLanAddresses(payload, lanAddresses);
@@ -136,7 +145,7 @@
       });
       result = HOME_PATHS.reduce((current, pattern) => current.replace(pattern, '~'), result);
       result = result.replace(UUID, uuid => identifiers.get(idKey(uuid)));
-      result = replaceKnown(result, idPlaceholders);
+      result = replaceIds(result, key);
       result = result.replace(EDID_SERIAL, (_, prefix, serial) => `${prefix}-${serials.get(bareSerial(serial))}`);
       result = replaceKnown(result, serialPlaceholders);
       result = replaceKnown(result, lanAddressPlaceholders);
