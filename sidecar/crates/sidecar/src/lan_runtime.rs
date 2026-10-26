@@ -68,6 +68,9 @@ pub(crate) struct LanRuntime {
     issues: Vec<Value>,
     sync_states: BTreeMap<String, Value>,
     online: BTreeSet<String>,
+    /// Last discovered-peer count written to the event log, so diagnostics
+    /// show whether discovery ever saw another computer.
+    discovered: Option<usize>,
     last_status: Value,
     next_id: u64,
     pending: BTreeMap<u64, commands::Pending>,
@@ -668,6 +671,14 @@ impl Runtime {
             };
             match event {
                 LanEvent::Peers(peers) => {
+                    if self.lan_runtime.discovered != Some(peers.len()) {
+                        self.lan_runtime.discovered = Some(peers.len());
+                        self.emit_event(
+                            "lan.peers.discovered",
+                            Level::Debug,
+                            json!({"count": peers.len(), "online": peers.iter().filter(|p| p.online).count()}),
+                        );
+                    }
                     let online: BTreeSet<_> = peers
                         .iter()
                         .filter(|p| p.online)

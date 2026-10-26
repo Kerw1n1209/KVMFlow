@@ -213,10 +213,16 @@ impl MdnsCache {
                 );
                 events.push(DiscoveryEvent::Upsert(DiscoveredPeer {
                     device_id: id.into(),
+                    // Older peers name the instance after the label and send no `n`.
                     name: info
-                        .get_fullname()
-                        .strip_suffix(&format!(".{SERVICE_TYPE}"))
-                        .unwrap_or(info.get_fullname())
+                        .get_property_val_str("n")
+                        .filter(|n| !n.is_empty())
+                        .map(instance_name)
+                        .unwrap_or_else(|| {
+                            info.get_fullname()
+                                .strip_suffix(&format!(".{SERVICE_TYPE}"))
+                                .unwrap_or(info.get_fullname())
+                        })
                         .into(),
                     addresses,
                     key_fp: info.get_property_val_str("k").unwrap_or_default().into(),
@@ -230,6 +236,38 @@ impl MdnsCache {
         }
         events
     }
+}
+/// The instance name is derived from the device ID, never the label: two
+/// unconfigured computers share the same (empty) label, and a shared instance
+/// name makes each one's own service overwrite the other's in the browser's
+/// per-name cache, so neither ever lists the other. The label travels in TXT.
+fn service_info(ad: &Advertisement) -> Result<ServiceInfo> {
+    let key = short_hash(&ad.public_key);
+    let group = ad
+        .group_id
+        .as_ref()
+        .map(|g| short_hash(g.as_bytes()))
+        .unwrap_or_default();
+    let id_hash = short_hash(ad.device_id.as_bytes());
+    let txt = [
+        ("v", "1"),
+        ("id", ad.device_id.as_str()),
+        ("k", key.as_str()),
+        ("g", group.as_str()),
+        ("n", instance_name(&ad.host_label)),
+    ];
+    // Hostname never incorporates untrusted TXT or punctuation in a label.
+    let hostname = format!("kvmflow-{id_hash}.local.");
+    ServiceInfo::new(
+        SERVICE_TYPE,
+        &format!("KVMFlow-{id_hash}"),
+        &hostname,
+        "",
+        ad.port,
+        &txt[..],
+    )
+    .map_err(mdns_error)
+    .map(ServiceInfo::enable_addr_auto)
 }
 /// Auto-address updates follow interfaces (including Wi-Fi changes). Call
 /// announce again on runtime resume/network-change events to force publication.
@@ -268,31 +306,7 @@ fn mdns_error(e: mdns_sd::Error) -> LanError {
 }
 impl Discovery for MdnsDiscovery {
     fn announce(&mut self, ad: &Advertisement) -> Result<()> {
-        let key = short_hash(&ad.public_key);
-        let group = ad
-            .group_id
-            .as_ref()
-            .map(|g| short_hash(g.as_bytes()))
-            .unwrap_or_default();
-        let txt = [
-            ("v", "1"),
-            ("id", ad.device_id.as_str()),
-            ("k", key.as_str()),
-            ("g", group.as_str()),
-        ];
-        // Hostname never incorporates untrusted TXT or punctuation in a label.
-        let hostname = format!("kvmflow-{}.local.", short_hash(ad.device_id.as_bytes()));
-        let name = instance_name(&ad.host_label);
-        let info = ServiceInfo::new(
-            SERVICE_TYPE,
-            if name.is_empty() { "KVMFlow" } else { name },
-            &hostname,
-            "",
-            ad.port,
-            &txt[..],
-        )
-        .map_err(mdns_error)?
-        .enable_addr_auto();
+        let info = service_info(ad)?;
         let fullname = info.get_fullname().to_owned();
         if self.fullname.as_ref().is_some_and(|old| old != &fullname) {
             let _ = self.daemon.unregister(self.fullname.as_ref().unwrap());
@@ -425,6 +439,61 @@ mod tests {
             "an unchanged live service must be replayed after re-browsing"
         );
         let _ = publisher.shutdown();
+    }
+    #[test]
+    fn unlabelled_computers_advertise_distinct_instances() {
+        let ad = |id: &str, label: &str| Advertisement {
+            device_id: id.into(),
+            host_label: label.into(),
+            public_key: [1; 32],
+            group_id: None,
+            port: 47820,
+        };
+        let a = service_info(&ad("dev-a", "")).unwrap();
+        let b = service_info(&ad("dev-b", "")).unwrap();
+        assert_ne!(a.get_fullname(), b.get_fullname());
+        // The same label on two computers still yields distinct instances.
+        let c = service_info(&ad("dev-c", "MacBook Pro")).unwrap();
+        let d = service_info(&ad("dev-d", "MacBook Pro")).unwrap();
+        assert_ne!(c.get_fullname(), d.get_fullname());
+        assert_eq!(c.get_property_val_str("n"), Some("MacBook Pro"));
+    }
+    #[test]
+    fn peer_name_prefers_txt_label_and_falls_back_to_instance() {
+        let name = |instance: &str, txt: &[(&str, &str)]| {
+            let info = ServiceInfo::new(
+                SERVICE_TYPE,
+                instance,
+                "fixture.local.",
+                "192.168.1.9",
+                47820,
+                txt,
+            )
+            .unwrap();
+            let event = ServiceEvent::ServiceResolved(Box::new(info.as_resolved_service()));
+            match MdnsCache::default()
+                .handle(event, AddressPolicy::default(), Instant::now())
+                .pop()
+            {
+                Some(DiscoveryEvent::Upsert(peer)) => peer.name,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(
+            name(
+                "KVMFlow-1234abcd",
+                &[("v", "1"), ("id", "dev-a"), ("n", "Studio Mac")]
+            ),
+            "Studio Mac"
+        );
+        assert_eq!(
+            name(
+                "KVMFlow-1234abcd",
+                &[("v", "1"), ("id", "dev-a"), ("n", "")]
+            ),
+            "KVMFlow-1234abcd"
+        );
+        assert_eq!(name("Old PC", &[("v", "1"), ("id", "dev-old")]), "Old PC");
     }
     fn resolved(name: &str, id: &str) -> ServiceEvent {
         let txt = [("v", "1"), ("id", id)];
