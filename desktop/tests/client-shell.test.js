@@ -411,7 +411,7 @@ test('diagnostics use the native save bridge once with UI and backend evidence',
   instance.win.document.querySelector('#export-log').click();
   await new Promise(resolve => setTimeout(resolve, 10));
   const payload = instance.export();
-  assert.equal(payload.config.local_device.device_id, 'host-win');
+  assert.match(payload.config.local_device.device_id, /^device-\d+$/);
   assert.equal(payload.sidecar.backend, 'test');
   assert.ok(payload.ui.computers);
   assert.equal(instance.requests.filter(entry => entry.method === 'diagnostics.collect').length, 1);
@@ -672,4 +672,62 @@ test('sidebar status uses short fixed labels and keeps the full title in both la
     subscriptions.get('runtime.error')({ message: 'boom' });
     check(labels[4]);
   }
+});
+
+test('tray feedback navigation opens the dialog from both a running and a cold window', async t => {
+  const running = await client(t);
+  running.navigate('diagnostics#feedback');
+  await tick();
+  assert.equal(running.win.document.querySelector('#compatibility-dialog').open, true);
+  assert.equal(running.win.document.querySelector('#diagnostics-page').classList.contains('hidden'), false);
+  assert.equal(running.requests.some(r => r.method === 'diagnostics.collect'), false);
+  const cold = await client(t, { initialPage: 'diagnostics#feedback' });
+  assert.equal(cold.win.document.querySelector('#compatibility-dialog').open, true);
+});
+
+test('feedback uses the same redacted diagnostics collector as native export', async t => {
+  const c = await client(t, { computerName: 'PRIVATE-HOST' });
+  const payload = await c.win.kvmflow.collectRedactedDiagnostics({ requireRuntime: true });
+  assert.equal(payload.redacted, true);
+  assert.equal(payload.sidecar.backend, 'test');
+  assert.equal(JSON.stringify(payload).includes('PRIVATE-HOST'), false);
+  const failed = await client(t, { request: async method => { if (method === 'diagnostics.collect') throw new Error('offline'); } });
+  await assert.rejects(failed.win.kvmflow.collectRedactedDiagnostics({ requireRuntime: true }));
+  const partialExport = await failed.win.kvmflow.collectRedactedDiagnostics();
+  assert.equal(partialExport.sidecar, null);
+  assert.equal(partialExport.redacted, true);
+});
+
+
+test('cold tray feedback actively probes display metadata without needing cached inventory', async t => {
+  const display = { edid_id: 'display-b', manufacturer: 'DEL', model_name: 'U2723QE', ddc: { state: 'available', input: 15 } };
+  const c = await client(t, { initialPage: 'diagnostics#feedback', displays: [display] });
+  assert.equal(c.win.kvmflow.cachedDisplays, undefined);
+  const report = JSON.parse(c.win.document.querySelector('#compatibility-report').textContent).report;
+  assert.deepEqual(JSON.parse(JSON.stringify(report.monitors[0])), { vendor: 'DEL', model: 'U2723QE', ddc: true, vcp60: 15, inputs: [] });
+  assert.equal(c.requests.filter(r => r.method === 'display.list').length, 1);
+});
+
+test('native export and actual feedback attachment both remove unpaired peer identities and addresses', async t => {
+  const { backend, secrets } = require('./fixtures/diagnostics-private');
+  const c = await client(t, { request: async method => method === 'diagnostics.collect' ? backend() : undefined });
+  c.win.document.querySelector('#export-log').click(); await tick();
+  const exported = c.export(); assert.equal(exported.redacted, true);
+  c.navigate('diagnostics#feedback'); await tick();
+  c.win.document.querySelector('[name="feedback-kind"][value="works"]').click();
+  c.win.document.querySelector('#feedback-diagnostics').click(); await tick();
+  const preview = JSON.parse(c.win.document.querySelector('#compatibility-report').textContent);
+  let sent;
+  c.win.kvmflow.sendFeedback = async payload => { sent = payload; return { ok: true, id: 'fb_01JABCDEF0123456789ABCDEFG' }; };
+  c.win.document.querySelector('#feedback-send').click(); await tick();
+  assert.equal(sent.diagnostics, preview.diagnostics);
+  for (const text of [JSON.stringify(exported), sent.diagnostics]) for (const secret of secrets) {
+    assert.equal(text.includes(secret), false, `${secret} leaked`);
+    assert.equal(text.includes(JSON.stringify(secret).slice(1, -1)), false, `${secret} leaked as escaped JSON`);
+  }
+  for (const data of [exported, JSON.parse(sent.diagnostics)]) {
+    assert.match(data.sidecar.events[0].fields.instance, /^device-path-\d+$/);
+    assert.match(data.sidecar.events[0].fields.usb, /^device-path-\d+$/);
+  }
+  assert.deepEqual(JSON.parse(sent.diagnostics).sidecar, JSON.parse(JSON.stringify(exported.sidecar)));
 });

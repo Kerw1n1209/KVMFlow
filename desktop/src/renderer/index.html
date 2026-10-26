@@ -51,7 +51,7 @@
           <div id="startup-list" class="response-list"><div class="response-row startup-row"><div class="response-copy"><strong data-i18n="launch.at.login">开机自动启动</strong></div><label class="toggle-control" for="startup-at-login"><input id="startup-at-login" type="checkbox" disabled=""><span class="toggle-track" aria-hidden="true"></span><span class="toggle-label" data-i18n="configure.in.the.app">正在读取</span></label></div></div>
         </section>
       </section>
-      <section id="diagnostics-page" class="hidden"><header class="header"><h1 data-i18n="diagnostics">诊断</h1><button id="export-log" class="secondary" data-i18n="export.records">导出诊断记录</button></header><section class="panel"><div class="panel-title"><h2 data-i18n="recent.events">最近事件</h2><span class="hint" data-i18n="only.the.8.most.recent.events">最近 8 条</span></div><div id="event-list" class="event-box"></div></section><section class="panel"><h2 data-i18n="the.picture.did.not.switch">画面没有切换</h2><div class="recovery"><div class="recovery-row"><span class="number">1</span><div><strong data-i18n="open.the.monitor.menu.and.check.the.input.source">打开显示器菜单，确认输入源</strong></div></div><div class="recovery-row"><span class="number">2</span><div><strong data-i18n="check.the.other.computer.s.values.in.computers.and.monitors">在设置的“电脑与显示器”中核对输入值</strong></div></div><div class="recovery-row"><span class="number">3</span><div><strong data-i18n="reconnect.the.video.cable.and.try.again">重新连接视频线后再试一次</strong></div></div></div></section></section>
+      <section id="diagnostics-page" class="hidden"><header class="header"><h1 data-i18n="diagnostics">诊断</h1><div class="diagnostics-actions"><button id="submit-device" class="secondary" data-i18n="feedback.title">反馈</button><button id="export-log" class="secondary" data-i18n="export.records">导出诊断记录</button></div></header><p id="compatibility-status" role="status" aria-live="polite"></p><section class="panel"><div class="panel-title"><h2 data-i18n="recent.events">最近事件</h2><span class="hint" data-i18n="only.the.8.most.recent.events">最近 8 条</span></div><div id="event-list" class="event-box"></div></section><section class="panel"><h2 data-i18n="the.picture.did.not.switch">画面没有切换</h2><div class="recovery"><div class="recovery-row"><span class="number">1</span><div><strong data-i18n="open.the.monitor.menu.and.check.the.input.source">打开显示器菜单，确认输入源</strong></div></div><div class="recovery-row"><span class="number">2</span><div><strong data-i18n="check.the.other.computer.s.values.in.computers.and.monitors">在设置的“电脑与显示器”中核对输入值</strong></div></div><div class="recovery-row"><span class="number">3</span><div><strong data-i18n="reconnect.the.video.cable.and.try.again">重新连接视频线后再试一次</strong></div></div></div></section></section>
     </div></main></div>
 
 
@@ -59,6 +59,27 @@
     <h2 id="local-input-confirmation-title" data-i18n="change.this.computer.s.monitor.input.values">修改本机显示器输入值？</h2>
     <p id="local-input-confirmation-copy"></p>
     <div class="confirmation-actions"><button id="cancel-local-input" autofocus="" data-i18n="cancel">取消</button><button id="confirm-local-input" class="primary" data-i18n="confirm.change">确认修改</button></div>
+  </dialog>
+  <dialog id="compatibility-dialog" aria-labelledby="feedback-title">
+    <h2 id="feedback-title" data-i18n="feedback.title">反馈</h2>
+    <div class="feedback-content">
+      <div id="feedback-form">
+        <fieldset class="feedback-kind"><legend class="sr-only" data-i18n="feedback.kind">使用情况</legend>
+          <label><input type="radio" name="feedback-kind" value="works"><span data-i18n="feedback.works">一切正常</span></label>
+          <label><input type="radio" name="feedback-kind" value="problem"><span data-i18n="feedback.problem">有问题</span></label>
+        </fieldset>
+        <label class="feedback-field" for="feedback-message"><span data-i18n="feedback.message">描述（可选）</span><textarea id="feedback-message" maxlength="2000" rows="3"></textarea></label>
+        <label class="feedback-field" for="feedback-contact"><span data-i18n="feedback.contact">邮箱（可选）</span><input id="feedback-contact" type="text" inputmode="email" autocomplete="email" maxlength="200"></label>
+        <label class="feedback-diagnostics"><input id="feedback-diagnostics" type="checkbox"><span data-i18n="feedback.diagnostics">附带诊断记录（已脱敏）</span></label>
+        <details id="feedback-preview"><summary data-i18n="feedback.preview">发送内容</summary><pre id="compatibility-report" tabindex="0"></pre></details>
+      </div>
+      <div id="feedback-success" class="hidden"><p data-i18n="feedback.sent">已发送</p><button id="feedback-id" class="secondary" data-i18n-title="compat.copy"></button></div>
+    </div>
+    <div class="feedback-footer">
+      <p id="feedback-status" role="status" aria-live="polite"></p>
+      <div class="feedback-links"><button id="feedback-privacy" class="settings-text-button" data-i18n="feedback.privacy">隐私说明</button><button id="open-compatibility" class="settings-text-button" data-i18n="feedback.github">在 GitHub 公开提交</button></div>
+      <div class="confirmation-actions"><button id="cancel-compatibility" data-i18n="cancel">取消</button><button id="copy-compatibility" class="hidden" data-i18n="compat.copy">复制</button><button id="feedback-send" class="primary" disabled data-i18n="feedback.send">发送</button></div>
+    </div>
   </dialog>
   <dialog id="pairing-dialog" aria-labelledby="pairing-title">
     <div id="pairing-body"></div>

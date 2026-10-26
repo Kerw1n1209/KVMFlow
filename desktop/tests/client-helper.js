@@ -40,12 +40,14 @@ async function client(t, options = {}) {
   const win = dom.window, requests = [], subscriptions = new Map(), fanout = new Map();
   for (const [key, value] of Object.entries(storage)) win.localStorage.setItem(key, value);
   let exported = null;
+  const navigateListeners = new Set();
   win.structuredClone = structuredClone;
+  win.TextEncoder = TextEncoder;
   // jsdom does not implement modal dialogs; keep their open/close lifecycle real.
   win.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   win.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new win.Event('close')); };
   win.kvmflow = {
-    ready: Promise.resolve(), info: Promise.resolve({ platform: 'windows', version: '0.2.0', computerName, initialPage: config ? 'status' : 'wizard' }),
+    ready: Promise.resolve(), info: Promise.resolve({ platform: 'windows', version: '0.2.0', computerName, initialPage: options.initialPage || (config ? 'status' : 'wizard') }),
     clientReady: async () => {},
     request: async (method, params) => {
       requests.push({ method, params });
@@ -69,7 +71,7 @@ async function client(t, options = {}) {
       });
       return () => fanout.get(kind)?.delete(cb);
     },
-    onClientNavigate: () => () => {},
+    onClientNavigate: cb => { navigateListeners.add(cb); return () => navigateListeners.delete(cb); },
     startup: { get: async () => false, set: async enabled => enabled },
     confirmDelete: async () => true,
     exportDiagnostics: async payload => { exported = payload; return true; },
@@ -77,13 +79,15 @@ async function client(t, options = {}) {
   await initializeI18n(win, options.language || 'zh-CN');
   vm.runInContext(read('src/renderer/shell.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/redact.js'), dom.getInternalVMContext());
+  vm.runInContext(read('src/renderer/compat-report.js'), dom.getInternalVMContext());
+  vm.runInContext(read('src/renderer/compatibility.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/mixed-view.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/mixed.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/lan-pairing-view.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/lan-pairing.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/app.js'), dom.getInternalVMContext());
   await new Promise(resolve => setTimeout(resolve, 10));
-  return { win, requests, subscriptions, export: () => exported };
+  return { win, requests, subscriptions, export: () => exported, navigate: page => navigateListeners.forEach(cb => cb(page)) };
 }
 
 function mixedState(config = v2) {

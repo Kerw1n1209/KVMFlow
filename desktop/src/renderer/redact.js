@@ -12,12 +12,25 @@
   const byPort = (items, key) => [...(Array.isArray(items) ? items : [])]
     .sort((a, b) => Number(a?.[key]) - Number(b?.[key]));
 
-  function walk(value, visit) {
-    if (Array.isArray(value)) return value.map(item => walk(item, visit));
-    if (value && typeof value === 'object') {
-      return Object.fromEntries(Object.entries(value).map(([key, item]) => [visit(key), walk(item, visit)]));
+  const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+  const UUID_EXACT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const DEVICE_ID_KEY = /(?:^|_)device_id$|^(?:connection_id|initiator|group_id)$/;
+  const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+  const IPV6_CANDIDATE = /(^|[^0-9A-Za-z])((?:[0-9a-f]{0,4}:){2,}[0-9a-f:.]*(?:%[0-9a-z_.-]+)?)/gi;
+  const INSTANCE_PATH = /(?:\\\\[?.]\\)?\b(?:DISPLAY|USB|HID|PCI|SWD)(?:\\|#)[^\s"'<>()[\],;]+/gi;
+
+  function isIpv6(value) {
+    const address = value.split('%')[0];
+    if (address.split('::').length > 2) return false;
+    const groups = address.split(':').filter(Boolean);
+    let count = groups.length;
+    if (groups.at(-1)?.includes('.')) {
+      const ipv4 = groups.pop().split('.');
+      if (ipv4.length !== 4 || !ipv4.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false;
+      count++;
     }
-    return typeof value === 'string' ? visit(value) : value;
+    if (!groups.every(group => /^[0-9a-f]{1,4}$/i.test(group))) return false;
+    return address.includes('::') ? count < 8 : count === 8;
   }
 
   function collectSerials(value, serials) {
@@ -66,6 +79,26 @@
     byPort(payload?.config?.switch_group?.devices, 'port_index').forEach(device => addName(device?.name));
     [payload?.config?.local_device?.host_label, payload?.config?.host_label, computerName].forEach(addName);
 
+    const identifiers = new Map();
+    const idKey = id => UUID_EXACT.test(id) ? id.toLowerCase() : id;
+    const addId = id => {
+      if (typeof id === 'string' && id && !identifiers.has(idKey(id))) identifiers.set(idKey(id), `device-${identifiers.size + 1}`);
+    };
+    const collectContext = (value, key = '') => {
+      if (typeof value === 'string') {
+        if (DEVICE_ID_KEY.test(key)) addId(value);
+        for (const [uuid] of value.matchAll(UUID)) addId(uuid);
+      } else if (Array.isArray(value)) value.forEach(item => collectContext(item, key));
+      else if (value && typeof value === 'object') {
+        if (key === 'lan') (Array.isArray(value.peers) ? value.peers : []).forEach(peer => addName(peer?.name));
+        for (const [k, item] of Object.entries(value)) {
+          for (const [uuid] of k.matchAll(UUID)) addId(uuid);
+          collectContext(item, k);
+        }
+      }
+    };
+    collectContext(payload);
+
     const serials = new Map();
     const addSerial = serial => { if (!serials.has(serial)) serials.set(serial, `serial-${serials.size + 1}`); };
     const found = new Set();
@@ -80,30 +113,45 @@
     const sortedByLength = mapping => new Map([...mapping].sort((a, b) => b[0].length - a[0].length));
     const serialPlaceholders = sortedByLength(serials);
     const namePlaceholders = sortedByLength(names);
+    const idPlaceholders = sortedByLength(identifiers);
+    const instancePaths = new Map();
     const lanAddresses = new Set();
     collectLanAddresses(payload, lanAddresses);
     const lanAddressPlaceholders = sortedByLength(new Map([...lanAddresses].map((addr, index) => [addr, `lan-addr-${index + 1}`])));
-    // Bare private IPv4 literals anywhere in a string (e.g. inside error
+    // Bare IP literals anywhere in a string (e.g. inside error
     // messages or event text) map to the same placeholders, with a stable
     // per-IP suffix so distinct addresses stay distinguishable.
     const ipIndex = new Map();
     const bareIpPlaceholder = ip => {
-      const base = [...lanAddresses].find(addr => addr.startsWith(`${ip}:`));
+      const base = [...lanAddresses].find(addr => addr === ip || addr.startsWith(`${ip}:`) || addr.startsWith(`[${ip}]`));
       const basePlaceholder = base ? lanAddressPlaceholders.get(base) : null;
       if (basePlaceholder) return basePlaceholder;
       if (!ipIndex.has(ip)) ipIndex.set(ip, `lan-ip-${ipIndex.size + 1}`);
       return ipIndex.get(ip);
     };
-    const PRIVATE_IPV4 = /\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|127\.0\.0\.1|169\.254\.\d{1,3}\.\d{1,3})\b/g;
     const visit = (key, text) => {
-      let result = HOME_PATHS.reduce((current, pattern) => current.replace(pattern, '~'), text);
+      let result = text.replace(INSTANCE_PATH, path => {
+        if (!instancePaths.has(path)) instancePaths.set(path, `device-path-${instancePaths.size + 1}`);
+        return instancePaths.get(path);
+      });
+      result = HOME_PATHS.reduce((current, pattern) => current.replace(pattern, '~'), result);
+      result = result.replace(UUID, uuid => identifiers.get(idKey(uuid)));
+      result = replaceKnown(result, idPlaceholders);
       result = result.replace(EDID_SERIAL, (_, prefix, serial) => `${prefix}-${serials.get(bareSerial(serial))}`);
       result = replaceKnown(result, serialPlaceholders);
       result = replaceKnown(result, lanAddressPlaceholders);
       // Bare IPs run AFTER the full addr replacements, so an intact
       // "ip:port" was already mapped; what remains are bare literals
       // (including the halves of unknown-port addresses).
-      result = result.replace(PRIVATE_IPV4, ip => bareIpPlaceholder(ip));
+      result = result.replace(IPV6_CANDIDATE, (match, prefix, candidate) => {
+        const address = candidate.replace(/\.+$/, '');
+        if (isIpv6(address)) return prefix + bareIpPlaceholder(address) + candidate.slice(address.length);
+        // Also hide an unbracketed IPv6 endpoint whose final group is a port.
+        const at = address.lastIndexOf(':');
+        if (/^\d{1,5}$/.test(address.slice(at + 1)) && isIpv6(address.slice(0, at))) return prefix + bareIpPlaceholder(address);
+        return match;
+      });
+      result = result.replace(IPV4, ip => bareIpPlaceholder(ip));
       result = replaceKnown(result, namePlaceholders);
       // Public pins become fingerprints after the generic replacements so
       // the (already anonymized) name map cannot interact with them.
@@ -115,7 +163,7 @@
     const visitKeyed = (value, key) => {
       if (Array.isArray(value)) return value.map(item => visitKeyed(item, key));
       if (value && typeof value === 'object') {
-        return Object.fromEntries(Object.entries(value).map(([k, item]) => [k, visitKeyed(item, k)]));
+        return Object.fromEntries(Object.entries(value).map(([k, item]) => [visit(null, k), visitKeyed(item, k)]));
       }
       return typeof value === 'string' ? visit(key, value) : value;
     };

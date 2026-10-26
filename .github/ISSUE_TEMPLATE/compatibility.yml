@@ -1,0 +1,31 @@
+name: Device compatibility / 设备兼容
+description: Share monitor and USB switch compatibility / 分享设备兼容情况
+title: "[Compatibility] "
+labels: [compatibility]
+body:
+  - type: textarea
+    id: report
+    attributes:
+      label: Device report / 设备报告
+      description: Paste the preview from Diagnostics → Submit my devices, or fill in these fields. Do not include serials, fingerprints, EDID, computer names, device IDs, keys, paths or IP addresses.
+      placeholder: |
+        OS and version / 系统和版本:
+        CPU architecture / CPU 架构:
+        KVMFlow version / 应用版本:
+
+        For each monitor / 每台显示器:
+        Vendor and model / 厂商和型号:
+        DDC available / DDC 是否可用:
+        VCP 0x60 read value / 读取值:
+        VCP 0x60 command accepted (not picture proof) / 命令是否接受:
+        Input values and sources (read or user entered) / 输入值和来源:
+        Last requested input and readback (if used) / 最近发送和读回的值:
+        Picture switch (user confirmed) / 画面切换（用户确认）:
+
+        USB switch vendor, product, VID:PID / USB 切换器厂商、产品名、VID:PID:
+        Mixed mode and detach results (only if used) / 混屏和断开结果（用过才填）:
+
+        Switch purchase name and model / 切换器购买名称和型号:
+        Experience / 使用体验:
+    validations:
+      required: true

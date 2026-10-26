@@ -59,3 +59,37 @@ test('native hidden event reaches pairing lifecycle listeners', async () => {
   events.get('client-hidden')({ payload: {} });
   assert.equal(hidden, 1);
 });
+
+test('compatibility inventory reuses display responses without probing and opens only its native command', async () => {
+  const calls = [];
+  const displays = [{ edid_id: 'private-edid', model_name: 'U2723QE' }];
+  const window = { __TAURI__: {
+    core: { invoke: async (command, args) => {
+      calls.push([command, args]);
+      return command === 'runtime_request' ? { displays } : { platform: 'windows' };
+    } },
+    event: { listen: async () => () => {} },
+  } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'src/renderer/bridge.js'), 'utf8'), { window, structuredClone });
+  await window.kvmflow.ready;
+  assert.equal(window.kvmflow.cachedDisplays.length, 0);
+  await window.kvmflow.request('display.list');
+  assert.deepEqual(window.kvmflow.cachedDisplays, displays);
+  window.kvmflow.cachedDisplays[0].model_name = 'mutated';
+  assert.equal(window.kvmflow.cachedDisplays[0].model_name, 'U2723QE');
+  assert.equal(calls.filter(([command]) => command === 'runtime_request').length, 1);
+  await window.kvmflow.openCompatibilityIssue('https://github.com/Kerw1n1209/KVMFlow/issues/new?template=compatibility.yml');
+  assert.equal(calls.at(-1)[0], 'compatibility_open_issue');
+  const count = calls.length;
+  await window.kvmflow.hostInfo();
+  assert.equal(calls.length, count + 1);
+  assert.equal(calls.at(-1)[0], 'host_info');
+  const payload = { schema: 1, kind: 'works' };
+  await window.kvmflow.sendFeedback(payload);
+  assert.equal(calls.at(-1)[0], 'feedback_send');
+  assert.equal(calls.at(-1)[1].payload, payload);
+  await window.kvmflow.openPrivacy();
+  assert.equal(calls.at(-1)[0], 'feedback_open_privacy');
+  assert.equal(calls.at(-1)[1], undefined);
+
+});

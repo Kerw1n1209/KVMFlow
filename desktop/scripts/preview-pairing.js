@@ -57,8 +57,16 @@ const bridge = `
     handlers.get(kind).add(cb);
     return () => handlers.get(kind).delete(cb);
   } }, core: { invoke: async (command, args = {}) => {
-    if (command === 'host_info') return { version: '0.3.0', platform: 'preview', computerName: 'MacBook Pro',
+    if (command === 'host_info') return { version: '0.3.0', platform: scenarioName === 'compat-report' || scenarioName.startsWith('feedback') ? 'macos' : 'preview', arch: 'aarch64', osVersion: '15.7.1', receiveBeta: query.get('beta') === '1', computerName: 'MacBook Pro',
       languagePreference: query.get('lang') || 'zh-CN', initialPage: 'wizard' };
+    if (command === 'feedback_send') {
+      window.__previewFeedbackPayload = structuredClone(args.payload);
+      if (scenarioName === 'feedback-failure') throw { code: query.get('failure') || 'unavailable' };
+      return { ok: true, id: 'fb_01JABCDEF0123456789ABCDEFG' };
+    }
+    if (command === 'feedback_open_privacy' || command === 'compatibility_open_issue') {
+      window.__previewExternal = { command, args }; return null;
+    }
     if (command === 'runtime_request') {
       const { method, params } = args;
       if (method === 'config.get') return config;
@@ -73,7 +81,12 @@ const bridge = `
       if (method === 'lan.test.start') return { test_id: 'preview-test', duration_ms: params.duration_ms };
       if (method === 'lan.test.stop') return { test_id: 'preview-test', events: [] };
       if (method === 'lan.setup.secondary') return { secondary: true, phase: 'waiting_for_primary' };
-      if (method === 'display.list') return { displays: [] };
+      if (method === 'usb.snapshot') return { devices: [{ vid_pid: '1234:5678', vendor: 'UGREEN', product: 'USB Switch' }] };
+      if (method === 'diagnostics.collect') return { backend: 'simulated', events: [{ kind: 'display.list', fields: { edid_id: 'DEL-A261-0000BEEF', path: '/Users/preview/report', addr: '192.168.1.22' } }] };
+      if (method === 'display.list') return { displays: scenarioName === 'compat-report' || scenarioName.startsWith('feedback') ? [
+        { edid_id: 'DEL-A0F1-A', manufacturer: 'DEL', model_name: 'DELL U2723QE', ddc: { state: 'available', input: 15 } },
+        { edid_id: 'DEL-A0F1-B', manufacturer: 'AOC', model_name: 'Q27G2', ddc: { state: 'unavailable' } },
+      ] : [] };
       return {};
     }
     if (command === 'startup_get') return false;
@@ -109,6 +122,31 @@ const bridge = `
       document.querySelector('#pairing-body [data-pair-action="finish"]').click(); await sleep(40);
     };
     switch (scenarioName) {
+      case 'compat-report': case 'feedback': case 'feedback-preview': case 'feedback-success': case 'feedback-failure': {
+        // Feedback must obtain its own inventory, as on a cold tray open.
+        window.navigate('diagnostics');
+        document.getElementById('submit-device').click();
+        await waitFor(() => document.getElementById('compatibility-dialog').open);
+        if (scenarioName !== 'feedback' && scenarioName !== 'compat-report') {
+          const kind = document.querySelector('[name="feedback-kind"][value="' + (scenarioName === 'feedback-success' ? 'works' : 'problem') + '"]');
+          kind.checked = true; kind.dispatchEvent(new Event('input', { bubbles: true }));
+          const message = document.getElementById('feedback-message');
+          message.value = query.get('lang') === 'en'
+            ? scenarioName === 'feedback-success' ? 'Input switching works on both displays.' : 'The second display stays black after switching.'
+            : scenarioName === 'feedback-success' ? '两台显示器都能正常切换输入。' : '第二台显示器在切换后没有画面。';
+          message.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (scenarioName === 'feedback-preview') {
+          document.getElementById('feedback-diagnostics').click();
+          await waitFor(() => !document.getElementById('feedback-send').disabled);
+          document.getElementById('feedback-preview').open = true;
+        }
+        if (scenarioName === 'feedback-success' || scenarioName === 'feedback-failure') {
+          document.getElementById('feedback-send').click();
+          await waitFor(() => scenarioName === 'feedback-success' ? !document.getElementById('feedback-success').classList.contains('hidden') : !document.getElementById('copy-compatibility').classList.contains('hidden'));
+        }
+        break;
+      }
       case 'pair-select': {
         S.openDialog();
         await sleep(30);

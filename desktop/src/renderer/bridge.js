@@ -6,6 +6,7 @@
   const navigation = new Set();
   const updateListeners = new Set();
   let latestPage = null;
+  let cachedDisplays = [];
   const subscriptions = [
     listen('update-progress', ({ payload }) => {
       for (const cb of updateListeners) cb(payload);
@@ -30,10 +31,15 @@
   window.kvmflow = {
     ready: Promise.all(subscriptions),
     info: invoke('host_info'),
+    hostInfo: () => invoke('host_info'),
     clientReady: () => invoke('client_ready'),
     get initialPage() { return latestPage; },
     request: async (method, params = {}) => {
-      try { return await invoke('runtime_request', { method, params }); }
+      try {
+        const response = await invoke('runtime_request', { method, params });
+        if (method === 'display.list') cachedDisplays = structuredClone(response?.displays || []);
+        return response;
+      }
       catch (error) {
         throw Object.assign(new Error(window.KVMFlowI18n?.errorMessage(error?.message || String(error)) ?? error?.message ?? String(error)), { code: error?.code });
       }
@@ -45,6 +51,10 @@
       if (latestPage) cb(latestPage);
       return () => navigation.delete(cb);
     },
+    get cachedDisplays() { return structuredClone(cachedDisplays); },
+    openCompatibilityIssue: (url) => invoke('compatibility_open_issue', { url }),
+    sendFeedback: (payload) => invoke('feedback_send', { payload }),
+    openPrivacy: () => invoke('feedback_open_privacy'),
     exportDiagnostics: (payload) => invoke('export_diagnostics', { payload }),
     confirmDelete: (name) => invoke('confirm_delete', { name }),
     confirmLocalInput: (changes) => invoke('confirm_local_input', { changes }),
