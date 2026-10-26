@@ -653,7 +653,7 @@ test('a config migrated from v1 opens with both computers and keeps its device i
 test('sidebar status uses short fixed labels and keeps the full title in both languages', async t => {
   const cases = [
     ['zh-CN', ['等待 USB Switch', '正在识别', '正在发送指令', '已暂停', '后台不可用']],
-    ['en', ['Waiting for USB', 'Identifying', 'Sending switch', 'Paused', 'Backend down']],
+    ['en', ['Waiting for USB', 'Identifying', 'Switching', 'Paused', 'Unavailable']],
   ];
   for (const [language, labels] of cases) {
     const { win, subscriptions } = await client(t, { language, config: automaticConfig() });
