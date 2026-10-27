@@ -260,22 +260,34 @@ impl Runtime {
     }
 
     pub(crate) fn apply_config(&mut self, cfg: MultiDeviceConfig) {
-        let mut tracker = GroupTracker::new(
-            cfg.trigger.anchor.clone(),
-            cfg.trigger.members.clone(),
-            cfg.trigger.debounce.clone(),
-        );
-        let keys: Vec<DeviceKey> = self
-            .last_snapshot
-            .iter()
-            .map(|device| DeviceKey {
-                vid_pid: device.vid_pid.clone(),
-                serial: device.serial.clone(),
-            })
-            .collect();
-        tracker.update(now_ms(), &keys);
-        self.tracker = Some(tracker);
+        let t = &cfg.trigger;
+        let unchanged = self
+            .tracker
+            .as_ref()
+            .is_some_and(|tracker| tracker.watches(&t.anchor, &t.members, &t.debounce));
+        if !unchanged {
+            let mut tracker =
+                GroupTracker::new(t.anchor.clone(), t.members.clone(), t.debounce.clone());
+            let keys: Vec<DeviceKey> = self
+                .last_snapshot
+                .iter()
+                .map(|device| DeviceKey {
+                    vid_pid: device.vid_pid.clone(),
+                    serial: device.serial.clone(),
+                })
+                .collect();
+            // The bus has looked like this since its last change: a trigger
+            // adopted while the switch already sits here is stable at once,
+            // so pressing the switch right after setup still counts.
+            let now = now_ms();
+            tracker.update(self.usb_changed_ms.min(now), &keys);
+            tracker.update(now, &keys);
+            self.tracker = Some(tracker);
+        }
         let ready = cfg.ready_for_group_switch();
+        if let Some(handle) = self.lan_runtime.handle.as_ref() {
+            handle.set_label(&cfg.local_device.host_label);
+        }
         self.config = Some(cfg);
         self.observe_mixed_holder_baseline();
         self.reconcile_mixed();

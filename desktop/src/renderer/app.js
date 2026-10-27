@@ -435,7 +435,7 @@
       const previous = await S.request('config.get');
       const config = { ...(previous || {}), schema_version: 2, local_device: {
         ...(previous?.local_device || {}), device_id: self.device_id, host_label: localComputer.name, monitors: structuredClone(monitors),
-      }, switch_group: previous?.switch_group || null, trigger: structuredClone(trigger), advanced: previous?.advanced || {
+      }, switch_group: previous?.switch_group || null, trigger: { ...structuredClone(trigger), debounce: { ...debounceSettings } }, advanced: previous?.advanced || {
         ddc_retry: { attempts: 2, delay_ms: 100 }, usb_poll_ms: 250, arrival_correction_enabled: false,
       } };
       const groupLocal = config.switch_group?.devices?.find(d => d.device_id === self.device_id);

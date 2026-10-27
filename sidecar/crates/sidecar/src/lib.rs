@@ -90,6 +90,8 @@ struct Runtime {
     notification: Option<NotificationSink>,
     reply: Option<Sender<ResponseLine>>,
     last_snapshot: Vec<UsbDevice>,
+    /// When `last_snapshot` last changed (ms); seeds a new trigger tracker.
+    usb_changed_ms: u64,
     learning_baseline: Option<Vec<UsbDevice>>,
     last_candidates: Option<Value>,
     wizard_active: bool,
@@ -758,6 +760,7 @@ fn run_runtime(
         notification,
         reply: None,
         last_snapshot: Vec::new(),
+        usb_changed_ms: 0,
         learning_baseline: None,
         last_candidates: None,
         wizard_active: false,

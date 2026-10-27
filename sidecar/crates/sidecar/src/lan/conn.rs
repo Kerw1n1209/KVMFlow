@@ -174,6 +174,7 @@ enum Command {
     Pair(SocketAddr),
     Reannounce,
     SetWaiting(bool),
+    SetLabel(String),
     Disconnect(String),
     Shutdown,
 }
@@ -293,6 +294,11 @@ impl LanHandle {
     /// it (TXT `w`). Only a computer idle on its waiting screen sets this;
     /// dialing or an active pairing session clears it, so two wizards never
     /// both treat each other as the one to dial.
+    /// The computer was named after LAN started (first setup): advertise
+    /// and introduce it by that name from now on.
+    pub fn set_label(&self, label: &str) {
+        let _ = self.command(Command::SetLabel(label.to_string()));
+    }
     pub fn set_waiting(&self, waiting: bool) {
         if self.waiting.swap(waiting, Ordering::AcqRel) != waiting {
             // Best effort: a full queue only delays the discovery hint.
@@ -751,6 +757,15 @@ impl Supervisor {
                                 group_fp: String::new(),
                                 waiting: false,
                             });
+                        }
+                    }
+                    Command::SetLabel(label) => {
+                        if self.ad.host_label != label {
+                            self.hello.name = Some(label.clone()).filter(|n| !n.trim().is_empty());
+                            self.ad.host_label = label;
+                            if let Err(e) = self.discovery.announce(&self.ad) {
+                                self.issue(e.to_string());
+                            }
                         }
                     }
                     Command::SetWaiting(waiting) => {

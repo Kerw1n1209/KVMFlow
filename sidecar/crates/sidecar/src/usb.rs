@@ -12,6 +12,7 @@ impl Runtime {
         if !changed {
             return;
         }
+        self.usb_changed_ms = now_ms();
         self.emit_event(
             kinds::USB_CHANGED,
             Level::Debug,

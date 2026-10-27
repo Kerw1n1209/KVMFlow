@@ -222,6 +222,17 @@ impl GroupTracker {
         &self.params
     }
 
+    /// Whether this tracker already follows exactly this trigger, so a config
+    /// save need not restart its stability clock or drop a pending departure.
+    pub fn watches(
+        &self,
+        anchor: &crate::config::DevicePattern,
+        members: &[crate::config::DevicePattern],
+        params: &DebounceParams,
+    ) -> bool {
+        &self.anchor == anchor && self.members == members && &self.params == params
+    }
+
     /// Feed one USB snapshot. `now_ms` should be monotonic-ish (wall clock is
     /// acceptable; only differences matter). Returns emitted events.
     pub fn update(&mut self, now_ms: u64, present: &[DeviceKey]) -> Vec<TrackerEvent> {
@@ -680,6 +691,40 @@ mod tests {
             vid_pid: vid_pid.into(),
             serial: String::new(),
         }
+    }
+
+    #[test]
+    fn tracker_seeded_with_the_last_bus_change_is_stable_and_sees_the_next_press() {
+        // The switch arrived at t=1s; the trigger was adopted at t=20s and the
+        // switch pressed at once. Seeding with the arrival keeps that press.
+        let mut tr = tracker();
+        tr.update(1_000, &full(1_000));
+        tr.update(20_000, &full(20_000));
+        assert!(tr.group_stable());
+        tr.update(20_500, &[]);
+        let left = tr.update(31_000, &[]);
+        assert!(left
+            .iter()
+            .any(|e| matches!(e, TrackerEvent::GroupLeft { .. })));
+        // Without the seed the group is still unstable when it leaves.
+        let mut fresh = tracker();
+        fresh.update(20_000, &full(20_000));
+        fresh.update(20_500, &[]);
+        assert!(fresh.update(31_000, &[]).is_empty());
+    }
+
+    #[test]
+    fn tracker_watches_only_its_exact_trigger() {
+        let tr = tracker();
+        let anchor = tr.anchor.clone();
+        let members = tr.members.clone();
+        assert!(tr.watches(&anchor, &members, &DebounceParams::default()));
+        assert!(!tr.watches(&anchor, &members[..1], &DebounceParams::default()));
+        let quick = DebounceParams {
+            t_absent_ms: 0,
+            ..DebounceParams::default()
+        };
+        assert!(!tr.watches(&anchor, &members, &quick));
     }
 
     #[test]

@@ -23,7 +23,9 @@ test('one waiting peer dials automatically after persisting observed displays wi
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'connecting');
   const saved = calls(c, 'config.set')[0].params.config;
   assert.equal(saved.local_device.device_id, 'host-win');
-  assert.deepEqual(saved.trigger, { anchor: { vid_pid: '' }, members: [] });
+  // The app's immediate timing, not the sidecar's 5 s / 10 s defaults: an adopted
+  // trigger keeps this computer's debounce.
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.trigger)), { anchor: { vid_pid: '' }, members: [], debounce: { t_stable_ms: 0, t_absent_ms: 0, t_cooldown_ms: 1000, quorum_peripherals: 1 } });
   assert.equal(saved.local_device.monitors[0].local_input, 15);
   assert.ok(c.requests.indexOf(calls(c, 'config.set')[0]) < c.requests.indexOf(calls(c, 'lan.pair.start')[0]));
   assert.equal(c.win.document.querySelector('#pairing-dialog').open, false);
@@ -142,7 +144,7 @@ test('B2 waits for the selected owner, pending inputs and committed topology bef
   await emit(c, 'lan.pair', { phase: 'committed', device_id: 'dev-peer', config_merged: false });
   assert.equal(c.win.document.querySelector('[data-pair-action="v2-next"]').disabled, true);
   await emit(c, 'lan.profile', { ...profile(false), device_id: 'foreign' });
-  assert.match(body(c), /等待.*显示器/);
+  assert.match(body(c), /读取另一台电脑的显示器/);
   await emit(c, 'lan.profile', profile(true));
   assert.match(body(c), /请用显示器按键切换到本机。/);
   assert.equal(c.win.document.querySelector('[data-pair-action="v2-next"]').disabled, true);
@@ -336,7 +338,7 @@ test('a first profile without an identified USB switch saves the empty trigger, 
   const saved = c.requests.filter(r => r.method === 'config.set').at(-1);
   assert.ok(saved, 'local profile saved before discovery');
   // The sidecar's TriggerConfig is a struct: null fails the whole save.
-  assert.deepEqual(saved.params.config.trigger, { anchor: { vid_pid: '' }, members: [] });
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.params.config.trigger)), { anchor: { vid_pid: '' }, members: [], debounce: { t_stable_ms: 0, t_absent_ms: 0, t_cooldown_ms: 1000, quorum_peripherals: 1 } });
 });
 
 test('a failed setup step records its error code in the diagnostics events', async t => {

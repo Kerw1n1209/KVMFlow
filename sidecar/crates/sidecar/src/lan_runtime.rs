@@ -61,7 +61,7 @@ pub(crate) struct Source {
 
 #[derive(Default)]
 pub(crate) struct LanRuntime {
-    handle: Option<LanHandle>,
+    pub(crate) handle: Option<LanHandle>,
     members: Arc<RwLock<Vec<Member>>>,
     public_key: String,
     pub(crate) device_id: String,
@@ -1998,6 +1998,7 @@ mod record_key_tests {
             notification: Some(Arc::new(|_, _| {})),
             reply: None,
             last_snapshot: Vec::new(),
+            usb_changed_ms: 0,
             learning_baseline: None,
             last_candidates: None,
             wizard_active: false,
