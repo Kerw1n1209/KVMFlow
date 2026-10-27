@@ -19,6 +19,8 @@
   let computerName = t("this.computer");
   let computerNameIsFallback = true;
   let learnedTrigger = null;
+  // Identified during setup before the local profile existed; preparePrimary saves it.
+  let pendingSetupTrigger = null;
   let calibrationActive = false;
   let calibrationSnapshot = null;
   let displayDetectionSnapshot = null;
@@ -377,7 +379,7 @@
   };
   window.KVMFlowPairingConfig = {
     triggerFromCandidates,
-    hasTrigger: () => validTrigger(sidecarConfig?.trigger),
+    hasTrigger: () => validTrigger(pendingSetupTrigger || sidecarConfig?.trigger),
     detectLocal: async (skipped = []) => {
       const response = await S.request('display.list');
       const displays = availableDisplays(response).filter(d => !skipped.includes(d.edid_id || d.fingerprint));
@@ -391,7 +393,7 @@
     saveTrigger: trigger => serializeConfigWrite(async () => {
       if (!validTrigger(trigger)) throw new Error(t('lan.error.local.setup'));
       const config = await S.request('config.get');
-      if (!config?.local_device) throw new Error(t('lan.error.local.setup'));
+      if (!config?.local_device) { pendingSetupTrigger = structuredClone(trigger); return null; }
       config.trigger = structuredClone(trigger);
       await S.request('config.set', { config });
       applySidecarConfig(config, null); redrawAll();
@@ -420,7 +422,7 @@
       runtimeDeviceId = self?.device_id || null;
       if (!self?.device_id) throw Object.assign(new Error(t('lan.error.identity')), { code: 'E_LAN_IDENTITY_IO' });
       // Not identified yet: the sidecar's empty trigger, never null.
-      const trigger = learnedTrigger || sidecarConfig?.trigger || { anchor: { vid_pid: '' }, members: [] };
+      const trigger = pendingSetupTrigger || learnedTrigger || sidecarConfig?.trigger || { anchor: { vid_pid: '' }, members: [] };
       const localComputer = current();
       const monitors = onboardingMonitors ?? displayFingerprints.map((fingerprint, index) => ({
         fingerprint, label: model.displays[index], local_input: localComputer.sources[index], source: model.localInputSources?.[index],
@@ -439,7 +441,7 @@
       const groupLocal = config.switch_group?.devices?.find(d => d.device_id === self.device_id);
       if (groupLocal) groupLocal.monitors = structuredClone(monitors);
       await S.request('config.set', { config });
-      onboardingMonitors = null;
+      onboardingMonitors = null; pendingSetupTrigger = null;
       applySidecarConfig(config, null);
     }),
   };

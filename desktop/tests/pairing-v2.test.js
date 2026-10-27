@@ -155,16 +155,20 @@ test('B2 waits for the selected owner, pending inputs and committed topology bef
   assert.doesNotMatch(body(c), /输入值|0x|电脑名称|端口/);
 });
 
-test('B3 starts a bounded test, detects a missing trigger and shows B3a only after a switch press', async t => {
+test('B3 without a trigger identifies the switch first, then hints and starts the bounded test', async t => {
   const c = await setup(t, { request: async method => method === 'lan.test.start' ? { test_id: 'test-1' } : undefined }); await ready(c);
   const config = require('./client-helper').pairedV2(); config.trigger = null; c.setConfig(config);
+  const begins = calls(c, 'wizard.begin').length, ends = calls(c, 'wizard.end').length;
   click(c, 'v2-next'); await tick();
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'try');
-  assert.equal(calls(c, 'lan.test.start')[0].params.duration_ms, 120000);
-  assert.equal(calls(c, 'wizard.begin').length, 1);
+  // The sidecar refuses a test without a trigger; identify from this press first.
+  assert.equal(calls(c, 'lan.test.start').length, 0);
+  assert.equal(calls(c, 'wizard.begin').length, begins + 1);
   await emit(c, 'wizard.candidates', candidates);
-  assert.equal(calls(c, 'wizard.end').length, 1);
-  await c.fire(5000);
+  assert.equal(calls(c, 'wizard.end').length, ends + 1);
+  // The identifying press could not move the monitors: hint at once.
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'try-hint');
+  assert.equal(calls(c, 'lan.test.start')[0].params.duration_ms, 120000);
   assert.match(body(c), /如果显示器未切换，请手动切换到 GAME。/);
   assert.equal(c.win.document.querySelectorAll('#guide-content button').length, 0);
   c.win.navigate('settings'); await tick();
@@ -205,7 +209,7 @@ test('leaving every active page cancels pairing, ends capture and closes admissi
   late.resolve({ secondary: true }); await tick();
   assert.equal(c.win.KVMFlowPairing.activeMode(), null);
   assert.equal(calls(c, 'lan.pair.window').at(-1).params.open, false);
-  assert.equal(calls(c, 'wizard.begin').length, 0);
+  assert.equal(calls(c, 'wizard.end').length, calls(c, 'wizard.begin').length, 'every capture ended');
   const d = await setup(t); await d.start(); d.win.navigate('settings'); await tick();
   assert.equal(calls(d, 'lan.pair.cancel').length, 1);
   assert.equal(calls(d, 'lan.pair.window').at(-1).params.open, false);
@@ -249,8 +253,9 @@ test('true default choices require no input and are sent once', async t => {
 test('an empty trigger object also starts B3 capture; saved topology and trigger are preserved', async t => {
   const c = await setup(t); await ready(c);
   const config = require('./client-helper').pairedV2(); config.trigger = {};
+  const begins = calls(c, 'wizard.begin').length;
   c.setConfig(config); click(c, 'v2-next'); await tick();
-  assert.equal(calls(c, 'wizard.begin').length, 1);
+  assert.equal(calls(c, 'wizard.begin').length, begins + 1);
   await emit(c, 'wizard.candidates', candidates);
   const saved = calls(c, 'config.set').at(-1).params.config;
   assert.ok(saved.switch_group.devices.some(d => d.device_id === 'dev-peer'));
@@ -291,8 +296,9 @@ test('trigger_adopted before B3 refreshes config and avoids redundant USB captur
   const reads = calls(c, 'config.get').length;
   await emit(c, 'lan.setup', { phase: 'trigger_adopted', source: 'dev-peer' });
   assert.ok(calls(c, 'config.get').length > reads);
+  const begins = calls(c, 'wizard.begin').length;
   click(c, 'v2-next'); await tick();
-  assert.equal(calls(c, 'wizard.begin').length, 0);
+  assert.equal(calls(c, 'wizard.begin').length, begins);
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'try');
 });
 
@@ -300,12 +306,14 @@ test('unmatched then adopted during B3 stops capture once without exposing missi
   const c = await setup(t); await ready(c);
   const config = require('./client-helper').pairedV2(); config.trigger = null; c.setConfig(config);
   await emit(c, 'lan.setup', { phase: 'trigger_unmatched', source: 'dev-peer', missing: ['1234:5678'] });
+  const begins = calls(c, 'wizard.begin').length, ends = calls(c, 'wizard.end').length;
   click(c, 'v2-next'); await tick();
-  assert.equal(calls(c, 'wizard.begin').length, 1);
+  assert.equal(calls(c, 'wizard.begin').length, begins + 1);
   c.setConfig(require('./client-helper').pairedV2());
   await emit(c, 'lan.setup', { phase: 'trigger_adopted', source: 'dev-peer' });
   await emit(c, 'lan.setup', { phase: 'trigger_adopted', source: 'dev-peer' });
-  assert.equal(calls(c, 'wizard.end').length, 1);
+  assert.equal(calls(c, 'wizard.end').length, ends + 1);
+  assert.equal(calls(c, 'lan.test.start').length, 1, 'the adopted switch starts the test');
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'try');
   assert.doesNotMatch(body(c), /1234:5678|missing|unmatched|adopted/);
   const writes = calls(c, 'config.set').length;
@@ -364,4 +372,33 @@ test('an uncoded setup failure is not reported as a network problem', async t =>
   await c.start();
   assert.doesNotMatch(body(c), /防火墙/);
   assert.match(body(c), /E_UNKNOWN/);
+});
+
+test('a switch press during the ten-second search is learned by the computer that ends up waiting', async t => {
+  // Field report: users press the USB switch right after Start, before A2.
+  const c = await setup(t, { state: state([]) }); await c.start();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'search');
+  assert.equal(calls(c, 'wizard.begin').length, 1, 'capture starts with Start');
+  await emit(c, 'wizard.candidates', candidates);
+  assert.equal(calls(c, 'config.set').at(-1).params.config.trigger.anchor.vid_pid, '1234:5678');
+  await c.fire(10000);
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'wait');
+  assert.equal(calls(c, 'wizard.begin').length, 1, 'an identified switch is not identified again');
+});
+
+test('a switch identified before the first profile save is kept and saved with it', async t => {
+  const list = deferred();
+  const c = await setup(t, { config: null, state: state([]), request: async method => method === 'display.list' ? list.promise : undefined });
+  click(c, 'start'); await tick();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'detect');
+  await emit(c, 'wizard.candidates', candidates);
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'detect', 'no profile yet is not a failure');
+  list.resolve({ displays }); await tick(); await tick();
+  assert.equal(calls(c, 'config.set').at(-1).params.config.trigger.anchor.vid_pid, '1234:5678');
+});
+
+test('the dialing computer discards what it captured since Start', async t => {
+  const c = await setup(t); await c.start();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'connecting');
+  assert.equal(calls(c, 'wizard.end').length, calls(c, 'wizard.begin').length);
 });

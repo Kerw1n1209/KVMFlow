@@ -472,6 +472,8 @@
     clearTimeout(discoveryTimer); clearTimeout(followTimer); clearInterval(profileTimer);
     discoveryTimer = followTimer = profileTimer = null;
   }
+  // The USB switch was identified during this setup run.
+  let switchLearned = false;
   function startCapture() {
     if (capture) return capture.start;
     const currentFlow = flowGeneration;
@@ -494,9 +496,9 @@
     await run.start;
     try { await window.kvmflow.request('lan.test.stop', {}); } catch { /* leaving still closes admission */ }
   }
-  async function cleanupFlow() {
+  async function cleanupFlow({ keepCapture = false } = {}) {
     flowGeneration += 1; busy = false; clearTimers();
-    await Promise.all([stopCapture(), stopTest(), endPairing(true)]);
+    await Promise.all([keepCapture ? null : stopCapture(), stopTest(), endPairing(true)]);
   }
   function failFlow(error) {
     recoveryMode = committed() ? (initiator ? 'confirm' : 'done') : null;
@@ -512,6 +514,9 @@
     if (busy) return;
     const token = flowGeneration; busy = true; mode = 'detect'; renderWizard();
     try {
+      // Users press the USB switch as soon as they leave this computer, often
+      // before discovery decides it is the one that waits: watch from here.
+      switchLearned = false; void startCapture();
       detected = await window.KVMFlowPairingConfig.detectLocal([...skipped]);
       if (token !== flowGeneration) return;
       busy = false;
@@ -523,7 +528,7 @@
     }
   }
   async function search() {
-    const cleaning = cleanupFlow(), token = flowGeneration;
+    const cleaning = cleanupFlow({ keepCapture: true }), token = flowGeneration;
     await cleaning;
     if (token !== flowGeneration) return;
     mode = 'search'; initiator = false; dialPeer = null; profileNote = null; requestError = null;
@@ -570,7 +575,7 @@
       await openPairingWindow();
       if (token !== flowGeneration) return;
       if (requestError) throw new Error(requestError);
-      await startCapture();
+      if (!switchLearned) await startCapture();
       if (token !== flowGeneration) return;
       busy = false; renderWizard(); discoverWaiting();
     } catch (error) { if (token === flowGeneration) failFlow(error); }
@@ -650,11 +655,16 @@
   }
   async function beginTestRun() {
     clearInterval(profileTimer); mode = 'try';
+    // The sidecar cannot test without a trigger: identify the switch from
+    // this press first; startTestRun follows once it is saved.
+    if (!window.KVMFlowPairingConfig.hasTrigger()) { await startCapture(); renderWizard(); return; }
+    await startTestRun();
+  }
+  async function startTestRun() {
     const run = testRun = { id: null, startedMs: Date.now(), localId: model.localId, peerId: session.deviceId };
     run.start = window.kvmflow.request('lan.test.start', { duration_ms: 120000 }).then(data => { run.id = data?.test_id; });
     await run.start;
     if (testRun !== run) return;
-    if (!window.KVMFlowPairingConfig.hasTrigger()) await startCapture();
     renderWizard();
   }
   async function retryTest() {
@@ -809,7 +819,7 @@
   // ---- notifications --------------------------------------------------------
   window.kvmflow?.onNotification?.('wizard.candidates', async data => {
     const run = capture, token = flowGeneration;
-    if (!run || run.stopped || run.saving || !['wait', 'connecting', 'try', 'try-hint'].includes(mode)) return;
+    if (!run || run.stopped || run.saving || !['detect', 'search', 'select', 'wait', 'try', 'try-hint'].includes(mode)) return;
     const trigger = window.KVMFlowPairingConfig.triggerFromCandidates(data);
     if (!trigger) return;
     run.saving = true;
@@ -817,7 +827,14 @@
       await stopCapture();
       if (token !== flowGeneration) return;
       await window.KVMFlowPairingConfig.saveTrigger(trigger);
-      if (token === flowGeneration) { if (testRun) pressObserved(); renderWizard(); }
+      switchLearned = true;
+      if (token !== flowGeneration) return;
+      if (['try', 'try-hint'].includes(mode) && !testRun) {
+        // The identifying press could not switch the monitors yet.
+        mode = 'try-hint'; renderWizard();
+        await startTestRun();
+      }
+      renderWizard();
     } catch (error) { if (token === flowGeneration) failFlow(error); }
   });
   window.kvmflow?.onNotification?.('lan.pair', async data => {
@@ -869,7 +886,10 @@
       if (data.phase === 'topology_ready' && note) note.config_merged = true;
       // Adoption may be retried after a USB arrival. The config is the source
       // of truth; device identifiers in `missing` never enter product copy.
-      if (window.KVMFlowPairingConfig.hasTrigger() && ['try', 'try-hint'].includes(mode)) await stopCapture();
+      if (window.KVMFlowPairingConfig.hasTrigger() && ['try', 'try-hint'].includes(mode)) {
+        await stopCapture();
+        if (!testRun && session === current && token === flowGeneration) await startTestRun();
+      }
       render();
     } catch (error) { if (mode && session === current && token === flowGeneration) failFlow(error); }
   });
