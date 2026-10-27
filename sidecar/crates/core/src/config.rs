@@ -39,9 +39,20 @@ pub struct MultiDeviceConfig {
     pub local_device: LocalDeviceProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub switch_group: Option<SwitchGroupSnapshot>,
+    /// A computer may save its profile before the USB switch is identified;
+    /// a missing or null trigger is the empty (unidentified) one.
+    #[serde(default, deserialize_with = "null_as_default")]
     pub trigger: TriggerConfig,
     #[serde(default)]
     pub advanced: AdvancedConfig,
+}
+
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -873,6 +884,21 @@ mod tests {
         assert_eq!(c, back);
     }
 
+    #[test]
+    fn v2_profile_without_an_identified_trigger_parses() {
+        let base = serde_json::json!({"schema_version":2,"local_device":{"device_id":"dev-a","host_label":"Mac",
+            "monitors":[{"fingerprint":"SAC-2763-S:1","label":"G73","local_input":15,"source":"learned_active_read"}]}});
+        for trigger in [None, Some(Value::Null)] {
+            let mut doc = base.clone();
+            if let Some(t) = trigger {
+                doc["trigger"] = t;
+            }
+            let cfg: MultiDeviceConfig = serde_json::from_value(doc).unwrap();
+            assert_eq!(cfg.trigger, TriggerConfig::default());
+            cfg.validate().unwrap();
+            assert!(!cfg.has_valid_trigger());
+        }
+    }
     #[test]
     fn armed_ready_requires_trigger_and_away_inputs() {
         assert!(valid().armed_ready());

@@ -419,12 +419,13 @@
       const self = await S.request('lan.identity');
       runtimeDeviceId = self?.device_id || null;
       if (!self?.device_id) throw new Error(t('lan.error.identity'));
-      const trigger = learnedTrigger || sidecarConfig?.trigger || null;
+      // Not identified yet: the sidecar's empty trigger, never null.
+      const trigger = learnedTrigger || sidecarConfig?.trigger || { anchor: { vid_pid: '' }, members: [] };
       const localComputer = current();
       const monitors = onboardingMonitors ?? displayFingerprints.map((fingerprint, index) => ({
         fingerprint, label: model.displays[index], local_input: localComputer.sources[index], source: model.localInputSources?.[index],
       }));
-      if ((trigger && !validTrigger(trigger)) || (onboardingMonitors === null && !monitors.length) || monitors.some(m =>
+      if ((trigger.anchor?.vid_pid && !validTrigger(trigger)) || (onboardingMonitors === null && !monitors.length) || monitors.some(m =>
         !m.fingerprint || m.fingerprint.startsWith('local-display-') || !Number.isInteger(m.local_input)
         || m.local_input < 0 || m.local_input > 65535 || !['learned_active_read', 'manual'].includes(m.source))) {
         throw new Error(t('lan.error.local.setup'));

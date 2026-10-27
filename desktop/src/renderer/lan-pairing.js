@@ -501,6 +501,8 @@
   function failFlow(error) {
     recoveryMode = committed() ? (initiator ? 'confirm' : 'done') : null;
     requestError = error?.code || 'E_LAN_PAIR_ABORTED';
+    // The error page shows one generic message; keep the cause in diagnostics.
+    if (typeof log === 'function') log('v2.error.title', `${requestError}${error?.message ? `: ${error.message}` : ''}`);
     mode = 'error'; busy = false; clearTimers();
     void stopCapture(); void stopTest(); void closePairingWindow(true);
     renderWizard();

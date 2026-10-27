@@ -23,7 +23,7 @@ test('one waiting peer dials automatically after persisting observed displays wi
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'connecting');
   const saved = calls(c, 'config.set')[0].params.config;
   assert.equal(saved.local_device.device_id, 'host-win');
-  assert.equal(saved.trigger, null);
+  assert.deepEqual(saved.trigger, { anchor: { vid_pid: '' }, members: [] });
   assert.equal(saved.local_device.monitors[0].local_input, 15);
   assert.ok(c.requests.indexOf(calls(c, 'config.set')[0]) < c.requests.indexOf(calls(c, 'lan.pair.start')[0]));
   assert.equal(c.win.document.querySelector('#pairing-dialog').open, false);
@@ -320,4 +320,23 @@ test('when every waiting peer leaves B1a, discovery resumes and remains actionab
   await c.fire(10000);
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'wait');
   assert.ok(c.win.document.querySelector('[data-pair-action="ip"]'));
+});
+
+test('a first profile without an identified USB switch saves the empty trigger, never null', async t => {
+  const c = await setup(t, { config: null, state: state([]) });
+  await c.start();
+  const saved = c.requests.filter(r => r.method === 'config.set').at(-1);
+  assert.ok(saved, 'local profile saved before discovery');
+  // The sidecar's TriggerConfig is a struct: null fails the whole save.
+  assert.deepEqual(saved.params.config.trigger, { anchor: { vid_pid: '' }, members: [] });
+});
+
+test('a failed setup step records its error code in the diagnostics events', async t => {
+  const c = await setup(t, { config: null, state: state([]), request: async method => {
+    if (method === 'config.set') throw Object.assign(new Error('schema v2 config parse'), { code: 'E_CONFIG_INVALID' });
+  } });
+  await c.start();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'error');
+  const events = JSON.parse(c.win.localStorage.getItem('kvmflow-local-prototype-v2')).events;
+  assert.ok(events.some(e => /E_CONFIG_INVALID/.test(e.copy)), JSON.stringify(events));
 });
