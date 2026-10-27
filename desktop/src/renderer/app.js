@@ -26,6 +26,7 @@
   let stopCandidateListener = null;
   let displayFingerprints = [];
   let readableDisplayCount = 0;
+  let onboardingMonitors = null;
   let displayDetectionActive = false;
   let timingMigrationPending = false;
   let recalibrationNeedsPersist = false;
@@ -366,7 +367,36 @@
     return devices.length >= 2 && devices.some(d => d.device_id === config.local_device?.device_id)
       && devices.some(d => d.device_id === peerId);
   };
+  // The same hub-and-members rule is used by setup and settings calibration.
+  const triggerFromCandidates = data => {
+    const devices = (Array.isArray(data?.disappeared) ? data.disappeared : []).filter(d => typeof d?.vid_pid === 'string' && d.vid_pid);
+    const hub = devices.find(d => /\bhub\b|集线器/i.test(d.product || ''));
+    const members = devices.filter(d => d !== hub);
+    if (!hub || !members.length) return null;
+    return { anchor: { vid_pid: hub.vid_pid }, members: members.map(d => ({ vid_pid: d.vid_pid, ...(d.serial ? { serial: d.serial } : {}) })), debounce: { ...debounceSettings } };
+  };
   window.KVMFlowPairingConfig = {
+    triggerFromCandidates,
+    hasTrigger: () => validTrigger(sidecarConfig?.trigger),
+    detectLocal: async (skipped = []) => {
+      const response = await S.request('display.list');
+      const displays = availableDisplays(response).filter(d => !skipped.includes(d.edid_id || d.fingerprint));
+      onboardingMonitors = displays.map((d, i) => ({ fingerprint: d.edid_id || d.fingerprint,
+        label: d.label || d.model_name || t('monitor.value', { p0: i + 1 }), local_input: d.ddc?.input,
+        source: d.ddc?.state === 'available' && Number.isInteger(d.ddc.input) ? 'learned_active_read' : 'unknown' }));
+      return onboardingMonitors.map(m => ({ fingerprint: m.fingerprint, name: m.label,
+        ready: Boolean(m.fingerprint && m.source === 'learned_active_read' && m.local_input >= 0 && m.local_input <= 65535) }));
+    },
+    skipLocal: fingerprint => { onboardingMonitors = (onboardingMonitors || []).filter(m => m.fingerprint !== fingerprint); },
+    saveTrigger: trigger => serializeConfigWrite(async () => {
+      if (!validTrigger(trigger)) throw new Error(t('lan.error.local.setup'));
+      const config = await S.request('config.get');
+      if (!config?.local_device) throw new Error(t('lan.error.local.setup'));
+      config.trigger = structuredClone(trigger);
+      await S.request('config.set', { config });
+      applySidecarConfig(config, null); redrawAll();
+      return config;
+    }),
     hasTopology: peerId => completePairTopology(sidecarConfig, peerId),
     confirmTopology: (peerId, name) => serializeConfigWrite(async () => {
       const config = await S.request('config.get');
@@ -385,28 +415,30 @@
       return serializeConfigWrite(reloadPairingConfig);
     },
     preparePrimary: () => serializeConfigWrite(async () => {
-      if (sidecarConfig?.local_device) return;
+      if (sidecarConfig?.local_device && onboardingMonitors === null) return;
       const self = await S.request('lan.identity');
       runtimeDeviceId = self?.device_id || null;
-      // Identity is owned by the runtime. Never use shell defaults or create
-      // a frontend device id when LAN startup could not expose the real one.
       if (!self?.device_id) throw new Error(t('lan.error.identity'));
-      const trigger = learnedTrigger || sidecarConfig?.trigger;
+      const trigger = learnedTrigger || sidecarConfig?.trigger || null;
       const localComputer = current();
-      const monitors = displayFingerprints.map((fingerprint, index) => ({
+      const monitors = onboardingMonitors ?? displayFingerprints.map((fingerprint, index) => ({
         fingerprint, label: model.displays[index], local_input: localComputer.sources[index], source: model.localInputSources?.[index],
       }));
-      if (!validTrigger(trigger) || !monitors.length || monitors.some(m =>
+      if ((trigger && !validTrigger(trigger)) || (onboardingMonitors === null && !monitors.length) || monitors.some(m =>
         !m.fingerprint || m.fingerprint.startsWith('local-display-') || !Number.isInteger(m.local_input)
         || m.local_input < 0 || m.local_input > 65535 || !['learned_active_read', 'manual'].includes(m.source))) {
         throw new Error(t('lan.error.local.setup'));
       }
-      const config = { schema_version: 2, local_device: {
-        device_id: self.device_id, host_label: localComputer.name, monitors,
-      }, switch_group: null, trigger: structuredClone(trigger), advanced: {
+      const previous = await S.request('config.get');
+      const config = { ...(previous || {}), schema_version: 2, local_device: {
+        ...(previous?.local_device || {}), device_id: self.device_id, host_label: localComputer.name, monitors: structuredClone(monitors),
+      }, switch_group: previous?.switch_group || null, trigger: structuredClone(trigger), advanced: previous?.advanced || {
         ddc_retry: { attempts: 2, delay_ms: 100 }, usb_poll_ms: 250, arrival_correction_enabled: false,
       } };
+      const groupLocal = config.switch_group?.devices?.find(d => d.device_id === self.device_id);
+      if (groupLocal) groupLocal.monitors = structuredClone(monitors);
       await S.request('config.set', { config });
+      onboardingMonitors = null;
       applySidecarConfig(config, null);
     }),
   };
@@ -534,27 +566,16 @@
     calibrationUi(t("preparing.identification"), t("do.not.switch.yet"), t("listening"), true);
     stopCandidateListener = S.onNotification('wizard.candidates', async (data) => {
       if (!calibrationActive) return;
-      const devices = Array.isArray(data?.disappeared)
-        ? data.disappeared.filter((device) => typeof device?.vid_pid === 'string' && device.vid_pid)
-        : [];
-      // A receiver or keyboard can disappear before the USB Switch's hub.
-      // Wait for a positively identified hub; never guess from array order or
-      // a missing serial, since Windows instance IDs are usually non-empty.
-      const hubCandidates = devices.filter((device) => /\bhub\b|集线器/i.test(device.product || ''));
-      const hub = hubCandidates[0];
-      const members = devices.filter((device) => device !== hub);
-      if (!hub || members.length === 0) {
+      // A peripheral alone is not evidence of a USB Switch hub.
+      const trigger = triggerFromCandidates(data);
+      if (!trigger) {
         if (!sawNonHubUsbChange) {
           sawNonHubUsbChange = true;
           calibrationUi(t("ordinary.usb.device.change.detected"), t("keep.using.usb.switch.unplugging.just.a.mouse.or.keyboard.will.not.ident"), t("waiting.for.switch.hub"), true);
         }
         return;
       }
-      learnedTrigger = {
-        anchor: { vid_pid: hub.vid_pid },
-        members: members.map((device) => ({ vid_pid: device.vid_pid, ...(device.serial ? { serial: device.serial } : {}) })),
-        debounce: { ...debounceSettings },
-      };
+      learnedTrigger = trigger;
       sidecarConfig = { ...(sidecarConfig || {}), trigger: learnedTrigger };
       await endCalibration();
       model.usbConfirmed = true;
@@ -571,7 +592,7 @@
       }
       originalConfirmUsb();
       log(t("usb.switch.identified"), t("recorded.the.hub.and.value.connected.devices", {
-  p0: members.length
+  p0: trigger.members.length
 }));
       await detectDisplaysForStepTwo();
     });

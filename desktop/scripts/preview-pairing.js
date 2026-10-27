@@ -12,7 +12,10 @@ const renderer = path.resolve(__dirname, '../src/renderer');
 const bridge = `
 (() => {
   const query = new URLSearchParams(location.search);
-  const scenarioName = query.get('scenario') || 'main-1-wait';
+  const scenarioName = query.get('scenario') || 'v2-a1';
+  const v2 = scenarioName.startsWith('v2-');
+  // Synthetic time only: expose bounded discovery and the follow-up hint quickly.
+  if (v2) { const timeout = window.setTimeout.bind(window); window.setTimeout = (fn, ms, ...args) => timeout(fn, ms === 10000 ? 50 : ms === 5000 ? 250 : ms, ...args); }
   const handlers = new Map();
   let runtimeSequence = 0;
   const snapshot = data => { const copy = structuredClone(data); copy.runtime_seq = ++runtimeSequence; return copy; };
@@ -20,7 +23,7 @@ const bridge = `
   let pairSeq = 0;
   const pairEvent = data => ({ session_id: 'preview-session', event_seq: ++pairSeq, ...data });
 
-  const peer = { device_id: 'dev-game', name: 'DESKTOP-GAME', platform: 'windows', online: false, addr: null, pair_addr: '192.168.1.23:47820',
+  const peer = { waiting: true, device_id: 'dev-game', name: 'DESKTOP-GAME', platform: 'windows', online: false, addr: null, pair_addr: '192.168.1.23:47820',
     last_seen_ms: 1, initiator: null, app_version: '0.3.0', connection_id: 'fc3bbde6', key_fp: '8624e75f', last_error: null };
   const office = { ...peer, device_id: 'dev-mini', name: 'Office-Mini', platform: 'macos', pair_addr: '192.168.1.41:47820' };
   const offline = { ...peer, device_id: 'dev-old', name: 'Old-Studio', online: false, addr: null, pair_addr: null };
@@ -44,11 +47,13 @@ const bridge = `
   const statePeers = scenarioName === 'pair-empty' ? [] : scenarioName === 'pair-offline' ? [offline]
     : scenarioName.startsWith('secondary') ? [{ ...peer, device_id: 'dev-macpro', name: 'MacBook Pro' }]
     : [peer, office, offline];
-  const state = { state: 'idle', enabled: true, lan: lan(statePeers) };
+  if (v2) config.trigger = query.get('trigger') === 'present' ? config.trigger : null;
+  const waitingScenario = ['v2-a1', 'v2-a2', 'v2-a3', 'v2-e1', 'v2-e3', 'v2-e4'].includes(scenarioName);
+  const state = { state: 'idle', enabled: true, lan: lan(v2 ? waitingScenario ? [] : scenarioName === 'v2-b1a' ? [peer, office] : [peer] : statePeers) };
 
   const profileReport = (pending = 1) => ({ device_id: 'dev-game', profile_rev: 2, monitors: [
-    { fingerprint: 'DEL-A0F1-A', name: 'DELL U2723', builtin: false, input: { state: 'value', value: 17, source: 'learned_active_read' } },
-    { fingerprint: 'DEL-A0F1-B', name: 'AOC Q27G2', builtin: false, input: pending ? { state: 'pending' } : { state: 'value', value: 9, source: 'learned_active_read' } },
+    { fingerprint: 'DEL-A0F1-A', name: v2 ? (query.get('lang') === 'en' ? 'Display 1 · G73' : '显示器 1 · G73') : 'DELL U2723', builtin: false, input: { state: 'value', value: 17, source: 'learned_active_read' } },
+    { fingerprint: 'DEL-A0F1-B', name: v2 ? (query.get('lang') === 'en' ? 'Display 2 · G52plus' : '显示器 2 · G52plus') : 'AOC Q27G2', builtin: false, input: pending ? { state: 'pending' } : { state: 'value', value: 9, source: 'learned_active_read' } },
     ...(count === 3 ? [{ fingerprint: 'DEL-A0F1-C', name: 'LG 27UP', builtin: false, input: { state: 'pending' } }] : []),
   ] });
 
@@ -74,7 +79,7 @@ const bridge = `
       if (method === 'config.set') { if (window.__previewPairing.failSave) throw { code:'E_CONFIG_IO',message:'synthetic save failure' }; Object.assign(config,structuredClone(params.config)); return {}; }
       if (method === 'state.get') return snapshot(state);
       if (method === 'lan.pair.window') return { open: params.open };
-      if (method === 'lan.pair.start' || method === 'lan.connect_manual') return { phase: 'connecting', addr: params.addr,
+      if (method === 'lan.pair.start' || method === 'lan.connect.manual') return { phase: 'connecting', addr: params.addr,
         session_id: 'preview-session', event_seq: 0, local_confirmed: false, peer_confirmed: false };
       if (method === 'lan.pair.confirm') return { phase: params.sas_ok ? 'await_peer_confirm' : 'cancelled', sas: '482 913',
         session_id: 'preview-session', event_seq: ++pairSeq, local_confirmed: params.sas_ok, peer_confirmed: false };
@@ -88,6 +93,9 @@ const bridge = `
       if (method === 'display.list') return { displays: scenarioName === 'compat-report' || scenarioName.startsWith('feedback') ? [
         { edid_id: 'DEL-A0F1-A', manufacturer: 'DEL', model_name: 'DELL U2723QE', ddc: { state: 'available', input: 15 } },
         { edid_id: 'DEL-A0F1-B', manufacturer: 'AOC', model_name: 'Q27G2', ddc: { state: 'unavailable' } },
+      ] : v2 ? [
+        { edid_id: 'DEL-A0F1-A', model_name: query.get('lang') === 'en' ? 'Display 1 · G73' : '显示器 1 · G73', ddc: { state: 'available', input: 15 } },
+        { edid_id: 'DEL-A0F1-B', model_name: query.get('lang') === 'en' ? 'Display 2 · G52plus' : '显示器 2 · G52plus', ddc: scenarioName === 'v2-e4' ? { state: 'unavailable' } : { state: 'available', input: 7 } },
       ] : [] };
       return {};
     }
@@ -118,21 +126,43 @@ const bridge = `
     await waitFor(() => typeof window.KVMFlowPairing?.startPrimaryAdd === 'function'
       && window.__kvmflowRuntimeState !== undefined);
     const S = window.KVMFlowPairing;
+    if (v2) {
+      window.navigate('guide');
+      if (scenarioName === 'v2-a1') return;
+      document.querySelector('[data-pair-action="start"]').click();
+      await waitFor(() => !['start', 'detect'].includes(S.activeMode()));
+      if (scenarioName === 'v2-e4' || scenarioName === 'v2-b1' || scenarioName === 'v2-b1a') return;
+      if (waitingScenario) {
+        await waitFor(() => S.activeMode() === 'wait');
+        if (scenarioName === 'v2-a2') return;
+        if (scenarioName === 'v2-e1') { document.querySelector('[data-pair-action="ip"]').click(); await waitFor(() => S.activeMode() === 'ip'); return; }
+        emit('lan.pair', pairEvent({ phase: 'await_confirm', device_id: peer.device_id, initiator: false, sas: '482 913' }));
+        await new Promise(r => setTimeout(r, 30));
+      }
+      if (scenarioName === 'v2-e2') { emit('lan.pair', pairEvent({ phase: 'failed', device_id: peer.device_id, code: 'E_LAN_CLOSED' })); await waitFor(() => S.activeMode() === 'error'); return; }
+      completeTopology();
+      emit('lan.pair', pairEvent({ phase: 'committed', device_id: peer.device_id, initiator: !waitingScenario, config_merged: true, local_confirmed: true, peer_confirmed: true }));
+      await waitFor(() => S.activeMode() === (waitingScenario ? 'done' : 'confirm'));
+      if (scenarioName === 'v2-a3') return;
+      if (scenarioName === 'v2-e3') {
+        emit('lan.test', { test_id: 'preview-test', events: [{ kind: 'switch.report', device_id: peer.device_id, body: { test_id: 'preview-test', press_id: 'preview-press', reporting_device_id: peer.device_id, target_device_id: 'dev-mac', per_monitor: [{ edid_id: 'DEL-A0F1-B', commanded: false }] } }] });
+        await waitFor(() => S.activeMode() === 'test-error'); return;
+      }
+      emit('lan.profile', profileReport(scenarioName === 'v2-b2a' ? 1 : 0));
+      await waitFor(() => document.querySelectorAll('.pair-monitor').length === 2);
+      if (scenarioName === 'v2-b2' || scenarioName === 'v2-b2a') return;
+      await waitFor(() => !document.querySelector('[data-pair-action="v2-next"]').disabled);
+      document.querySelector('[data-pair-action="v2-next"]').click();
+      await waitFor(() => S.activeMode() === 'try');
+      if (scenarioName === 'v2-b3a') {
+        emit('switch.report', { test_id: 'preview-test', press_id: 'preview-press', reporting_device_id: 'dev-mac', target_device_id: peer.device_id, per_monitor: [{ edid_id: 'DEL-A0F1-B', commanded: false }] });
+        await waitFor(() => S.activeMode() === 'try-hint');
+      }
+      return;
+    }
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     await sleep(80);
-    const primaryProfile = async (pending, includeProfile = true) => {
-      window.navigate('guide'); window.nextStep(); window.nextStep();
-      S.startPrimaryAdd(); S.pairWith('dev-game'); await sleep(40);
-      if (!pending) completeTopology();
-      emit('lan.pair', pairEvent({ phase: 'committed', device_id: 'dev-game', config_merged: !pending, local_confirmed: true, peer_confirmed: true }));
-      await sleep(40);
-      if (includeProfile) { emit('lan.profile', profileReport(pending)); await sleep(40); }
-      document.querySelector('#pairing-body [data-pair-action="finish"]').click(); await sleep(40);
-    };
     switch (scenarioName) {
-      case 'legacy-welcome': S.startRoleChoice(); break;
-      case 'legacy-ready': await primaryProfile(0); break;
-      case 'legacy-pending': await primaryProfile(1); break;
       case 'compat-report': case 'feedback': case 'feedback-preview': case 'feedback-success': case 'feedback-failure': {
         // Feedback must obtain its own inventory, as on a cold tray open.
         window.navigate('diagnostics');
@@ -170,10 +200,9 @@ const bridge = `
         await new Promise(r => setTimeout(r, 30));
         break;
       }
-      case 'pair-sas': case 'secondary-2-wait': {
-        if (scenarioName === 'secondary-2-wait') { S.startRoleChoice(); window.document.querySelector('[data-pair-role="secondary"]').click(); window.document.querySelector('[data-pair-action="role-next"]').click(); await new Promise(r => setTimeout(r, 30)); }
-        else { S.pairWith('dev-game'); await new Promise(r => setTimeout(r, 30)); }
-        emit('lan.pair', pairEvent({ phase: 'await_confirm', device_id: scenarioName === 'secondary-2-wait' ? 'dev-macpro' : 'dev-game', initiator: scenarioName !== 'secondary-2-wait', sas: '482 913', local_confirmed: false, peer_confirmed: false }));
+      case 'pair-sas': {
+        S.pairWith('dev-game'); await sleep(30);
+        emit('lan.pair', pairEvent({ phase: 'await_confirm', device_id: 'dev-game', initiator: true, sas: '482 913', local_confirmed: false, peer_confirmed: false }));
         break;
       }
       case 'pair-sas-waiting': {
@@ -204,87 +233,6 @@ const bridge = `
         emit('lan.pair', pairEvent({ phase: 'failed', code: 'E_LAN_PAIR_ONESIDED', message: 'one-sided commit undone', device_id: 'dev-game', local_confirmed: true, peer_confirmed: true }));
         break;
       }
-      case 'secondary-1-role': {
-        S.startRoleChoice();
-        window.document.querySelector('[data-pair-role="secondary"]').click();
-        break;
-      }
-      case 'secondary-3-done': {
-        S.startRoleChoice();
-        window.document.querySelector('[data-pair-role="secondary"]').click();
-        window.document.querySelector('[data-pair-action="role-next"]').click();
-        await new Promise(r => setTimeout(r, 30));
-        emit('lan.pair', pairEvent({ phase: 'committed', device_id: 'dev-macpro', config_merged: true, peer_confirmed_commit: true, local_confirmed: true, peer_confirmed: true }));
-        break;
-      }
-      case 'main-2-ready': case 'main-2-ready-single': case 'main-2-ready-three': {
-        await primaryProfile(scenarioName !== 'main-2-ready-single');
-        if (scenarioName === 'main-2-ready-single') emit('lan.profile', { device_id: 'dev-game', profile_rev: 3, monitors: [{ fingerprint: 'DEL-A0F1-A', name: 'DELL U2723', builtin: false, input: { state: 'value', value: 17 } }] });
-        break;
-      }
-      case 'main-profile-waiting': {
-        await primaryProfile(0, false);
-        break;
-      }
-      case 'pair-alias': case 'pair-alias-different': case 'pair-replacement': case 'pair-choices': {
-        S.pairWith('dev-game'); await sleep(40);
-        const issues = [];
-        if (scenarioName !== 'pair-replacement') issues.push({ severity: 'choice', detail: { kind: 'monitor_alias', group_fingerprint: 'DEL-A0F1-A', local_fingerprint: 'DEL-A0F1-GAME', default_same: true, resolved: false } });
-        if (scenarioName !== 'pair-alias' && scenarioName !== 'pair-alias-different') issues.push({ severity: 'choice', detail: { kind: 'replace_device', old_device_id: 'Old-Studio', new_device_id: 'dev-game', default_replace: true, resolved: false } });
-        emit('lan.pair', pairEvent({ phase: 'await_resolve', device_id: 'dev-game', initiator: true, local_confirmed: true, peer_confirmed: true, issues }));
-        if (scenarioName === 'pair-alias-different') {
-          await sleep(20);
-          document.querySelector('[data-pair-alias="different"]')?.click();
-          await sleep(20);
-        }
-        break;
-      }
-      case 'pair-pin-only': {
-        S.pairWith('dev-game'); await sleep(40);
-        emit('lan.pair', pairEvent({ phase: 'committed', device_id: 'dev-game', config_merged: false,
-          peer_confirmed_commit: true, local_confirmed: true, peer_confirmed: true,
-          issues: [{ severity: 'blocking', detail: { kind: 'monitor_unmatched', basis: ['DEL-A0F1-A'], joiner: ['DEL-A0F1-GAME'] } }] }));
-        break;
-      }
-      case 'secondary-sas-waiting': case 'secondary-retry': {
-        S.startRoleChoice(); document.querySelector('[data-pair-role="secondary"]').click(); document.querySelector('[data-pair-action="role-next"]').click(); await sleep(40);
-        if (scenarioName === 'secondary-retry') emit('lan.pair', pairEvent({ phase: 'failed', code: 'E_LAN_PAIR_TIMEOUT', local_confirmed: false, peer_confirmed: false }));
-        else {
-          emit('lan.pair', pairEvent({ phase: 'await_confirm', device_id: 'dev-macpro', initiator: false, sas: '482 913', local_confirmed: false, peer_confirmed: false })); await sleep(30);
-          document.querySelector('[data-pair-action="confirm"]').click();
-        }
-        break;
-      }
-      case 'main-3-try': case 'main-3-try-fail': {
-        await primaryProfile(0);
-        window.document.querySelector('[data-pair-action="done"]').click();
-        await sleep(40);
-        const first = { mode: 'multi_device', test_id: 'preview-test', press_id: 'dev-mac:1', reporting_device_id: 'dev-mac',
-          target_device_id: 'dev-game', test_kind: 'commands_sent', per_monitor: [{ edid_id: 'DEL-A0F1-A', commanded: true }] };
-        emit('switch.report', first);
-        emit('lan.test', { test_id: 'preview-test', events: [
-          { device_id: 'dev-mac', kind: 'switch.report', body: first },
-          { device_id: 'dev-game', kind: 'test.event', body: { test_id: 'preview-test', press_id: 'dev-mac:1', reporting_device_id: 'dev-game',
-            target_device_id: 'dev-game', test_kind: 'picture_arrived', ts_ms: Date.now() } },
-        ] });
-        await new Promise(r => setTimeout(r, 30));
-        if (scenarioName === 'main-3-try-fail') {
-          const second = { mode: 'multi_device', test_id: 'preview-test', press_id: 'dev-game:1', reporting_device_id: 'dev-game',
-            target_device_id: 'dev-mac', test_kind: 'commands_sent', per_monitor: [{ edid_id: 'DEL-A0F1-A', commanded: true }, { edid_id: 'DEL-A0F1-B', commanded: false }] };
-          emit('switch.report', second);
-          emit('lan.test', { test_id: 'preview-test', events: [
-            { device_id: 'dev-game', kind: 'switch.report', body: second },
-            { device_id: 'dev-mac', kind: 'test.event', body: { test_id: 'preview-test', press_id: 'dev-game:1', reporting_device_id: 'dev-mac',
-              target_device_id: 'dev-mac', test_kind: 'picture_arrived', ts_ms: Date.now() } },
-          ] });
-        }
-        break;
-      }
-      case 'main-1-wait': case 'pair-empty': case 'pair-offline': {
-        window.navigate('guide'); window.nextStep(); window.nextStep();
-        window.KVMFlowPairing.startPrimaryAdd();
-        break;
-      }
       default: break;
     }
   };
@@ -310,4 +258,4 @@ const server = http.createServer((request, response) => {
   }
   response.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' }); response.end(body);
 });
-server.listen(Number(process.env.KVMFLOW_PAIRING_PREVIEW_PORT || 4177), '127.0.0.1', () => console.log('Synthetic pairing preview: http://127.0.0.1:' + server.address().port + '/?scenario=main-1-wait'));
+server.listen(Number(process.env.KVMFLOW_PAIRING_PREVIEW_PORT || 4177), '127.0.0.1', () => console.log('Synthetic pairing preview: http://127.0.0.1:' + server.address().port + '/?scenario=v2-a1'));

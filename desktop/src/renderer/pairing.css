@@ -298,3 +298,37 @@
 .pair-ip-form { display: flex; gap: 8px; margin-top: 10px; }
 .pair-ip-form input { min-width: 0; flex: 1; }
 .pair-ip-form button { flex: none; white-space: nowrap; }
+
+/* Pairing v2 composes the existing shell, recovery rows and monitor rows. */
+.pairing-v2-page .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 28px 0; border: 0; }
+.pairing-v2-page .step { font-weight: 400; }
+.pairing-v2-page .step.active:after { height: 3px; }
+.wizard.pairing-v2 { border: 0; background: transparent; padding: 28px 0; min-height: 0; margin: 0; }
+.pairing-v2 .wizard-head { max-width: none; }
+.pairing-v2 .wizard-head h1 { font-size: 24px; line-height: 34px; font-weight: 500; letter-spacing: 0; overflow-wrap: anywhere; }
+.pairing-v2 .wizard-head .sub { margin-top: 6px; }
+.pairing-v2 .pair-monitors { margin-top: 24px; }
+.pairing-v2 .pair-monitor { min-height: 50px; padding: 12px 16px; border-radius: 6px; gap: 12px; }
+.pairing-v2 .pair-monitor strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.pairing-v2 .wizard-footer { margin-top: 24px; padding-top: 14px; gap: 12px; }
+.pairing-v2 .wizard-footer > :first-child:not(:last-child) { margin-right: auto; }
+.pairing-v2 .wizard-footer .link { padding: 4px 0; min-height: 25px; }
+.pairing-v2 button:active { transform: translateY(1px); }
+.pairing-v2 .v2-space { height: 100px; margin-top: 24px; }
+.v2-peer { width: 100%; text-align: left; }
+.v2-peer.selected { border-color: var(--line-strong); }
+.v2-instructions { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 12px; }
+.v2-instructions li { display: flex; align-items: center; gap: 16px; min-height: 51px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.v2-address { display: grid; gap: 4px; margin-top: 28px; }
+.v2-address strong { font-size: 21px; font-weight: 500; overflow-wrap: anywhere; }
+.v2-wait-actions { display: grid; gap: 12px; justify-items: start; }
+.pairing-v2 .v2-test { margin-top: 24px; padding: 16px; border: 0; min-height: 52px; font-size: 13px; }
+.v2-ip-form { display: grid; gap: 12px; margin-top: 12px; font-size: 13px; }
+.v2-ip-row { display: flex; gap: 12px; align-items: center; }
+.v2-ip-row input { flex: 1; min-width: 0; height: 44px; }
+.v2-ip-row button { flex: none; }
+@media (max-width: 680px) {
+  .pairing-v2-page .step { white-space: normal; }
+}
+.pairing-v2-page > .header { min-height: 92px; }
+.pairing-v2 .wizard-head .sub { line-height: 19px; }

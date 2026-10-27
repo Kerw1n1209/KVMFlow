@@ -192,8 +192,24 @@
     return { first: reports[0] ? summarize(reports[0]) : null, second: reports[1] ? summarize(reports[1]) : null };
   }
 
+  function waitingPeers(lan, memberIds = []) {
+    const waiting = new Set((lan?.peers || []).filter(peer => peer.waiting === true).map(peer => peer.device_id));
+    return discoveryList(lan, memberIds).filter(row => waiting.has(row.deviceId) && row.available && row.addr && row.deviceId !== lan?.self?.device_id);
+  }
+  function defaultResolutions(issues) {
+    const params = {}, aliases = {};
+    for (const { detail } of (issues || []).filter(issue => issue.severity === 'choice' && issue.detail?.resolved !== true)) {
+      if (detail.kind === 'mixed') params.mixed = detail.default || 'basis';
+      else if (detail.kind === 'monitor_alias' && detail.local_fingerprint && detail.group_fingerprint) aliases[detail.local_fingerprint] = detail.default_same === false ? false : detail.group_fingerprint;
+      else if (detail.kind === 'replace_device' && detail.old_device_id && !params.replacement) params.replacement = { old_device_id: detail.old_device_id, replace: detail.default_replace !== false };
+      else return null;
+    }
+    if (Object.keys(aliases).length) params.monitor_aliases = aliases;
+    return params;
+  }
+
   window.KVMFlowPairingView = {
-    pairPhase, errorCopy, discoveryList, profileRows, pendingCount,
+    waitingPeers, defaultResolutions, pairPhase, errorCopy, discoveryList, profileRows, pendingCount,
     mixedChoice, issueGroups, pendingGuidance, trySummary, confirmedFlags,
   };
 })();

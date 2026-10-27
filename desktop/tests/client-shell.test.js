@@ -346,16 +346,11 @@ test('dynamic names and diagnostics are text rather than executable markup', asy
   assert.equal(win.document.querySelectorAll('#event-list svg').length, 0);
 });
 
-test('setup choices and dynamically rendered actions work without inline JavaScript', async t => {
-  const { win } = await client(t);
-  win.navigate('guide');
-  win.nextStep(); win.nextStep();
-  const choice = win.document.querySelector('[data-value="unknown"]');
-  choice.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  assert.match(win.document.querySelector('#guide-content').textContent, /用显示器菜单/);
-  win.document.querySelector('[data-action="setChoice"]').click();
-  assert.ok(win.document.querySelector('#target-name'));
-  assert.equal(win.document.querySelectorAll('[onclick]').length, 0);
+test('role-free setup and dynamically rendered actions work without inline JavaScript', async t => {
+  const c = await require('./pairing-v2-helper').setup(t);
+  await c.start();
+  assert.match(c.win.document.querySelector('#guide-content').textContent, /连接另一台电脑/);
+  assert.equal(c.win.document.querySelectorAll('[onclick]').length, 0);
 });
 
 test('fresh setup never displays invented hardware or starts USB calibration automatically', async t => {
@@ -433,24 +428,15 @@ test('paused and failed backend states stay visible and do not claim picture suc
   assert.equal(win.document.querySelector('#nav-state').textContent, '后台不可用');
 });
 
-test('USB calibration ignores a peripheral departure and requires the physical hub', async t => {
-  const { win, subscriptions, requests } = await client(t, { config: null, displays: [
-    { edid_id: 'screen', model_name: '屏幕', builtin: false, ddc: { state: 'available', input: 15 } },
-  ] });
-  await choosePrimary(win);
-  await win.confirmUsb();
-  assert.equal(requests.filter(entry => entry.method === 'wizard.begin').length, 1);
-  const candidates = subscriptions.get('wizard.candidates');
-  await candidates({ disappeared: [{ vid_pid: '3837:303c', product: 'keyboard', serial: 'kbd' }] });
-  assert.match(win.document.querySelector('#guide-content').textContent, /等待 USB 切换器/);
-  assert.equal(requests.filter(entry => entry.method === 'display.list').length, 0);
-  await candidates({ disappeared: [
-    { vid_pid: '1a40:0101', product: 'USB Hub', serial: 'hub' },
-    { vid_pid: '3837:303c', product: 'keyboard', serial: 'kbd' },
-  ] });
-  assert.equal(requests.filter(entry => entry.method === 'wizard.end').length, 1);
-  assert.equal(requests.filter(entry => entry.method === 'display.list').length, 1);
-  assert.match(win.document.querySelector('#guide-content').textContent, /屏幕/);
+test('settings USB calibration ignores a peripheral departure and requires the physical hub', async t => {
+  const { win, subscriptions, requests } = await client(t);
+  win.navigate('settings');
+  await win.recalibrateUsb();
+  await subscriptions.get('wizard.candidates')({ disappeared: [{ vid_pid: '3837:303c', product: 'keyboard' }] });
+  assert.equal(requests.filter(r => r.method === 'wizard.end').length, 0);
+  await subscriptions.get('wizard.candidates')({ disappeared: [{ vid_pid: '1a40:0101', product: 'USB Hub' }, { vid_pid: '3837:303c', product: 'keyboard' }] });
+  assert.equal(requests.filter(r => r.method === 'wizard.end').length, 1);
+  assert.ok(requests.filter(r => r.method === 'config.set').length);
 });
 
 test('English renders dynamic status, setup, timing and local-input confirmation', async t => {
@@ -461,7 +447,7 @@ test('English renders dynamic status, setup, timing and local-input confirmation
   assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB');
   assert.equal(doc.querySelector('#nav-state').title, 'Waiting for USB');
   c.win.navigate('guide');
-  assert.equal(doc.querySelector('#steps .active').textContent, '1 Identify USB Switch');
+  assert.equal(doc.querySelector('#steps .active').textContent, '1 Local setup');
   c.win.navigate('settings');
   assert.equal(doc.querySelector('#local-input-origin').textContent, 'Read automatically');
   assert.equal(doc.querySelector('label[for="timing-absent"]').textContent, 'Departure delay');
@@ -577,17 +563,13 @@ test('preset and custom timing options switch language without changing saved va
   assert.equal(c.requests.filter(entry => entry.method === 'config.set').length, beforeWrites);
 });
 
-test('language changes during USB identification preserve the active calibration and translated status', async t => {
-  const c = await client(t, { config: null });
-  c.win.navigate('guide');
-  await choosePrimary(c.win);
-  await c.win.confirmUsb();
+test('language changes during background USB identification preserve the active session', async t => {
+  const { setup, waiting, state } = require('./pairing-v2-helper');
+  const c = await setup(t, { state: state([]) }); await waiting(c);
   c.win.KVMFlowI18n.setPreference('en');
-  const doc = c.win.document;
-  assert.equal(doc.querySelector('#guide-content .callout strong').textContent, 'Press USB Switch once now');
-  assert.equal(doc.querySelector('#guide-content .primary').disabled, true);
-  assert.equal(c.requests.filter(entry => entry.method === 'wizard.begin').length, 1);
-  assert.equal(c.requests.some(entry => entry.method === 'wizard.end'), false);
+  assert.match(c.win.document.querySelector('#guide-content').textContent, /Switch to the other computer/);
+  assert.equal(c.requests.filter(r => r.method === 'wizard.begin').length, 1);
+  assert.equal(c.requests.filter(r => r.method === 'wizard.end').length, 0);
 });
 
 test('an unreadable saved configuration is explained after startup in both languages', async t => {
