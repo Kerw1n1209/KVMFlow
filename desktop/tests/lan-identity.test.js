@@ -33,37 +33,24 @@ test('missing runtime identity prevents configuration writes', async t => {
   assert.match(c.win.document.querySelector('#event-list').textContent, /身份/);
 });
 
-test('discovery offers an IPv4 form and enters the existing pairing session', async t => {
-  const c = await client(t, { state, request: async method => method === 'lan.connect_manual'
-    ? { phase: 'connecting', session_id: 'manual', event_seq: 0 } : undefined });
-  c.win.navigate('guide'); c.win.KVMFlowPairing.startPrimaryAdd();
+test('settings discovery offers IP connection and reuses its existing pairing dialog', async t => {
+  const c = await client(t, { state }); c.win.KVMFlowPairing.openDialog();
   const form = c.win.document.querySelector('.pair-ip-form'); assert.ok(form);
-  form.elements.addr.value = '192.168.1.23';
-  form.dispatchEvent(new c.win.Event('submit', { bubbles: true, cancelable: true })); await tick();
-  const request = c.requests.find(r => r.method === 'lan.connect_manual');
-  assert.equal(request.params.addr, '192.168.1.23'); assert.equal(request.params.pair, true);
-  await c.subscriptions.get('lan.pair')({ phase: 'await_confirm', sas: '123 456', device_id: 'peer', session_id: 'manual', event_seq: 1 }); await tick();
-  assert.match(c.win.document.querySelector('#pairing-body').textContent, /123 456/);
+  form.elements.addr.value = '192.168.1.23'; form.dispatchEvent(new c.win.Event('submit', { bubbles: true, cancelable: true })); await tick();
+  assert.equal(c.requests.find(r => r.method === 'lan.connect.manual').params.addr, '192.168.1.23');
 });
 
-for (const language of ['zh-CN', 'en']) test(`${language} shows identity conflicts on discovery and secondary waiting, including LAN IP`, async t => {
-  const c = await client(t, { language, state }); c.win.navigate('guide'); c.win.KVMFlowPairing.startPrimaryAdd();
+for (const language of ['zh-CN', 'en']) test(`${language} preserves identity conflict guidance on role-free setup`, async t => {
+  const c = await client(t, { language, state }); c.win.KVMFlowPairing.startPrimaryAdd();
   await c.subscriptions.get('lan.sync')({ issues: [{ code: 'E_LAN_ID_CONFLICT' }] }); await tick();
   assert.match(c.win.document.querySelector('#guide-content [role="alert"]').textContent, language === 'en' ? /same device identity/ : /相同的设备身份/);
-  c.win.KVMFlowPairing.startRoleChoice();
-  c.win.document.querySelector('[data-pair-role="secondary"]').click();
-  c.win.document.querySelector('[data-pair-action="role-next"]').click(); await tick();
-  assert.match(c.win.document.querySelector('#guide-content').textContent, /192\.168\.1\.22/);
-  assert.ok(c.win.document.querySelector('#guide-content [role="alert"]'));
 });
 
-test('unpaired discovery hints allow pairing without inventing an authenticated online session', async t => {
-  const discovered = { device_id: 'dev-fresh-peer', name: 'Fresh PC', online: false, addr: null, pair_addr: '192.168.1.23:47820' };
-  const c = await client(t, { state: { ...state, lan: { ...state.lan, peers: [discovered] } } });
-  c.win.navigate('guide'); c.win.KVMFlowPairing.startPrimaryAdd();
+test('unpaired waiting hints permit dialing without inventing an authenticated online session', async t => {
+  const { setup, peer } = require('./pairing-v2-helper');
+  const discovered = peer({ online: false, addr: null, pair_addr: '192.168.1.23:47820' });
+  const c = await setup(t, { config: null, state: { ...state, lan: { ...state.lan, peers: [discovered] } } }); await c.start();
   const row = c.win.KVMFlowPairingView.discoveryList({ peers: [discovered] })[0];
   assert.equal(row.online, false); assert.equal(row.available, true);
-  const button = c.win.document.querySelector('[data-pair-peer="dev-fresh-peer"]');
-  assert.equal(button.disabled, false); button.click(); await tick();
-  assert.equal(c.requests.find(r => r.method === 'lan.pair.start').params.addr, '192.168.1.23:47820');
+  assert.equal(c.requests.find(r => r.method === 'lan.pair.start').params.addr, discovered.pair_addr);
 });

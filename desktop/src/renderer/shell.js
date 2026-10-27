@@ -45,11 +45,11 @@ function log(title, copy) {
 
 function navState() {
   const state = window.__kvmflowRuntimeState;
-  const label = state === 'error' ? t("nav.unavailable")
+  const label = window.KVMFlowPairing?.navStatus() || (state === 'error' ? t("nav.unavailable")
     : !model.usbConfirmed ? t("nav.setup.required")
     : state === 'learning' ? t("nav.identifying")
     : state === 'pushing' ? t("nav.sending")
-    : state === 'disabled' ? t("nav.paused") : t("nav.waiting");
+    : state === 'disabled' ? t("nav.paused") : t("nav.waiting"));
   $('#nav-dot').className = `dot${model.usbConfirmed && state !== 'error' ? ' good' : ''}`;
   $('#nav-state').textContent = label;
   $('#nav-state').title = label;

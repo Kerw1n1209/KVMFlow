@@ -1,36 +1,15 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { client, tick, v2, mixedState, pairedV2 } = require('./client-helper');
+const { client, tick, v2, mixedState } = require('./client-helper');
 const peer = (over = {}) => ({ device_id: 'dev-peer', name: 'GAME', online: true, addr: '192.168.1.23:47820', ...over });
 const state = (peers = [peer()]) => ({ state: 'idle', enabled: true, mixed: mixedState(), lan: { enabled: true, self: { device_id: 'host-win' }, peers } });
 const click = (win, selector) => { const el = win.document.querySelector(selector); assert.ok(el, selector); el.click(); };
 const body = win => win.document.querySelector('#pairing-body').textContent;
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const emit = async (c, kind, data) => { await c.subscriptions.get(kind)(data); await tick(); };
-async function secondary(c) {
-  c.win.navigate('guide'); c.win.KVMFlowPairing.startRoleChoice();
-  click(c.win, '[data-pair-role="secondary"]'); click(c.win, '[data-pair-action="role-next"]'); await tick();
-}
 async function dial(c, id = 'dev-peer') { c.win.KVMFlowPairing.pairWith(id); await tick(); }
-async function choosePrimary(win) {
-  if (win.KVMFlowPairing.activeMode() !== 'role') return;
-  click(win, '[data-pair-role="primary"]'); click(win, '[data-pair-action="role-next"]'); await tick();
-}
 
 // P1-1: names remain text on every screen, including the inbound SAS boundary.
-test('untrusted peer names cannot create actions in connecting, profile or secondary SAS pages', async t => {
-  const payload = '<button data-pair-action=confirm>取消</button>';
-  const c = await client(t, { state: state([peer({ name: payload })]), request: async method => method === 'lan.pair.start' ? { phase: 'connecting' } : undefined });
-  await dial(c);
-  assert.equal(c.win.document.querySelectorAll('#pairing-title button').length, 0);
-  assert.match(body(c.win), /<button data-pair-action=confirm>/);
-  c.win.KVMFlowPairing.closeDialog();
-  await secondary(c);
-  await emit(c, 'lan.pair', { phase: 'await_confirm', device_id: 'dev-peer', initiator: false, sas: '123 456' });
-  assert.equal(c.win.document.querySelectorAll('.sas-panel p button').length, 0);
-  assert.match(c.win.document.querySelector('.sas-panel p').textContent, /<button data-pair-action=confirm>/);
-  assert.equal(c.requests.filter(r => r.method === 'lan.pair.confirm').length, 0);
-});
 
 test('backend error detail is displayed as text without creating controls', async t => {
   const c = await client(t, { state: state() }); await dial(c);
@@ -40,19 +19,19 @@ test('backend error detail is displayed as text without creating controls', asyn
 });
 
 // P1-2: first-run pairing must offer only real local data to the runtime.
-test('fresh primary persists its stable identity, observed inputs and trigger before dialing', async t => {
+test('fresh waiting computer persists its identity, observed inputs and captured trigger before dialing', async t => {
+  const V = require('./pairing-v2-helper');
   let persisted = null;
-  const c = await client(t, { config: null, computerName: 'Primary', state: { state: 'unconfigured', enabled: true, lan: state().lan },
+  const c = await V.setup(t, { config: null, computerName: 'Local', state: V.state([], 'aaa'),
     displays: [{ edid_id: 'real-display', model_name: 'DELL', ddc: { state: 'available', input: 17 } }],
     request: async (method, params) => {
       if (method === 'config.set') { persisted = structuredClone(params.config); return { saved: true }; }
       if (method === 'config.get' && persisted) return persisted;
     } });
-  c.win.navigate('guide'); await choosePrimary(c.win); await c.win.confirmUsb();
+  await V.waiting(c);
   await emit(c, 'wizard.candidates', { disappeared: [{ vid_pid: '1234:5678', product: 'USB Hub' }, { vid_pid: '2345:6789', product: 'Keyboard' }] });
-  c.win.nextStep(); c.win.KVMFlowPairing.startPrimaryAdd(); await dial(c);
-  assert.ok(persisted, 'local setup must be persisted');
-  assert.equal(persisted.local_device.device_id, 'host-win');
+  await emit(c, 'lan.peers', { peers: [V.peer()] });
+  assert.equal(persisted.local_device.device_id, 'aaa');
   assert.equal(persisted.local_device.monitors[0].fingerprint, 'real-display');
   assert.equal(persisted.local_device.monitors[0].local_input, 17);
   assert.equal(persisted.local_device.monitors[0].source, 'learned_active_read');
@@ -61,15 +40,14 @@ test('fresh primary persists its stable identity, observed inputs and trigger be
   assert.ok(c.requests.findIndex(r => r.method === 'config.set') < c.requests.findIndex(r => r.method === 'lan.pair.start'));
 });
 
-test('fresh primary cannot dial if saving local setup fails', async t => {
-  const c = await client(t, { config: null, state: { state: 'unconfigured', enabled: true, lan: state().lan },
-    displays: [{ edid_id: 'real-display', ddc: { state: 'available', input: 17 } }],
+test('fresh initiator cannot dial if saving local setup fails', async t => {
+  const V = require('./pairing-v2-helper');
+  const c = await V.setup(t, { config: null,
     request: async method => { if (method === 'config.set') throw Object.assign(new Error('disk'), { code: 'E_CONFIG_IO' }); } });
-  c.win.navigate('guide'); await choosePrimary(c.win); await c.win.confirmUsb();
-  await emit(c, 'wizard.candidates', { disappeared: [{ vid_pid: '1234:5678', product: 'USB Hub' }, { vid_pid: '2345:6789', product: 'Keyboard' }] });
-  c.win.nextStep(); await dial(c);
+  await c.start();
   assert.equal(c.requests.filter(r => r.method === 'config.set').length, 1);
   assert.equal(c.requests.filter(r => r.method === 'lan.pair.start').length, 0);
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'error');
 });
 
 // P1-3: read the committed snapshot before any subsequent settings write.
@@ -143,18 +121,6 @@ test('old peer and retired session notifications cannot overwrite a new SAS or p
   assert.equal(c.win.document.querySelector('#pair-peer-name'), null);
 });
 
-test('peer-first confirmation keeps SAS actionable locally and local confirmation is not offered twice', async t => {
-  const c = await client(t, { state: state(), request: async method => method === 'lan.pair.confirm'
-    ? { phase: 'await_peer_confirm', sas: '123 456', session_id: 'inbound', event_seq: 2, local_confirmed: true, peer_confirmed: true }
-    : undefined });
-  await secondary(c);
-  await emit(c, 'lan.pair', { phase: 'peer_confirmed', device_id: 'dev-peer', sas: '123 456', session_id: 'inbound', event_seq: 1, local_confirmed: false, peer_confirmed: true });
-  assert.match(c.win.document.querySelector('#guide-content').textContent, /对方已确认/);
-  click(c.win, '[data-pair-action="confirm"]'); await tick();
-  assert.equal(c.win.document.querySelector('[data-pair-action="confirm"]'), null);
-  assert.match(c.win.document.querySelector('#guide-content').textContent, /本机已确认/);
-});
-
 test('same-peer retry ignores the retired session and a late resolve reply cannot undo commit', async t => {
   const resolve = deferred();
   const c = await client(t, { state: state(), request: async method => method === 'lan.pair.resolve' ? resolve.promise : undefined });
@@ -192,27 +158,6 @@ test('Esc and native dialog close cancel pairing and close admission even outsid
   assert.equal(c.requests.filter(r => r.method === 'lan.pair.window').at(-1).params.open, false);
   c.win.KVMFlowPairing.openDialog(); await tick(); dialog.close(); await tick();
   assert.equal(c.requests.filter(r => r.method === 'lan.pair.window').at(-1).params.open, false);
-});
-
-test('native hide invalidates pending setup so its late reply cannot reopen admission', async t => {
-  const setup = deferred();
-  const c = await client(t, { state: state(), request: async method => method === 'lan.setup.secondary' ? setup.promise : undefined });
-  c.win.navigate('guide'); c.win.KVMFlowPairing.startRoleChoice(); click(c.win, '[data-pair-role="secondary"]'); click(c.win, '[data-pair-action="role-next"]');
-  await emit(c, 'client.hidden', {});
-  setup.resolve({ secondary: true }); await tick();
-  assert.equal(c.requests.filter(r => r.method === 'lan.pair.window').at(-1).params.open, false);
-  assert.notEqual(c.win.KVMFlowPairing.activeMode(), 'secondary-wait');
-});
-
-test('failed secondary can reopen admission on retry and cannot silently wait after mismatch', async t => {
-  const c = await client(t, { state: state(), request: async method => method === 'lan.pair.confirm' ? { phase: 'cancelled' } : undefined });
-  await secondary(c);
-  await emit(c, 'lan.pair', { phase: 'failed', device_id: 'dev-peer', code: 'E_LAN_PAIR_TIMEOUT' });
-  click(c.win, '[data-pair-action="wait-again"]'); await tick();
-  assert.equal(c.requests.filter(r => r.method === 'lan.pair.window' && r.params.open).length, 2);
-  await emit(c, 'lan.pair', { phase: 'await_confirm', device_id: 'dev-peer', sas: '123 456' });
-  click(c.win, '[data-pair-action="mismatch"]'); await tick();
-  assert.ok(c.win.document.querySelector('[data-pair-action="wait-again"]'));
 });
 
 test('leaving the primary guide cancels its active session and closes its dialog', async t => {
@@ -262,18 +207,6 @@ test('replacement choice submits an explicit keep-old answer', async t => {
   assert.deepEqual(JSON.parse(JSON.stringify(c.requests.find(r => r.method === 'lan.pair.resolve').params.replacement)), { old_device_id: 'old-peer', replace: false });
 });
 
-test('alias, replacement and mixed choices are submitted together and responder cannot resolve them', async t => {
-  const c = await client(t, { state: state() }); await choices(c, [aliasIssue, replacementIssue, mixedIssue]);
-  click(c.win, '[data-pair-action="resolve"]'); await tick();
-  const params = JSON.parse(JSON.stringify(c.requests.find(r => r.method === 'lan.pair.resolve').params));
-  assert.deepEqual(params, { mixed: 'basis', monitor_aliases: { 'peer-display': 'display-a' }, replacement: { old_device_id: 'old-peer', replace: true } });
-  c.win.KVMFlowPairing.closeDialog(); await tick();
-  await secondary(c);
-  await emit(c, 'lan.pair', { phase: 'await_resolve', device_id: 'dev-peer', initiator: false, issues: [aliasIssue, replacementIssue, mixedIssue] });
-  assert.equal(c.win.document.querySelector('#guide-content [data-pair-action="resolve"]'), null);
-  assert.equal(c.win.document.querySelector('#pairing-dialog').open, false);
-});
-
 test('choosing different monitors sends an explicit false answer and keeps pairing', async t => {
   const c = await client(t, { state: state() }); await choices(c, [aliasIssue]);
   click(c.win, '[data-pair-alias="different"]'); await tick();
@@ -319,81 +252,6 @@ test('declining a display correspondence cancels without sending an invented ali
   assert.ok(c.requests.some(r => r.method === 'lan.pair.cancel'));
 });
 
-const profile = (pending = false, rev = 1) => ({ device_id: 'dev-peer', profile_rev: rev, monitors: [{ fingerprint: 'display-a', name: 'DELL', input: pending ? { state: 'pending' } : { state: 'value', value: 17 } }] });
-async function readyPrimary(c, pending = false) {
-  c.win.navigate('guide'); c.win.KVMFlowPairing.startPrimaryAdd(); await dial(c);
-  if (!pending) c.setConfig(pairedV2());
-  await emit(c, 'lan.pair', { phase: 'committed', device_id: 'dev-peer', config_merged: !pending });
-  await emit(c, 'lan.profile', profile(pending));
-  click(c.win, '#pairing-body [data-pair-action="finish"]'); await tick();
-}
-// P2-9 / P2-10 / P2-11 / P2-12.
-test('committed dialog continues to pending confirmation instead of skipping it', async t => {
-  const c = await client(t, { state: state() }); await readyPrimary(c, true);
-  assert.equal(c.win.KVMFlowPairing.activeMode(), 'confirm');
-  assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, true);
-  assert.equal(c.requests.filter(r => r.method === 'lan.test.start').length, 0);
-  await emit(c, 'lan.profile', profile(false, 2));
-  assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, true, 'owner values alone are not a saved topology');
-  c.setConfig(pairedV2());
-  await emit(c, 'lan.setup', { phase: 'topology_ready', device_id: 'dev-peer' });
-  assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, false);
-});
-
-test('commit before the owner report shows a waiting confirmation page with completion disabled', async t => {
-  const c = await client(t, { state: state() }); c.win.navigate('guide'); c.win.KVMFlowPairing.startPrimaryAdd(); await dial(c);
-  await emit(c, 'lan.pair', { phase: 'committed', device_id: 'dev-peer', config_merged: true });
-  click(c.win, '#pairing-body [data-pair-action="finish"]'); await tick();
-  assert.equal(c.win.KVMFlowPairing.activeMode(), 'confirm');
-  assert.match(c.win.document.querySelector('#guide-content').textContent, /等待.*显示器/);
-  assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, true);
-});
-
-test('try completion stops the bounded test and exits the wizard', async t => {
-  const c = await client(t, { state: state() }); await readyPrimary(c);
-  if (c.win.KVMFlowPairing.activeMode() === 'confirm') { click(c.win, '[data-pair-action="done"]'); await tick(); }
-  click(c.win, '#guide-content [data-pair-action="finish"]'); await tick();
-  assert.equal(c.win.KVMFlowPairing.activeMode(), null);
-  assert.equal(c.requests.filter(r => r.method === 'lan.test.stop').length, 1);
-});
-
-test('navigation away from the try page stops the test once', async t => {
-  const c = await client(t, { state: state() }); await readyPrimary(c);
-  if (c.win.KVMFlowPairing.activeMode() === 'confirm') { click(c.win, '[data-pair-action="done"]'); await tick(); }
-  c.win.navigate('settings'); c.win.navigate('status'); await tick();
-  assert.equal(c.requests.filter(r => r.method === 'lan.test.stop').length, 1);
-});
-
-test('two duplicate local-target reports cannot pass both directions or claim visible switching', async t => {
-  const c = await client(t, { state: state(), request: async method => method === 'lan.test.start' ? { test_id: 'run-dup' } : undefined });
-  await readyPrimary(c);
-  if (c.win.KVMFlowPairing.activeMode() === 'confirm') { click(c.win, '[data-pair-action="done"]'); await tick(); }
-  const report = { test_id: 'run-dup', press_id: 'press-local', target_device_id: 'host-win', per_monitor: [{ edid_id: 'display-a', commanded: true }] };
-  await emit(c, 'switch.report', report); await emit(c, 'switch.report', report);
-  assert.equal(c.win.document.querySelectorAll('.pair-test.ok').length, 0);
-  assert.match(c.win.document.querySelectorAll('.pair-test')[0].textContent, /等待按键/);
-  await emit(c, 'switch.report', { ...report, press_id: 'press-1', target_device_id: 'dev-peer' });
-  assert.match(c.win.document.querySelectorAll('.pair-test')[0].textContent, /指令已发送/);
-  assert.equal(c.win.document.querySelectorAll('.pair-test.ok').length, 0, 'local commanded output is not both-end evidence');
-});
-
-test('tagged aggregate test evidence is correlated by run, direction and both devices', async t => {
-  const c = await client(t, { state: state(), request: async method => method === 'lan.test.start' ? { test_id: 'run-new' } : undefined });
-  await readyPrimary(c); if (c.win.KVMFlowPairing.activeMode() === 'confirm') { click(c.win, '[data-pair-action="done"]'); await tick(); }
-  const report = { test_id: 'run-new', press_id: 'press-1', test_kind: 'commands_sent', target_device_id: 'dev-peer', per_monitor: [{ edid_id: 'display-a', commanded: true }, { edid_id: 'display-b', commanded: true }] };
-  await emit(c, 'switch.report', report);
-  const event = (id, testKind = 'commands_sent') => ({ device_id: id, kind: 'test.event', body: { ...report, test_kind: testKind } });
-  await emit(c, 'lan.test', { test_id: 'run-old', events: [event('host-win'), event('dev-peer')] });
-  assert.equal(c.win.document.querySelectorAll('.pair-test.ok').length, 0);
-  await emit(c, 'lan.test', { test_id: 'run-new', events: [event('host-win')] });
-  assert.equal(c.win.document.querySelectorAll('.pair-test.ok').length, 0);
-  assert.match(c.win.document.querySelectorAll('.pair-test')[0].textContent, /指令已发送/);
-  assert.match(c.win.document.querySelectorAll('.pair-test')[0].textContent, /等待画面确认/);
-  await emit(c, 'lan.test', { test_id: 'run-new', events: [event('host-win'), event('dev-peer', 'picture_arrived')] });
-  assert.equal(c.win.document.querySelectorAll('.pair-test.ok').length, 1);
-  assert.match(c.win.document.querySelectorAll('.pair-test')[0].textContent, /画面已到达/);
-});
-
 test('settings pairing fallback uses raw peers instead of filtering the selected group device', async t => {
   const c = await client(t, { state: state([peer({ device_id: 'host-mac', pairing_available: true })]) });
   c.win.navigate('settings');
@@ -434,18 +292,6 @@ test('settings save queued behind a refresh rebases its edits onto the latest to
   assert.ok(config.switch_group.devices.some(d => d.device_id === 'dev-peer'));
 });
 
-test('a successful profile refresh clears only the transient committed-configuration error', async t => {
-  let fail = false;
-  const c = await client(t, { state: state(), request: async method => { if (method === 'config.get' && fail) throw new Error('temporary'); } });
-  c.win.navigate('guide'); c.win.KVMFlowPairing.startPrimaryAdd(); await dial(c);
-  fail = true; await emit(c, 'lan.pair', { phase: 'committed', device_id: 'dev-peer', config_merged: true });
-  assert.match(body(c.win), /无法加载最新配对配置/);
-  fail = false; await emit(c, 'lan.profile', profile(false));
-  assert.match(body(c.win), /配对完成/);
-  click(c.win, '#pairing-body [data-pair-action="finish"]'); await tick();
-  assert.equal(c.win.document.querySelector('[data-pair-action="done"]').disabled, false);
-});
-
 test('a removed editor target cannot transfer its unsaved fields onto the local computer', async t => {
   let live = structuredClone(v2);
   const c = await client(t, { state: state(), request: async method => method === 'config.get' ? structuredClone(live) : undefined });
@@ -453,32 +299,6 @@ test('a removed editor target cannot transfer its unsaved fields onto the local 
   live.switch_group.devices = live.switch_group.devices.filter(d => d.device_id !== 'host-mac');
   await emit(c, 'lan.profile', { device_id: 'dev-peer', profile_rev: 9, monitors: [] });
   assert.equal(c.win.document.querySelector('#edit-name').value, 'Windows');
-});
-
-const guideTitle = win => win.document.querySelector('#guide-content h1')?.textContent.trim();
-const activeStep = win => win.document.querySelector('#steps .step.active')?.textContent.trim();
-
-test('back from the LAN add page returns to the previous step content, not just the stepper', async t => {
-  const c = await client(t, { state: state([]) }); c.win.navigate('guide'); await choosePrimary(c.win);
-  c.win.nextStep(); c.win.nextStep(); click(c.win, '[data-pair-action="add-via-lan"]'); await tick();
-  const addTitle = guideTitle(c.win);
-  assert.equal(c.win.KVMFlowPairing.activeMode(), 'add');
-  click(c.win, '#guide-content .wizard-footer button.secondary'); await tick();
-  assert.equal(c.win.KVMFlowPairing.activeMode(), null);
-  assert.notEqual(guideTitle(c.win), addTitle);
-  assert.match(activeStep(c.win), /^2/);
-});
-
-test('LAN add entry re-renders after another page rewrote the guide', async t => {
-  const c = await client(t, { state: state([]) }); c.win.navigate('guide'); await choosePrimary(c.win);
-  c.win.nextStep(); c.win.nextStep(); click(c.win, '[data-pair-action="add-via-lan"]'); await tick();
-  const addTitle = guideTitle(c.win);
-  c.win.navigate('status'); c.win.navigate('guide'); await tick();
-  assert.equal(c.win.KVMFlowPairing.activeMode(), null);
-  while (!c.win.document.querySelector('[data-pair-action="add-via-lan"]')) { c.win.nextStep(); await tick(); }
-  click(c.win, '[data-pair-action="add-via-lan"]'); await tick();
-  assert.equal(c.win.KVMFlowPairing.activeMode(), 'add');
-  assert.equal(guideTitle(c.win), addTitle);
 });
 
 test('events from an earlier configuration do not survive into a fresh setup', async t => {
