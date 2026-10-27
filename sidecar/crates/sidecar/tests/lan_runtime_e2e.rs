@@ -2007,7 +2007,9 @@ fn impostor_not_member_refusal_cannot_undo_a_pinned_record() {
 }
 
 fn wait_complete_topology(a: &mut Client, b: &mut Client) -> (Value, Value) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(25);
+    // Converges in a few seconds locally; shared Windows runners have
+    // needed more than 25s. A real stall still fails at the deadline.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
         let ca = a.request("config.get", json!({}));
         let cb = b.request("config.get", json!({}));
