@@ -1780,7 +1780,10 @@ impl Runtime {
         let mut next = cfg.clone();
         next.trigger.anchor = anchor;
         next.trigger.members = members;
-        if next.trigger != cfg.trigger && self.lan_save(next).is_ok() {
+        if next.trigger != cfg.trigger && self.lan_save(next.clone()).is_ok() {
+            // Rebuild the USB tracker now; saving alone leaves the adopted
+            // switch inactive until the next restart.
+            self.apply_config(next);
             self.notify(
                 "lan.setup",
                 json!({"phase": "trigger_adopted", "source": source}),

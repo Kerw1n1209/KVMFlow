@@ -2365,6 +2365,11 @@ fn dialing_computer_adopts_the_waiting_computers_trigger_only_when_aligned() {
         if aligned {
             assert_eq!(persisted["trigger"]["anchor"]["vid_pid"], "1a40:0101");
             assert_eq!(persisted["trigger"]["members"], members);
+            // The adopted switch is live without a restart.
+            assert_eq!(
+                a.request("backend.status", json!({}))["groupPresent"],
+                json!(true)
+            );
         } else {
             assert_eq!(event["data"]["missing"], json!(["dead:beef"]));
             assert_eq!(persisted["trigger"]["anchor"]["vid_pid"], "");
