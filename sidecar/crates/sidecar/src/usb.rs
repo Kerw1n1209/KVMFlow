@@ -40,8 +40,10 @@ impl Runtime {
                 self.tracker = Some(tracker);
                 self.observe_mixed_holder_baseline();
             }
+            self.adopt_shared_trigger();
             return;
         }
+        self.adopt_shared_trigger();
 
         // Wizard trigger-group candidate detection: devices that were present
         // at wizard start and have now disappeared.

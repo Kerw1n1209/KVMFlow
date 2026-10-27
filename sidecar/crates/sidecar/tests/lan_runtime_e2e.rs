@@ -2299,3 +2299,76 @@ fn unpaired_refusals_are_not_reported_as_revoked_pairing() {
         );
     }
 }
+
+/// Pairing v2: the computer that waited learned the USB switch from the
+/// devices that left it; the computer that dialed starts without a trigger
+/// and adopts the description only when every device in it is connected
+/// locally. A description it cannot see stays unadopted and is reported.
+#[test]
+fn dialing_computer_adopts_the_waiting_computers_trigger_only_when_aligned() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    for (members, aligned) in [
+        (json!([{"vid_pid":"3837:303c"}]), true),
+        (
+            json!([{"vid_pid":"3837:303c"},{"vid_pid":"dead:beef"}]),
+            false,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let pa = dir.path().join("dialer/config.json");
+        let pb = dir.path().join("waiting/config.json");
+        std::fs::create_dir_all(pa.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(pb.parent().unwrap()).unwrap();
+        let mut a = Client::spawn(&pa, 0, &[]);
+        let mut b = Client::spawn(&pb, 0, &[]);
+        let dialer = a.request("lan.identity", json!({}))["device_id"].clone();
+        let displays = a.request("display.list", json!({}))["displays"].clone();
+        let monitors: Vec<Value> = displays
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                json!({
+                    "fingerprint":d["edid_id"], "label":d["model_name"],
+                    "local_input":if i==0 {16} else {8}, "source":"learned_active_read"
+                })
+            })
+            .collect();
+        a.request(
+            "config.set",
+            json!({"config":{"schema_version":2,
+                "local_device":{"device_id":dialer,"host_label":"Dialer","monitors":monitors},
+                "trigger":{"anchor":{"vid_pid":""}},
+                "advanced":{"ddc_retry":{"attempts":1,"delay_ms":0}}}}),
+        );
+        b.request("lan.setup.secondary", json!({"host_label":"Waiting"}));
+        let mut waiting = b.request("config.get", json!({}));
+        waiting["trigger"]["anchor"] = json!({"vid_pid":"1a40:0101"});
+        waiting["trigger"]["members"] = members.clone();
+        b.request("config.set", json!({"config":waiting}));
+        complete_pairing(&mut a, &mut b);
+        let phase = if aligned {
+            "trigger_adopted"
+        } else {
+            "trigger_unmatched"
+        };
+        let event = a
+            .wait_for(
+                |v| v["notification"] == "lan.setup" && v["data"]["phase"] == phase,
+                Duration::from_secs(20),
+            )
+            .unwrap_or_else(|| panic!("dialer never reported {phase}"));
+        let persisted: Value = serde_json::from_slice(&std::fs::read(&pa).unwrap()).unwrap();
+        if aligned {
+            assert_eq!(persisted["trigger"]["anchor"]["vid_pid"], "1a40:0101");
+            assert_eq!(persisted["trigger"]["members"], members);
+        } else {
+            assert_eq!(event["data"]["missing"], json!(["dead:beef"]));
+            assert_eq!(persisted["trigger"]["anchor"]["vid_pid"], "");
+        }
+        // The waiting computer keeps its own description untouched.
+        let kept: Value = serde_json::from_slice(&std::fs::read(&pb).unwrap()).unwrap();
+        assert_eq!(kept["trigger"]["members"], members);
+    }
+}

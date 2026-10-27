@@ -9,7 +9,7 @@ use crate::lan::{
 };
 use crate::*;
 use kvmflow_core::{
-    config::MultiDeviceConfig,
+    config::{DevicePattern, MultiDeviceConfig},
     multidevice::SwitchGroupSnapshot,
     pairing::ProfileReport,
     sync::{self, AuthenticatedMember, Member, SyncSummary},
@@ -80,6 +80,9 @@ pub(crate) struct LanRuntime {
     profile: Option<ProfileReport>,
     next_profile_read: u64,
     shared_trigger: Option<Value>,
+    shared_trigger_source: Option<String>,
+    /// `trigger_unmatched` was reported for the current shared trigger.
+    shared_trigger_unmatched: bool,
     trigger_verified: bool,
     test: Option<test_evidence::TestEvidence>,
     /// Identity and ordering of the current (or last) pairing session.
@@ -614,21 +617,30 @@ impl Runtime {
         self.lan_broadcast_snapshot("change");
         // After a pairing commit, share the USB switch trigger description
         // so the peer can adopt and verify it (§6.1 step 4).
-        if let Some(trigger) = self.active_trigger() {
-            if !trigger.anchor.vid_pid.is_empty() {
-                let description = json!({
-                    "anchor": trigger.anchor,
-                    "members": trigger.members,
-                });
-                self.lan_runtime.shared_trigger = Some(description.clone());
-                for peer in self.lan_runtime.online.clone() {
-                    let _ = self.lan_send(
-                        &peer,
-                        Envelope::new("setup.trigger", json!({"trigger": description})),
-                    );
-                }
-            }
+        for peer in self.lan_runtime.online.clone() {
+            self.lan_share_trigger(&peer);
         }
+    }
+
+    /// The member session usually comes up after the pairing commit, so the
+    /// description is also sent on every catch-up; receivers that already
+    /// have a trigger ignore it.
+    fn lan_share_trigger(&mut self, id: &str) {
+        let Some(trigger) = self.active_trigger() else {
+            return;
+        };
+        if trigger.anchor.vid_pid.is_empty() {
+            return;
+        }
+        let description = json!({
+            "anchor": trigger.anchor,
+            "members": trigger.members,
+        });
+        self.lan_runtime.shared_trigger = Some(description.clone());
+        let _ = self.lan_send(
+            id,
+            Envelope::new("setup.trigger", json!({"trigger": description})),
+        );
     }
 
     fn lan_broadcast_snapshot(&mut self, reason: &str) {
@@ -754,6 +766,7 @@ impl Runtime {
                             self.send_snapshot(&id, &g, "catchup");
                         }
                         self.lan_send_profile(&id);
+                        self.lan_share_trigger(&id);
                     }
                 }
                 LanEvent::Issue { code, message } => self.lan_issue(&code, &message),
@@ -1708,35 +1721,70 @@ impl Runtime {
             return;
         };
         self.lan_runtime.shared_trigger = Some(trigger.clone());
+        self.lan_runtime.shared_trigger_source = Some(source.device_id.clone());
+        self.lan_runtime.shared_trigger_unmatched = false;
         self.notify("lan.setup", json!({"shared_trigger": trigger}));
-        // A secondary without its own trigger profile adopts the shared one
-        // (shared topology per §1.1; trigger config itself stays local).
-        let empty_trigger = self
-            .config
-            .as_ref()
-            .map(|c| c.trigger.anchor.vid_pid.is_empty())
-            .unwrap_or(true);
-        if self.lan_runtime.secondary && empty_trigger {
-            if let Some(cfg) = self.config.clone() {
-                let mut next = cfg.clone();
-                if let (Some(anchor), Some(members)) = (
-                    trigger.get("anchor").cloned(),
-                    trigger.get("members").cloned(),
-                ) {
-                    next.trigger.anchor =
-                        serde_json::from_value(anchor).unwrap_or(next.trigger.anchor);
-                    next.trigger.members =
-                        serde_json::from_value(members).unwrap_or(next.trigger.members);
-                    if next.trigger != cfg.trigger {
-                        if self.lan_save(next).is_ok() {
-                            self.notify(
-                                "lan.setup",
-                                json!({"phase": "trigger_adopted", "source": source.device_id}),
-                            );
-                        }
-                    }
-                }
+        self.adopt_shared_trigger();
+    }
+
+    /// The computer that waited for pairing records the devices that left it
+    /// when the user pressed the USB switch. A computer without its own
+    /// trigger adopts that description only once every device in it is
+    /// connected here: the same devices leaving one computer and arriving at
+    /// the other is what identifies the switch. Until then (or if they never
+    /// arrive) the trigger stays empty and the setup test identifies it.
+    /// Called on receipt and again on every USB change.
+    pub(crate) fn adopt_shared_trigger(&mut self) {
+        let Some(shared) = self.lan_runtime.shared_trigger.clone() else {
+            return;
+        };
+        let Some(cfg) = self.config.clone() else {
+            return;
+        };
+        if !cfg.trigger.anchor.vid_pid.is_empty() || !self.usb_snapshot_initialized {
+            return;
+        }
+        let (Some(anchor), Some(members)) = (
+            shared
+                .get("anchor")
+                .cloned()
+                .and_then(|v| serde_json::from_value::<DevicePattern>(v).ok()),
+            shared
+                .get("members")
+                .cloned()
+                .and_then(|v| serde_json::from_value::<Vec<DevicePattern>>(v).ok()),
+        ) else {
+            return;
+        };
+        let present = |pattern: &DevicePattern| {
+            self.last_snapshot
+                .iter()
+                .any(|d| d.vid_pid.eq_ignore_ascii_case(&pattern.vid_pid))
+        };
+        let missing: Vec<&str> = std::iter::once(&anchor)
+            .chain(members.iter())
+            .filter(|p| !present(p))
+            .map(|p| p.vid_pid.as_str())
+            .collect();
+        let source = self.lan_runtime.shared_trigger_source.clone();
+        if !missing.is_empty() {
+            if !self.lan_runtime.shared_trigger_unmatched {
+                self.lan_runtime.shared_trigger_unmatched = true;
+                self.notify(
+                    "lan.setup",
+                    json!({"phase": "trigger_unmatched", "source": source, "missing": missing}),
+                );
             }
+            return;
+        }
+        let mut next = cfg.clone();
+        next.trigger.anchor = anchor;
+        next.trigger.members = members;
+        if next.trigger != cfg.trigger && self.lan_save(next).is_ok() {
+            self.notify(
+                "lan.setup",
+                json!({"phase": "trigger_adopted", "source": source}),
+            );
         }
     }
 
