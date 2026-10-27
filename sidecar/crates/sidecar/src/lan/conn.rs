@@ -91,6 +91,9 @@ pub struct PeerStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub platform: Option<String>,
     pub last_error: Option<String>,
+    /// Discovery hint: the peer's pairing window is open. Unauthenticated;
+    /// only used to choose whom to pair with.
+    pub waiting: bool,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct LocalStatus {
@@ -170,6 +173,7 @@ enum Command {
     Manual(SocketAddr, bool),
     Pair(SocketAddr),
     Reannounce,
+    SetWaiting(bool),
     Disconnect(String),
     Shutdown,
 }
@@ -221,6 +225,7 @@ impl LanHandle {
             public_key: identity.public_key(),
             group_id: hello.group_id.clone(),
             port,
+            waiting: false,
         };
         discovery.announce(&ad)?;
         let status = Arc::new(Mutex::new(LanStatus {
@@ -273,7 +278,10 @@ impl LanHandle {
     /// Open or close the inbound pairing admission window (P2-6). Outbound
     /// pairings (the user pressed 连接 on this machine) are unaffected.
     pub fn set_pairing_window(&self, open: bool) {
-        self.pairing_window.store(open, Ordering::Release);
+        if self.pairing_window.swap(open, Ordering::AcqRel) != open {
+            // Best effort: a full queue only delays the discovery hint.
+            let _ = self.command(Command::SetWaiting(open));
+        }
         if !open {
             self.pair_cooldowns.lock().unwrap().clear();
         }
@@ -728,7 +736,14 @@ impl Supervisor {
                                 addresses: vec![addr],
                                 key_fp: String::new(),
                                 group_fp: String::new(),
+                                waiting: false,
                             });
+                        }
+                    }
+                    Command::SetWaiting(waiting) => {
+                        self.ad.waiting = waiting;
+                        if let Err(e) = self.discovery.announce(&self.ad) {
+                            self.issue(e.to_string());
                         }
                     }
                     Command::Reannounce => {
@@ -1029,6 +1044,7 @@ impl Supervisor {
         self.peers
             .entry(id.clone())
             .and_modify(|p| {
+                p.waiting = peer.waiting;
                 if !p.online {
                     p.name = peer.name.clone();
                     p.pair_addr = Some(pair_addr);
@@ -1047,6 +1063,7 @@ impl Supervisor {
                 key_fp: peer.key_fp,
                 platform: None,
                 last_error: None,
+                waiting: peer.waiting,
             });
         self.publish();
     }
@@ -1290,6 +1307,7 @@ impl Supervisor {
                     addresses: vec![addr],
                     key_fp: String::new(),
                     group_fp: String::new(),
+                    waiting: false,
                 });
             }
             match super::pair_link::PairLink::start(
@@ -1431,6 +1449,7 @@ impl Supervisor {
             key_fp: String::new(),
             platform: None,
             last_error: None,
+            waiting: false,
         });
         let peer = self.peers.get_mut(&id).unwrap();
         peer.online = true;
@@ -1618,6 +1637,7 @@ mod tests {
             addresses: vec![addr],
             key_fp: String::new(),
             group_fp: String::new(),
+            waiting: false,
         }
     }
     fn wait(timeout: Duration, mut condition: impl FnMut() -> bool) {
@@ -1764,6 +1784,49 @@ mod tests {
         replacement.shutdown();
         assert!(!ha.status().enabled);
         assert!(da.advertisement().is_none());
+    }
+    #[test]
+    fn pairing_window_is_advertised_and_peer_waiting_hint_is_reported() {
+        let discovery = StaticDiscovery::default();
+        let mut handle = LanHandle::start(
+            Arc::new(Identity::generate().unwrap()),
+            Hello::new("a"),
+            "PC".into(),
+            Arc::new(MemoryMembers::default()),
+            Box::new(discovery.clone()),
+            options(),
+        )
+        .unwrap();
+        assert!(!discovery.advertisement().unwrap().waiting);
+        handle.set_pairing_window(true);
+        wait(Duration::from_secs(2), || {
+            discovery.advertisement().unwrap().waiting
+        });
+        handle.set_pairing_window(false);
+        wait(Duration::from_secs(2), || {
+            !discovery.advertisement().unwrap().waiting
+        });
+        let mut waiting = peer("b", "192.168.1.9:47820".parse().unwrap());
+        waiting.waiting = true;
+        discovery.upsert(waiting.clone());
+        wait(Duration::from_secs(2), || {
+            handle
+                .status()
+                .peers
+                .iter()
+                .any(|p| p.device_id == "b" && p.waiting)
+        });
+        assert_eq!(handle.status_json()["peers"][0]["waiting"], json!(true));
+        waiting.waiting = false;
+        discovery.upsert(waiting);
+        wait(Duration::from_secs(2), || {
+            handle
+                .status()
+                .peers
+                .iter()
+                .any(|p| p.device_id == "b" && !p.waiting)
+        });
+        handle.shutdown();
     }
     #[test]
     fn default_port_and_busy_port_fallback_both_address_families() {
@@ -1996,6 +2059,7 @@ mod fallback_tests {
             addresses: vec![addr_b],
             key_fp: String::new(),
             group_fp: String::new(),
+            waiting: false,
         });
         wait(|| {
             ha.status().peers[0].initiator.as_deref() == Some("a")
@@ -2034,6 +2098,7 @@ mod discovery_regression_tests {
             public_key: identity.public_key(),
             group_id: None,
             port: 0,
+            waiting: false,
         };
         (
             Supervisor::new(
@@ -2058,6 +2123,7 @@ mod discovery_regression_tests {
             addresses: vec!["192.168.1.9:47820".parse().unwrap()],
             key_fp: String::new(),
             group_fp: String::new(),
+            waiting: false,
         }
     }
     #[test]
@@ -2110,6 +2176,7 @@ mod discovery_regression_tests {
                 addresses: vec!["127.0.0.1:9".parse().unwrap()],
                 key_fp: String::new(),
                 group_fp: String::new(),
+                waiting: false,
             });
             discovery.remove(id);
         }
@@ -2453,6 +2520,7 @@ mod identity_conflict_regressions {
             addresses: vec!["192.168.1.3:47820".parse().unwrap()],
             key_fp: short_hash(&supervisor.identity.public_key()),
             group_fp: String::new(),
+            waiting: false,
         };
         supervisor.upsert(ad.clone());
         assert!(events.try_recv().is_err());
@@ -2480,6 +2548,7 @@ mod identity_conflict_regressions {
             ],
             key_fp: String::new(),
             group_fp: String::new(),
+            waiting: false,
         };
         supervisor.upsert(ad.clone());
         for index in 0..2 {

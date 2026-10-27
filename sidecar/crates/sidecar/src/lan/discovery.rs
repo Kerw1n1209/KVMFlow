@@ -18,6 +18,9 @@ pub struct Advertisement {
     pub public_key: [u8; 32],
     pub group_id: Option<String>,
     pub port: u16,
+    /// The inbound pairing window is open (TXT `w=1`). A setup wizard on
+    /// another computer uses it to pick the computer to pair with.
+    pub waiting: bool,
 }
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct DiscoveredPeer {
@@ -26,6 +29,8 @@ pub struct DiscoveredPeer {
     pub addresses: Vec<SocketAddr>,
     pub key_fp: String,
     pub group_fp: String,
+    /// Untrusted hint: the peer says its pairing window is open.
+    pub waiting: bool,
 }
 #[derive(Clone, Debug)]
 pub enum DiscoveryEvent {
@@ -227,6 +232,7 @@ impl MdnsCache {
                     addresses,
                     key_fp: info.get_property_val_str("k").unwrap_or_default().into(),
                     group_fp: info.get_property_val_str("g").unwrap_or_default().into(),
+                    waiting: info.get_property_val_str("w") == Some("1"),
                 }));
             }
             ServiceEvent::ServiceRemoved(_, fullname) => {
@@ -241,7 +247,12 @@ impl MdnsCache {
 /// unconfigured computers share the same (empty) label, and a shared instance
 /// name makes each one's own service overwrite the other's in the browser's
 /// per-name cache, so neither ever lists the other. The label travels in TXT.
-fn service_info(ad: &Advertisement) -> Result<ServiceInfo> {
+///
+/// `revision` makes every announcement's TXT unique. mdns-sd keeps a flushed
+/// record cached for one more second and only refreshes the TTL of a record
+/// it still holds, so flipping `w` back to a recent value would otherwise
+/// never reach a running browser.
+fn service_info(ad: &Advertisement, revision: u64) -> Result<ServiceInfo> {
     let key = short_hash(&ad.public_key);
     let group = ad
         .group_id
@@ -249,12 +260,15 @@ fn service_info(ad: &Advertisement) -> Result<ServiceInfo> {
         .map(|g| short_hash(g.as_bytes()))
         .unwrap_or_default();
     let id_hash = short_hash(ad.device_id.as_bytes());
+    let revision = revision.to_string();
     let txt = [
         ("v", "1"),
         ("id", ad.device_id.as_str()),
         ("k", key.as_str()),
         ("g", group.as_str()),
         ("n", instance_name(&ad.host_label)),
+        ("w", if ad.waiting { "1" } else { "0" }),
+        ("r", revision.as_str()),
     ];
     // Hostname never incorporates untrusted TXT or punctuation in a label.
     let hostname = format!("kvmflow-{id_hash}.local.");
@@ -275,6 +289,7 @@ pub struct MdnsDiscovery {
     daemon: ServiceDaemon,
     receiver: mdns_sd::Receiver<ServiceEvent>,
     fullname: Option<String>,
+    revision: u64,
     cache: MdnsCache,
     policy: AddressPolicy,
     browsed_at: Instant,
@@ -294,6 +309,7 @@ impl MdnsDiscovery {
             daemon,
             receiver,
             fullname: None,
+            revision: 0,
             cache: MdnsCache::default(),
             policy,
             browsed_at: Instant::now(),
@@ -306,7 +322,8 @@ fn mdns_error(e: mdns_sd::Error) -> LanError {
 }
 impl Discovery for MdnsDiscovery {
     fn announce(&mut self, ad: &Advertisement) -> Result<()> {
-        let info = service_info(ad)?;
+        self.revision += 1;
+        let info = service_info(ad, self.revision)?;
         let fullname = info.get_fullname().to_owned();
         if self.fullname.as_ref().is_some_and(|old| old != &fullname) {
             let _ = self.daemon.unregister(self.fullname.as_ref().unwrap());
@@ -365,6 +382,7 @@ mod tests {
             public_key: [1; 32],
             group_id: Some("group".into()),
             port: 47820,
+            waiting: false,
         };
         let txt = [("v", "1"), ("id", ad.device_id.as_str())];
         let info = ServiceInfo::new(
@@ -440,6 +458,72 @@ mod tests {
         );
         let _ = publisher.shutdown();
     }
+    /// The wizard on the other computer reads `waiting` from a live update,
+    /// so re-registering with a changed TXT must reach an existing browser.
+    /// Real daemons; skipped where multicast is unavailable.
+    #[test]
+    fn toggled_pairing_window_reaches_a_running_browser() {
+        let Ok(mut publisher) = MdnsDiscovery::new(AddressPolicy::from_env()) else {
+            return;
+        };
+        let mut ad = Advertisement {
+            device_id: "dev-waiting-fixture".into(),
+            host_label: "Fixture".into(),
+            public_key: [7; 32],
+            group_id: None,
+            port: 47998,
+            waiting: false,
+        };
+        publisher.announce(&ad).unwrap();
+        let mut browser = MdnsDiscovery::new(AddressPolicy::from_env()).unwrap();
+        let last_waiting = |browser: &mut MdnsDiscovery, want: bool, window: Duration| {
+            let deadline = Instant::now() + window;
+            while Instant::now() < deadline {
+                for event in browser.poll().unwrap() {
+                    if let DiscoveryEvent::Upsert(peer) = event {
+                        if peer.device_id == "dev-waiting-fixture" && peer.waiting == want {
+                            return true;
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            false
+        };
+        if !last_waiting(&mut browser, false, Duration::from_secs(6)) {
+            return;
+        }
+        ad.waiting = true;
+        publisher.announce(&ad).unwrap();
+        assert!(last_waiting(&mut browser, true, Duration::from_secs(6)));
+        ad.waiting = false;
+        publisher.announce(&ad).unwrap();
+        assert!(last_waiting(&mut browser, false, Duration::from_secs(6)));
+        // The superseded record expires a second later; that must not
+        // resurrect the old value.
+        assert!(!last_waiting(&mut browser, true, Duration::from_secs(3)));
+    }
+    fn service_info_test(ad: &Advertisement) -> Result<ServiceInfo> {
+        service_info(ad, 1)
+    }
+    #[test]
+    fn open_pairing_window_is_published_in_txt() {
+        let mut ad = Advertisement {
+            device_id: "dev-a".into(),
+            host_label: "Mac".into(),
+            public_key: [1; 32],
+            group_id: None,
+            port: 47820,
+            waiting: false,
+        };
+        let closed = service_info(&ad, 1).unwrap();
+        assert_eq!(closed.get_property_val_str("w"), Some("0"));
+        ad.waiting = true;
+        let open = service_info(&ad, 2).unwrap();
+        assert_eq!(open.get_property_val_str("w"), Some("1"));
+        // Same instance: toggling the window updates the record in place.
+        assert_eq!(closed.get_fullname(), open.get_fullname());
+    }
     #[test]
     fn unlabelled_computers_advertise_distinct_instances() {
         let ad = |id: &str, label: &str| Advertisement {
@@ -448,13 +532,14 @@ mod tests {
             public_key: [1; 32],
             group_id: None,
             port: 47820,
+            waiting: false,
         };
-        let a = service_info(&ad("dev-a", "")).unwrap();
-        let b = service_info(&ad("dev-b", "")).unwrap();
+        let a = service_info_test(&ad("dev-a", "")).unwrap();
+        let b = service_info_test(&ad("dev-b", "")).unwrap();
         assert_ne!(a.get_fullname(), b.get_fullname());
         // The same label on two computers still yields distinct instances.
-        let c = service_info(&ad("dev-c", "MacBook Pro")).unwrap();
-        let d = service_info(&ad("dev-d", "MacBook Pro")).unwrap();
+        let c = service_info_test(&ad("dev-c", "MacBook Pro")).unwrap();
+        let d = service_info_test(&ad("dev-d", "MacBook Pro")).unwrap();
         assert_ne!(c.get_fullname(), d.get_fullname());
         assert_eq!(c.get_property_val_str("n"), Some("MacBook Pro"));
     }
