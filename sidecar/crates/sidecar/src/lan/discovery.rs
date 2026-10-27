@@ -91,6 +91,95 @@ impl Discovery for StaticDiscovery {
     }
 }
 
+/// Harness discovery: each process publishes its advertisement as a file in a
+/// shared directory and reads the others on loopback. Selected only by
+/// `KVMFLOW_LAN_DISCOVERY_DIR`, so a test never sees real computers' mDNS.
+pub struct DirDiscovery {
+    dir: std::path::PathBuf,
+    own: Option<String>,
+    seen: HashMap<String, DiscoveredPeer>,
+}
+impl DirDiscovery {
+    pub fn from_env() -> Option<Self> {
+        let dir = std::env::var_os("KVMFLOW_LAN_DISCOVERY_DIR")?;
+        Some(Self {
+            dir: dir.into(),
+            own: None,
+            seen: HashMap::new(),
+        })
+    }
+}
+impl Discovery for DirDiscovery {
+    fn announce(&mut self, ad: &Advertisement) -> Result<()> {
+        let peer = serde_json::json!({
+            "device_id": ad.device_id,
+            "name": instance_name(&ad.host_label),
+            "port": ad.port,
+            "key_fp": short_hash(&ad.public_key),
+            "group_fp": ad.group_id.as_ref().map(|g| short_hash(g.as_bytes())).unwrap_or_default(),
+            "waiting": ad.waiting,
+        });
+        let file = self.dir.join(format!("{}.json", ad.device_id));
+        let temp = file.with_extension("tmp");
+        std::fs::create_dir_all(&self.dir)?;
+        std::fs::write(&temp, peer.to_string())?;
+        std::fs::rename(&temp, &file)?;
+        self.own = Some(ad.device_id.clone());
+        Ok(())
+    }
+    fn poll(&mut self) -> Result<Vec<DiscoveryEvent>> {
+        let mut current = HashMap::new();
+        for entry in std::fs::read_dir(&self.dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(v) = std::fs::read(&path)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            else {
+                continue;
+            };
+            let id = v["device_id"].as_str().unwrap_or_default().to_string();
+            if id.is_empty() || Some(&id) == self.own.as_ref() {
+                continue;
+            }
+            let text = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+            let port = v["port"].as_u64().unwrap_or_default() as u16;
+            current.insert(
+                id.clone(),
+                DiscoveredPeer {
+                    device_id: id,
+                    name: text("name"),
+                    addresses: vec![SocketAddr::from(([127, 0, 0, 1], port))],
+                    key_fp: text("key_fp"),
+                    group_fp: text("group_fp"),
+                    waiting: v["waiting"].as_bool().unwrap_or(false),
+                },
+            );
+        }
+        let mut events: Vec<_> = self
+            .seen
+            .keys()
+            .filter(|id| !current.contains_key(*id))
+            .map(|id| DiscoveryEvent::Removed(id.clone()))
+            .collect();
+        for (id, peer) in &current {
+            if self.seen.get(id) != Some(peer) {
+                events.push(DiscoveryEvent::Upsert(peer.clone()));
+            }
+        }
+        self.seen = current;
+        Ok(events)
+    }
+    fn stop(&mut self) -> Result<()> {
+        if let Some(id) = self.own.take() {
+            let _ = std::fs::remove_file(self.dir.join(format!("{id}.json")));
+        }
+        Ok(())
+    }
+}
+
 pub fn short_hash(bytes: &[u8]) -> String {
     Sha256::digest(bytes)[..4]
         .iter()

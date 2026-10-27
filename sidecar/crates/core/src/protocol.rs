@@ -29,6 +29,8 @@ pub const REQUEST_METHODS: &[&str] = &[
     "display.readInput",
     "display.writeInput",
     "usb.snapshot",
+    "sim.usb",
+    "sim.display",
     "usb.watch.start",
     "usb.watch.stop",
     "app.setEnabled",

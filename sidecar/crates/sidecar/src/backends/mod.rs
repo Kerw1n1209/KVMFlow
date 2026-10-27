@@ -113,6 +113,9 @@ pub trait Backend: Send {
     fn simulated(&self) -> bool {
         false
     }
+    /// Simulation only: the person switches every monitor to this computer
+    /// (`true`) or to the other one (`false`) with the monitor's buttons.
+    fn simulate_monitors_here(&mut self, _here: bool) {}
     /// Refresh platform display handles after topology changes such as lid
     /// close/open, sleep/wake, docking and hot-plug. Backends without cached
     /// handles may keep the default no-op implementation.

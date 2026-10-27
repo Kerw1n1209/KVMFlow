@@ -2,7 +2,7 @@
 //! hardware never leave this worker; the transport layer only moves frames.
 use crate::lan::{
     conn::{LanEvent, LanHandle, LanOptions, SessionGeneration},
-    discovery::{Discovery, MdnsDiscovery},
+    discovery::{DirDiscovery, Discovery, MdnsDiscovery},
     identity_store,
     messages::{Envelope, Hello},
     trust::{public_key_string, MemberStore},
@@ -416,8 +416,10 @@ impl Runtime {
             }
             let discovery = match options.discovery.take() {
                 Some(d) => d,
-                None => Box::new(MdnsDiscovery::new(transport.address_policy.clone())?)
-                    as Box<dyn Discovery>,
+                None => match DirDiscovery::from_env() {
+                    Some(d) => Box::new(d) as Box<dyn Discovery>,
+                    None => Box::new(MdnsDiscovery::new(transport.address_policy.clone())?),
+                },
             };
             let requested_port = transport.listen_port;
             let handle = LanHandle::start(

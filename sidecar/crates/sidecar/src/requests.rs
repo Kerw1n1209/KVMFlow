@@ -295,6 +295,17 @@ impl Runtime {
                     serde_json::to_value(&outcome).unwrap_or(Value::Null),
                 ));
             }
+            // Test harnesses press the simulated switch on demand.
+            "sim.usb" if self.backend.simulated() => {
+                let present = req.params["group"].as_bool().unwrap_or(false);
+                self.respond(ResponseLine::ok(id, json!({ "group": present })));
+                self.handle_usb_snapshot(crate::backends::simulated::bus(present));
+            }
+            "sim.display" if self.backend.simulated() => {
+                let here = req.params["here"].as_bool().unwrap_or(false);
+                self.backend.simulate_monitors_here(here);
+                self.respond(ResponseLine::ok(id, json!({ "here": here })));
+            }
             "usb.snapshot" => {
                 self.respond(ResponseLine::ok(
                     id,

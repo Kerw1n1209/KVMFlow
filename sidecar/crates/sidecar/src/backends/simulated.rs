@@ -52,6 +52,15 @@ pub fn switch_group() -> Vec<UsbDevice> {
     ]
 }
 
+/// The bus as seen by one computer: with or without the switch's devices.
+pub fn bus(group_present: bool) -> Vec<UsbDevice> {
+    if group_present {
+        group_plus_others()
+    } else {
+        other_devices()
+    }
+}
+
 fn other_devices() -> Vec<UsbDevice> {
     vec![usb("05ac:12a8", "F2KLM123", "iPhone", "Apple Inc.")]
 }
@@ -78,15 +87,23 @@ impl SimulatedBackend {
         } else {
             0
         };
+        // `peer`: the other computer's view of the same monitors, which show
+        // the first computer at start.
+        let peer = scenario.contains("peer");
+        let (g73, g52) = if peer {
+            ((16, 15), (8, 7))
+        } else {
+            ((15, 16), (7, 8))
+        };
         Self {
             topology: None,
             monitors: vec![
                 SimMonitor {
                     edid_id: G73,
                     label: "G73",
-                    here_input: 15,
-                    away_input: 16,
-                    current: 15,
+                    here_input: g73.0,
+                    away_input: g73.1,
+                    current: if peer { g73.1 } else { g73.0 },
                     fail_writes: false,
                     bounces_left: u32::from(handback),
                     bounce_pending: false,
@@ -94,9 +111,13 @@ impl SimulatedBackend {
                 SimMonitor {
                     edid_id: G52PLUS,
                     label: "G52plus",
-                    here_input: 7,
-                    away_input: 8,
-                    current: if scenario == "manual_layout" { 8 } else { 7 },
+                    here_input: g52.0,
+                    away_input: g52.1,
+                    current: if peer || scenario == "manual_layout" {
+                        g52.1
+                    } else {
+                        g52.0
+                    },
                     fail_writes: fail_g52,
                     bounces_left: g52_bounces,
                     bounce_pending: false,
@@ -147,6 +168,12 @@ impl Backend for SimulatedBackend {
 
     fn simulated(&self) -> bool {
         true
+    }
+    fn simulate_monitors_here(&mut self, here: bool) {
+        for m in &mut self.monitors {
+            m.current = if here { m.here_input } else { m.away_input };
+            m.bounce_pending = false;
+        }
     }
 
     fn list_displays(&mut self) -> Result<Vec<DisplayInfo>, String> {
@@ -258,7 +285,7 @@ impl Backend for SimulatedBackend {
 /// used together with a test config that shrinks the debounce.
 pub fn scenario_steps(scenario: &str) -> Vec<ScenarioStep> {
     match scenario {
-        "idle" | "manual_layout" => vec![ScenarioStep {
+        "idle" | "idle_peer" | "manual_layout" => vec![ScenarioStep {
             delay_ms: 0,
             devices: switch_group(),
         }],
