@@ -340,3 +340,28 @@ test('a failed setup step records its error code in the diagnostics events', asy
   const events = JSON.parse(c.win.localStorage.getItem('kvmflow-local-prototype-v2')).events;
   assert.ok(events.some(e => /E_CONFIG_INVALID/.test(e.copy)), JSON.stringify(events));
 });
+
+for (const [code, title, copy] of [
+  ['E_CONFIG_INVALID', /无法保存本机配置/, /本机配置未能保存/],
+  ['E_LAN_PAIR_TIMEOUT', /配对失败/, /等待超时/],
+  ['E_LAN_IO', /配对失败/, /防火墙/],
+  ['E_SOMETHING_NEW', /配对失败/, /E_SOMETHING_NEW/],
+]) test(`the setup error page explains ${code} instead of one generic message`, async t => {
+  const c = await setup(t, { config: null, state: state([]), request: async method => {
+    if (method === 'config.set') throw Object.assign(new Error('failed'), { code });
+  } });
+  await c.start();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'error');
+  const page = body(c);
+  assert.match(page, title); assert.match(page, copy);
+  if (code !== 'E_LAN_IO') assert.doesNotMatch(page, /防火墙/);
+});
+
+test('an uncoded setup failure is not reported as a network problem', async t => {
+  const c = await setup(t, { config: null, state: state([]), request: async method => {
+    if (method === 'config.set') throw new Error('boom');
+  } });
+  await c.start();
+  assert.doesNotMatch(body(c), /防火墙/);
+  assert.match(body(c), /E_UNKNOWN/);
+});

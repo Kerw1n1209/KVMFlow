@@ -85,6 +85,27 @@
     return id ? { id, code } : { id: 'lan.error.generic', code, message };
   }
 
+  // Setup v2 error page: one cause and one next step per failure class.
+  const V2_ERRORS = [
+    ['v2.error.config', ['E_CONFIG_INVALID', 'E_CONFIG_IO', 'E_LAN_LOCAL_SETUP', 'E_LAN_PAIR_COMMIT', 'E_LAN_CONFIG_REFRESH'], 'v2.error.config.title'],
+    ['v2.error.network', ['E_LAN_IO', 'E_LAN_NOISE', 'E_LAN_LISTEN', 'E_LAN_CLOSED', 'E_LAN_DISCONNECTED', 'E_LAN_OFFLINE', 'E_LAN_PAIR_ABORTED', 'E_LAN_PAIR_INTERRUPTED']],
+    ['v2.error.timeout', ['E_LAN_PAIR_TIMEOUT', 'E_LAN_TIMEOUT']],
+    ['v2.error.cancelled', ['E_LAN_PAIR_REJECTED', 'E_LAN_PAIR_CANCELLED']],
+    ['v2.error.window', ['E_LAN_PAIR_WINDOW', 'E_LAN_NOT_MEMBER']],
+    ['v2.error.busy', ['E_LAN_BUSY']],
+    ['v2.error.group', ['E_LAN_GROUP_CONFLICT']],
+    ['v2.error.version', ['E_LAN_PROTO']],
+    ['v2.error.disabled', ['E_LAN_DISABLED']],
+    ['v2.error.identity', ['E_LAN_IDENTITY_IO', 'E_LAN_ID_CONFLICT', 'E_LAN_ID_MIGRATION_REQUIRED']],
+    ['v2.error.backend', ['E_BACKEND', 'E_SIDECAR', 'E_SIDECAR_EXITED']],
+    ['v2.error.monitors', ['E_LAN_SETUP_PENDING', 'E_LAN_TOPOLOGY_MISSING_SELF']],
+  ];
+  function setupErrorCopy(code) {
+    const match = V2_ERRORS.find(([, codes]) => codes.includes(code));
+    if (!match) return { title: 'v2.error.title', copy: 'v2.error.generic', params: { p0: code || 'E_UNKNOWN' } };
+    return { title: match[2] || 'v2.error.title', copy: match[0], params: {} };
+  }
+
   // Engine values stay lowercase on the wire; the discovery row uses the
   // same product names as the design copy.
   const PLATFORM_LABELS = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
@@ -209,7 +230,7 @@
   }
 
   window.KVMFlowPairingView = {
-    waitingPeers, defaultResolutions, pairPhase, errorCopy, discoveryList, profileRows, pendingCount,
+    waitingPeers, defaultResolutions, pairPhase, errorCopy, setupErrorCopy, discoveryList, profileRows, pendingCount,
     mixedChoice, issueGroups, pendingGuidance, trySummary, confirmedFlags,
   };
 })();

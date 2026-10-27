@@ -672,7 +672,6 @@
       "v2.ip.hint": "IP 地址显示在另一台电脑的等待页面。",
       "v2.search": "重新搜索",
       "v2.error.title": "配对失败",
-      "v2.error.copy": "连接已中断。请检查防火墙是否允许 KVMFlow 访问网络。",
       "v2.test.error": "显示器未切换",
       "v2.test.error.copy": "{p0} 未响应切换指令。请在显示器菜单中开启 DDC/CI。",
       "v2.unswitched": "未切换",
@@ -686,7 +685,21 @@
       "v2.nav.paired": "已配对",
       "v2.next": "下一步",
       "v2.done": "完成",
-      "v2.ip.connect": "按 IP 地址连接"
+      "v2.ip.connect": "按 IP 地址连接",
+      "v2.error.config.title": "无法保存本机配置",
+      "v2.error.config": "本机配置未能保存。请重试；仍失败时请发送反馈。",
+      "v2.error.network": "连接已中断。请检查防火墙是否允许 KVMFlow 访问网络。",
+      "v2.error.timeout": "等待超时。请确认另一台电脑停在等待页面后重试。",
+      "v2.error.cancelled": "另一台电脑取消了配对。",
+      "v2.error.window": "另一台电脑不在等待页面。请在那台电脑上重新开始配置。",
+      "v2.error.busy": "另一台电脑正在配对中。请稍后重试。",
+      "v2.error.group": "另一台电脑已和其他电脑配对。请先在那台电脑上解除配对。",
+      "v2.error.version": "两台电脑的 KVMFlow 版本不一致。请都更新到最新版本。",
+      "v2.error.disabled": "局域网功能已关闭。请在设置中开启。",
+      "v2.error.identity": "无法读取本机身份。请重启 KVMFlow 后重试。",
+      "v2.error.monitors": "显示器配置不完整。请把每台显示器切到本机后重试。",
+      "v2.error.generic": "配对失败（{p0}）。请重试；仍失败时请发送反馈。",
+      "v2.error.backend": "KVMFlow 后台组件未响应。请重启 KVMFlow 后重试。"
     },
     "en": {
       "this.computer": "This computer",
@@ -1348,7 +1361,6 @@
       "v2.ip.hint": "The IP address appears on the other computer’s waiting page.",
       "v2.search": "Search again",
       "v2.error.title": "Pairing failed",
-      "v2.error.copy": "The connection was interrupted. Check that your firewall allows KVMFlow to access the network.",
       "v2.test.error": "Monitor did not switch",
       "v2.test.error.copy": "{p0} did not respond to the switch command. Enable DDC/CI in the monitor menu.",
       "v2.unswitched": "Did not switch",
@@ -1362,7 +1374,21 @@
       "v2.nav.paired": "Paired",
       "v2.next": "Next",
       "v2.done": "Done",
-      "v2.ip.connect": "Connect via IP"
+      "v2.ip.connect": "Connect via IP",
+      "v2.error.config.title": "Could not save this computer’s setup",
+      "v2.error.config": "This computer’s setup could not be saved. Try again; if it still fails, send feedback.",
+      "v2.error.network": "The connection was interrupted. Check that your firewall allows KVMFlow to access the network.",
+      "v2.error.timeout": "Timed out. Make sure the other computer is on its waiting screen, then try again.",
+      "v2.error.cancelled": "The other computer cancelled pairing.",
+      "v2.error.window": "The other computer is not on its waiting screen. Start setup on it again.",
+      "v2.error.busy": "The other computer is already pairing. Try again shortly.",
+      "v2.error.group": "The other computer is paired with another computer. Unpair it there first.",
+      "v2.error.version": "The two computers run different KVMFlow versions. Update both to the latest version.",
+      "v2.error.disabled": "Local networking is off. Turn it on in Settings.",
+      "v2.error.identity": "Could not read this computer’s identity. Restart KVMFlow and try again.",
+      "v2.error.monitors": "The monitor setup is incomplete. Switch each monitor to this computer, then try again.",
+      "v2.error.generic": "Pairing failed ({p0}). Try again; if it still fails, send feedback.",
+      "v2.error.backend": "The KVMFlow background component is not responding. Restart KVMFlow and try again."
     }
   }
 }

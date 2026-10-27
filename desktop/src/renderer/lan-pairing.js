@@ -437,7 +437,7 @@
       case 'done': return head(t('v2.done.title')) + '<div class="v2-space"></div>' + footer(button('v2-finish', 'v2.done'));
       case 'test-error': return head(t('v2.test.error'), t('v2.test.error.copy', { p0: esc(failedMonitors.map(row => row.summary).join(t('mixed.list.separator'))) })) + rowsHtml((model.displays || []).map((name, i) => { const failed = failedMonitors.some(row => row.fingerprint === window.__kvmflowDisplayFingerprints?.[i]); return { name, copy: failed ? t('v2.ddc') : '', tag: t(failed ? 'v2.unswitched' : 'v2.ready') }; })) + footer(button('test-retry', 'retry', busy), button('feedback', 'v2.feedback', false, true));
       case 'ip': return head(t('v2.notfound')) + instructions(['v2.ip.open', 'v2.ip.network']) + `<form class="v2-ip-form"><label for="v2-ip">${t('v2.ip.connect')}</label><div class="v2-ip-row"><input id="v2-ip" name="addr" aria-describedby="v2-ip-hint" autocomplete="off" spellcheck="false" required placeholder="192.168.31.243"><button class="secondary" type="submit">${t('lan.connect')}</button></div><p id="v2-ip-hint" class="hint">${t('v2.ip.hint')}</p></form>` + footer(button('search', 'v2.search'));
-      case 'error': return head(t('v2.error.title'), t('v2.error.copy')) + '<div class="v2-space"></div>' + footer(button('v2-retry', 'retry', busy));
+      case 'error': { const e = View.setupErrorCopy(requestError); return head(t(e.title), t(e.copy, e.params)) + '<div class="v2-space"></div>' + footer(button('v2-retry', 'retry', busy)); }
       default: return null;
     }
   }
@@ -500,7 +500,8 @@
   }
   function failFlow(error) {
     recoveryMode = committed() ? (initiator ? 'confirm' : 'done') : null;
-    requestError = error?.code || 'E_LAN_PAIR_ABORTED';
+    // Without a code the cause is unknown; never guess a network failure.
+    requestError = error?.code || (/^E_[A-Z0-9_]+$/.test(error?.message || '') ? error.message : 'E_UNKNOWN');
     // The error page shows one generic message; keep the cause in diagnostics.
     if (typeof log === 'function') log('v2.error.title', `${requestError}${error?.message ? `: ${error.message}` : ''}`);
     mode = 'error'; busy = false; clearTimers();

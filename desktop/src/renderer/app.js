@@ -418,7 +418,7 @@
       if (sidecarConfig?.local_device && onboardingMonitors === null) return;
       const self = await S.request('lan.identity');
       runtimeDeviceId = self?.device_id || null;
-      if (!self?.device_id) throw new Error(t('lan.error.identity'));
+      if (!self?.device_id) throw Object.assign(new Error(t('lan.error.identity')), { code: 'E_LAN_IDENTITY_IO' });
       // Not identified yet: the sidecar's empty trigger, never null.
       const trigger = learnedTrigger || sidecarConfig?.trigger || { anchor: { vid_pid: '' }, members: [] };
       const localComputer = current();
@@ -428,7 +428,7 @@
       if ((trigger.anchor?.vid_pid && !validTrigger(trigger)) || (onboardingMonitors === null && !monitors.length) || monitors.some(m =>
         !m.fingerprint || m.fingerprint.startsWith('local-display-') || !Number.isInteger(m.local_input)
         || m.local_input < 0 || m.local_input > 65535 || !['learned_active_read', 'manual'].includes(m.source))) {
-        throw new Error(t('lan.error.local.setup'));
+        throw Object.assign(new Error(t('lan.error.local.setup')), { code: 'E_LAN_LOCAL_SETUP' });
       }
       const previous = await S.request('config.get');
       const config = { ...(previous || {}), schema_version: 2, local_device: {
