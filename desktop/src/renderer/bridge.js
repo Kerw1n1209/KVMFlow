@@ -56,6 +56,7 @@
     sendFeedback: (payload) => invoke('feedback_send', { payload }),
     openPrivacy: () => invoke('feedback_open_privacy'),
     exportDiagnostics: (payload) => invoke('export_diagnostics', { payload }),
+    resetConfig: () => invoke('reset_config'),
     confirmDelete: (name) => invoke('confirm_delete', { name }),
     confirmLocalInput: (changes) => invoke('confirm_local_input', { changes }),
     language: { set: (preference, systemLocale) => invoke('locale_set', { preference, systemLocale }) },

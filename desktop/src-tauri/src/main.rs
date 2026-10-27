@@ -7,6 +7,7 @@ mod locale;
 mod mixed_menu;
 mod paths;
 mod recovery;
+mod reset;
 mod runtime_state;
 mod updates;
 
@@ -473,6 +474,58 @@ async fn export_diagnostics(app: AppHandle, payload: Value) -> Result<bool, Stri
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn reset_config(app: AppHandle) -> Result<bool, String> {
+    if !reset::allowed(&app.package_info().version.to_string()) {
+        return Err("reset is only available in beta builds".into());
+    }
+    if app.state::<updates::Updates>().installing.load(Ordering::Acquire) {
+        return Err(tr(&app, "native.update.busy"));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let confirmed = app
+            .dialog()
+            .message(tr(&app, "native.reset.body"))
+            .title(tr(&app, "native.reset.title"))
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                tr(&app, "reset.config"),
+                tr(&app, "cancel"),
+            ))
+            .blocking_show();
+        if !confirmed {
+            return Ok(false);
+        }
+        let host = app.state::<Host>();
+        let _gate = host.pairing_gate.lock().unwrap();
+        // Stop first: a running worker would rewrite the files it holds.
+        let stopped = host
+            .runtime
+            .current()
+            .shutdown_and_join_timeout(std::time::Duration::from_secs(45));
+        if let Err(error) = stopped {
+            // Keep the setup; the supervisor replaces the stopping worker.
+            let _ = host.runtime.resume_after_cancel(std::time::Duration::from_secs(10));
+            return Err(error);
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        let moved = reset::move_aside(&host.data_dir, stamp);
+        // Restart even when the move failed so the app keeps working.
+        host.runtime
+            .resume_after_cancel(std::time::Duration::from_secs(10))?;
+        let backup = moved?;
+        eprintln!("Configuration reset; backup: {backup:?}");
+        *host.page.lock().unwrap() = "wizard".into();
+        *host.tray_config.lock().unwrap() = json!({});
+        refresh_tray(&app);
+        Ok(true)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 fn start_runtime(
     app: &AppHandle,
     data_dir: &std::path::Path,
@@ -519,7 +572,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
-        .invoke_handler(tauri::generate_handler![runtime_request, host_info, compatibility::compatibility_open_issue, compatibility::feedback_open_privacy, feedback::feedback_send, locale_set, client_ready, startup_get, startup_set, export_diagnostics, confirm_delete, confirm_local_input, updates::update_check, updates::update_set_beta, updates::update_download, updates::update_install, updates::update_open_download])
+        .invoke_handler(tauri::generate_handler![runtime_request, host_info, compatibility::compatibility_open_issue, compatibility::feedback_open_privacy, feedback::feedback_send, locale_set, client_ready, startup_get, startup_set, export_diagnostics, reset_config, confirm_delete, confirm_local_input, updates::update_check, updates::update_set_beta, updates::update_download, updates::update_install, updates::update_open_download])
         .setup(|app| {
             let handle = app.handle().clone();
             let data_dir = paths::data_dir()?;

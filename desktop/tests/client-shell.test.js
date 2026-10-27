@@ -401,6 +401,19 @@ test('hidden host mode retains its saved value and is not cleared by saving sett
   assert.equal(saved.advanced.arrival_correction_enabled, true);
 });
 
+test('only beta builds offer a configuration reset, and a failed reset is reported', async t => {
+  const stable = await client(t);
+  assert.equal(stable.win.document.querySelector('#reset-config').hidden, true);
+  let resets = 0;
+  const beta = await client(t, { version: '0.4.0-beta.9', resetConfig: async () => { resets += 1; throw new Error('display restore timed out'); } });
+  const button = beta.win.document.querySelector('#reset-config');
+  assert.equal(button.hidden, false);
+  button.click(); await tick();
+  assert.equal(resets, 1);
+  assert.equal(button.disabled, false);
+  assert.match(beta.win.document.querySelector('#event-list').textContent, /重置失败.*display restore timed out/);
+});
+
 test('diagnostics use the native save bridge once with UI and backend evidence', async t => {
   const instance = await client(t);
   instance.win.document.querySelector('#export-log').click();

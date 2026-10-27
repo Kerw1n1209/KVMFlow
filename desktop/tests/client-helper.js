@@ -48,7 +48,7 @@ async function client(t, options = {}) {
   win.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   win.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new win.Event('close')); };
   win.kvmflow = {
-    ready: Promise.resolve(), info: Promise.resolve({ platform: 'windows', version: '0.2.0', computerName, initialPage: options.initialPage || (config ? 'status' : 'wizard') }),
+    ready: Promise.resolve(), info: Promise.resolve({ platform: 'windows', version: options.version || '0.2.0', computerName, initialPage: options.initialPage || (config ? 'status' : 'wizard') }),
     clientReady: async () => {},
     request: async (method, params) => {
       requests.push({ method, params });
@@ -80,6 +80,7 @@ async function client(t, options = {}) {
     startup: { get: async () => false, set: async enabled => enabled },
     confirmDelete: async () => true,
     exportDiagnostics: async payload => { exported = payload; return true; },
+    resetConfig: async () => options.resetConfig ? options.resetConfig() : false,
   };
   await initializeI18n(win, options.language || 'zh-CN');
   vm.runInContext(read('src/renderer/shell.js'), dom.getInternalVMContext());

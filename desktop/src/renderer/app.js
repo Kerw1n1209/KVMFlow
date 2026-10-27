@@ -888,6 +888,15 @@
       if (await S.exportDiagnostics(await S.collectRedactedDiagnostics())) log(t("diagnostics.exported"), t("diagnostics.saved.to.the.selected.location"));
     } catch (error) { log(t("export.failed"), String(error?.message || t("unable.to.export.records"))); }
   }, true);
+  const resetButton = byId('reset-config');
+  Promise.resolve(S.info).then((info) => { resetButton.hidden = !String(info?.version || '').includes('-beta'); }).catch(() => {});
+  resetButton.addEventListener('click', async () => {
+    resetButton.disabled = true;
+    try {
+      if (await S.resetConfig()) { location.reload(); return; }
+    } catch (error) { log(t("reset.failed"), String(error?.message || error || t("please.try.again"))); }
+    resetButton.disabled = false;
+  });
   S.onClientNavigate((target) => {
     // "settings#mixed" opens the settings page at the mixed mode section.
     const [page, section] = String(target).split('#');
