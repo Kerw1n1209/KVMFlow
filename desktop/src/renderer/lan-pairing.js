@@ -585,9 +585,8 @@
       await stopCapture();
       await window.KVMFlowPairingConfig.preparePrimary();
       if (token !== flowGeneration || session !== current) return;
-      await openPairingWindow();
-      if (token !== flowGeneration || session !== current) return;
-      if (requestError) throw new Error(requestError);
+      // lan.pair.start opens admission itself; opening it here first would
+      // briefly advertise this dialing computer as waiting.
       await pairRequest(row.manual ? 'lan.connect.manual' : 'lan.pair.start', { addr: row.addr, ...(row.manual ? { pair: true } : {}) });
       await advancePair();
     } catch (error) {

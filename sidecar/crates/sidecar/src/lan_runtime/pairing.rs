@@ -198,6 +198,10 @@ impl Runtime {
             link.close();
             return;
         }
+        // Someone is pairing with us now; other wizards must not pick us.
+        if let Some(handle) = self.lan_runtime.handle.as_ref() {
+            handle.set_waiting(false);
+        }
         // A secondary without a config can still pair (its minimal config is
         // created by lan.setup.secondary); a primary with no config at all
         // cannot offer a side.

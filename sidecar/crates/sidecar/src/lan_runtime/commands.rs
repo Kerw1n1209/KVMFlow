@@ -646,6 +646,7 @@ impl Runtime {
                     // attempts from the other machine too (both ends can
                     // press 连接).
                     handle.set_pairing_window(true);
+                    handle.set_waiting(false);
                     // Mint the session identity now so the RPC reply and every
                     // later notification of this attempt carry the same id.
                     let session_id = Runtime::new_pair_session_id();
@@ -864,6 +865,9 @@ impl Runtime {
                 let open = params.get("open").and_then(Value::as_bool).unwrap_or(true);
                 if let Some(handle) = self.lan_runtime.handle.as_ref() {
                     handle.set_pairing_window(open);
+                    if open && self.lan_runtime.pair.is_none() {
+                        handle.set_waiting(true);
+                    }
                 }
                 self.respond(ResponseLine::ok(id, json!({"open": open})));
             }
@@ -1030,6 +1034,9 @@ impl Runtime {
                     // pairing (its pairing screen IS the waiting screen).
                     if let Some(handle) = self.lan_runtime.handle.as_ref() {
                         handle.set_pairing_window(true);
+                        if self.lan_runtime.pair.is_none() {
+                            handle.set_waiting(true);
+                        }
                     }
                     // LAN may have been skipped at startup because no config
                     // existed; start it now that an identity is available.

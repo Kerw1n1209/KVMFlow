@@ -190,6 +190,8 @@ pub struct LanHandle {
     /// Inbound pairing admission window (S6/P2-6): set while the user is on
     /// a pairing screen. Outbound dials are always allowed.
     pairing_window: Arc<AtomicBool>,
+    /// Last waiting hint handed to discovery (see `set_waiting`).
+    waiting: AtomicBool,
     /// Inbound pairing source-IP cooldowns (epoch ms of last attempt).
     pair_cooldowns: Arc<Mutex<HashMap<std::net::IpAddr, u64>>>,
 }
@@ -272,18 +274,29 @@ impl LanHandle {
             sessions,
             members: retained_members,
             pairing_window,
+            waiting: AtomicBool::new(false),
             pair_cooldowns,
         })
     }
     /// Open or close the inbound pairing admission window (P2-6). Outbound
     /// pairings (the user pressed 连接 on this machine) are unaffected.
+    /// Closing also withdraws the waiting hint; opening does not set it,
+    /// because a computer that is dialing opens the window too.
     pub fn set_pairing_window(&self, open: bool) {
-        if self.pairing_window.swap(open, Ordering::AcqRel) != open {
-            // Best effort: a full queue only delays the discovery hint.
-            let _ = self.command(Command::SetWaiting(open));
-        }
+        self.pairing_window.store(open, Ordering::Release);
         if !open {
+            self.set_waiting(false);
             self.pair_cooldowns.lock().unwrap().clear();
+        }
+    }
+    /// Advertise that this computer is waiting for another one to pair with
+    /// it (TXT `w`). Only a computer idle on its waiting screen sets this;
+    /// dialing or an active pairing session clears it, so two wizards never
+    /// both treat each other as the one to dial.
+    pub fn set_waiting(&self, waiting: bool) {
+        if self.waiting.swap(waiting, Ordering::AcqRel) != waiting {
+            // Best effort: a full queue only delays the discovery hint.
+            let _ = self.command(Command::SetWaiting(waiting));
         }
     }
     /// Validate a queued message immediately before executing its action. This
@@ -1798,7 +1811,11 @@ mod tests {
         )
         .unwrap();
         assert!(!discovery.advertisement().unwrap().waiting);
+        // Opening admission alone (a dialing computer does this) is no hint.
         handle.set_pairing_window(true);
+        thread::sleep(Duration::from_millis(200));
+        assert!(!discovery.advertisement().unwrap().waiting);
+        handle.set_waiting(true);
         wait(Duration::from_secs(2), || {
             discovery.advertisement().unwrap().waiting
         });
