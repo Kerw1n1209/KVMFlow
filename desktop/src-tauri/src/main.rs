@@ -479,7 +479,11 @@ async fn reset_config(app: AppHandle) -> Result<bool, String> {
     if !reset::allowed(&app.package_info().version.to_string()) {
         return Err("reset is only available in beta builds".into());
     }
-    if app.state::<updates::Updates>().installing.load(Ordering::Acquire) {
+    if app
+        .state::<updates::Updates>()
+        .installing
+        .load(Ordering::Acquire)
+    {
         return Err(tr(&app, "native.update.busy"));
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -504,7 +508,9 @@ async fn reset_config(app: AppHandle) -> Result<bool, String> {
             .shutdown_and_join_timeout(std::time::Duration::from_secs(45));
         if let Err(error) = stopped {
             // Keep the setup; the supervisor replaces the stopping worker.
-            let _ = host.runtime.resume_after_cancel(std::time::Duration::from_secs(10));
+            let _ = host
+                .runtime
+                .resume_after_cancel(std::time::Duration::from_secs(10));
             return Err(error);
         }
         let stamp = std::time::SystemTime::now()

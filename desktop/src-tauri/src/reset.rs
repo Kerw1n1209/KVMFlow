@@ -11,14 +11,18 @@ pub fn allowed(version: &str) -> bool {
 
 /// Returns the backup folder, or None when there was nothing to move.
 pub fn move_aside(data_dir: &Path, stamp: u64) -> Result<Option<PathBuf>, String> {
-    let present: Vec<_> = FILES.iter().filter(|name| data_dir.join(name).is_file()).collect();
+    let present: Vec<_> = FILES
+        .iter()
+        .filter(|name| data_dir.join(name).is_file())
+        .collect();
     if present.is_empty() {
         return Ok(None);
     }
     let backup = data_dir.join("backups").join(format!("reset-{stamp}"));
     std::fs::create_dir_all(&backup).map_err(|error| error.to_string())?;
     for name in present {
-        std::fs::rename(data_dir.join(name), backup.join(name)).map_err(|error| error.to_string())?;
+        std::fs::rename(data_dir.join(name), backup.join(name))
+            .map_err(|error| error.to_string())?;
     }
     Ok(Some(backup))
 }
@@ -44,7 +48,10 @@ mod tests {
         assert_eq!(backup, dir.path().join("backups/reset-7"));
         assert!(!dir.path().join("config.json").exists());
         assert!(!dir.path().join("pairing.pending.json").exists());
-        assert_eq!(std::fs::read_to_string(backup.join("config.json")).unwrap(), "{}");
+        assert_eq!(
+            std::fs::read_to_string(backup.join("config.json")).unwrap(),
+            "{}"
+        );
         assert!(dir.path().join("lan/identity.key").exists());
         assert_eq!(move_aside(dir.path(), 8).unwrap(), None);
     }
