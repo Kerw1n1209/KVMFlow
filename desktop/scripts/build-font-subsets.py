@@ -17,7 +17,6 @@ import hashlib
 import json
 import sys
 import urllib.request
-import zipfile
 from pathlib import Path
 
 from fontTools import subset
@@ -37,40 +36,40 @@ PUNCTUATION = (
 LAYOUT_FEATURES = ["kern", "liga", "clig", "calt", "ccmp", "locl", "mark", "mkmk", "rlig"]
 
 NOTO = {
-    "file": "NotoSerifSC-Variable.woff2",
-    "family": "Noto Serif SC",
-    "rename": None,
-    "version": "2.003",
-    "license": "OFL-NotoSerifSC.txt",
+    "file": "NotoSansSC-Variable.woff2",
+    "family": "Noto Sans SC",
+    "version": "2.004",
+    "license": "OFL-NotoSansSC.txt",
     "url": (
         "https://raw.githubusercontent.com/google/fonts/"
-        "2e61f4355afd22b801791b0df176065082423b87/ofl/notoserifsc/NotoSerifSC%5Bwght%5D.ttf"
+        "2e61f4355afd22b801791b0df176065082423b87/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf"
     ),
-    "sha256": "050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9",
+    "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
     "license_url": (
         "https://raw.githubusercontent.com/google/fonts/"
-        "2e61f4355afd22b801791b0df176065082423b87/ofl/notoserifsc/OFL.txt"
+        "2e61f4355afd22b801791b0df176065082423b87/ofl/notosanssc/OFL.txt"
     ),
-    "license_sha256": "5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6",
+    "license_sha256": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
 }
 
-SOURCE_SERIF = {
-    "file": "KVMFlowSerif-Variable.woff2",
-    "family": "KVMFlow Serif",
-    "rename": "KVMFlow Serif",
-    "version": "4.005",
-    "license": "OFL-SourceSerif4.txt",
+DM_SANS = {
+    "file": "DMSans-Variable.woff2",
+    "family": "DM Sans",
+    "version": "4.004",
+    "license": "OFL-DMSans.txt",
     "url": (
-        "https://github.com/adobe-fonts/source-serif/releases/download/"
-        "4.005R/source-serif-4.005_Desktop.zip"
+        "https://raw.githubusercontent.com/google/fonts/"
+        "2e61f4355afd22b801791b0df176065082423b87/ofl/dmsans/DMSans%5Bopsz,wght%5D.ttf"
     ),
-    "sha256": "549fdb8f9a682bd06944298621404969f6de77c2e422ff3b8244a1dcd6a0c425",
-    "member": "source-serif-4.005_Desktop/VAR/SourceSerif4Variable-Roman.ttf",
-    "license_member": "source-serif-4.005_Desktop/LICENSE.md",
-    "license_sha256": "75784a295293a8992f5a8d99210566e0064a012e6dab6731305e3787f15896c7",
+    "sha256": "8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d",
+    "license_url": (
+        "https://raw.githubusercontent.com/google/fonts/"
+        "2e61f4355afd22b801791b0df176065082423b87/ofl/dmsans/OFL.txt"
+    ),
+    "license_sha256": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1",
 }
 
-SOURCES = [NOTO, SOURCE_SERIF]
+SOURCES = [NOTO, DM_SANS]
 
 
 def sha256(path: Path) -> str:
@@ -139,28 +138,7 @@ def wanted_characters() -> tuple[list[str], dict[str, int]]:
     return sorted(chars), counts
 
 
-def rename_font(font: TTFont, family: str) -> None:
-    name = font["name"]
-    for record in list(name.names):
-        if record.nameID in {1, 2, 3, 4, 6, 16, 17, 18, 20, 21, 22, 25}:
-            name.names.remove(record)
-    values = {
-        1: family,
-        2: "Regular",
-        3: family.replace(" ", "") + ";subset;KVMFlow",
-        4: family,
-        6: family.replace(" ", ""),
-        16: family,
-        17: "Regular",
-        21: family,
-        22: "Regular",
-    }
-    for name_id, value in values.items():
-        name.setName(value, name_id, 3, 1, 0x409)
-        name.setName(value, name_id, 1, 0, 0)
-
-
-def subset_font(source: Path, target: Path, text: str, rename: str | None) -> None:
+def subset_font(source: Path, target: Path, text: str) -> None:
     font = TTFont(source)
     options = subset.Options()
     options.flavor = "woff2"
@@ -175,8 +153,6 @@ def subset_font(source: Path, target: Path, text: str, rename: str | None) -> No
     subsetter = subset.Subsetter(options=options)
     subsetter.populate(text=text)
     subsetter.subset(font)
-    if rename:
-        rename_font(font, rename)
     font.flavor = "woff2"
     target.parent.mkdir(parents=True, exist_ok=True)
     font.save(target)
@@ -184,22 +160,10 @@ def subset_font(source: Path, target: Path, text: str, rename: str | None) -> No
 
 
 def prepare_source(spec: dict, cache: Path) -> tuple[Path, Path]:
-    if "member" in spec:
-        archive = download(spec["url"], cache / Path(spec["url"]).name, spec["sha256"])
-        with zipfile.ZipFile(archive) as bundle:
-            font_bytes = bundle.read(spec["member"])
-            license_bytes = bundle.read(spec["license_member"])
-        font_path = cache / Path(spec["member"]).name
-        font_path.write_bytes(font_bytes)
-        license_path = cache / "source-serif-LICENSE.md"
-        license_path.write_bytes(license_bytes)
-    else:
-        font_path = download(spec["url"], cache / Path(spec["url"]).name, spec["sha256"])
-        license_path = download(
-            spec["license_url"], cache / "noto-OFL.txt", spec["license_sha256"]
-        )
-    if sha256(license_path) != spec["license_sha256"]:
-        raise SystemExit(f"license checksum mismatch for {license_path}")
+    font_path = download(spec["url"], cache / Path(spec["url"]).name, spec["sha256"])
+    license_path = download(
+        spec["license_url"], cache / spec["license"], spec["license_sha256"]
+    )
     (FONTS / spec["license"]).write_bytes(license_path.read_bytes())
     return font_path, license_path
 
@@ -220,7 +184,7 @@ def main() -> int:
     for spec in SOURCES:
         source, _ = prepare_source(spec, args.cache_dir)
         target = FONTS / spec["file"]
-        subset_font(source, target, text, spec["rename"])
+        subset_font(source, target, text)
         size = target.stat().st_size
         print(f"  {target.name}: {size:,} bytes")
         fonts.append({
@@ -238,11 +202,6 @@ def main() -> int:
                 "version": spec["version"],
                 "url": spec["url"],
                 "sha256": spec["sha256"],
-                "modified": bool(spec["rename"]),
-                "rename_reason": (
-                    "OFL Reserved Font Name 'Source' requires a new primary name"
-                    if spec["rename"] else None
-                ),
             }
             for spec in SOURCES
         ],

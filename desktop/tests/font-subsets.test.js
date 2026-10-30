@@ -68,8 +68,8 @@ test('font subset covers ASCII, common punctuation, and GB2312 level 1', () => {
 test('renderer bundles the fonts with swap, a packaged-first stack, and local CSP', () => {
   const css = fs.readFileSync(path.join(renderer, 'app.css'), 'utf8');
   for (const [family, file] of [
-    ['KVMFlow Serif', 'KVMFlowSerif-Variable.woff2'],
-    ['Noto Serif SC', 'NotoSerifSC-Variable.woff2'],
+    ['DM Sans', 'DMSans-Variable.woff2'],
+    ['Noto Sans SC', 'NotoSansSC-Variable.woff2'],
   ]) {
     const block = css.match(
       new RegExp(`@font-face\\s*\\{[^}]*font-family:\\s*"${family}"[^}]*\\}`),
@@ -81,15 +81,15 @@ test('renderer bundles the fonts with swap, a packaged-first stack, and local CS
   }
 
   const stack = css.match(/--font-family:\s*([^;]+);/)[1];
+  const fallback = stack.indexOf('"PingFang SC"');
+  assert.ok(fallback > 0, 'system CJK fallback must stay in the stack');
   assert.ok(
-    stack.indexOf('"KVMFlow Serif"') >= 0
-      && stack.indexOf('"KVMFlow Serif"') < stack.indexOf('Charter'),
-    'bundled Latin font must precede Charter',
+    stack.indexOf('"DM Sans"') === 0,
+    'bundled Latin font must lead the stack',
   );
   assert.ok(
-    stack.indexOf('"Noto Serif SC"') >= 0
-      && stack.indexOf('"Noto Serif SC"') < stack.indexOf('Charter'),
-    'bundled CJK font must precede Charter',
+    stack.indexOf('"Noto Sans SC"') > 0 && stack.indexOf('"Noto Sans SC"') < fallback,
+    'bundled CJK font must precede the system fallbacks',
   );
 
   const shell = fs.readFileSync(path.join(renderer, 'shell.css'), 'utf8');
@@ -152,8 +152,8 @@ test('sidebar fixed labels fit the narrow layout with the bundled font metrics',
     'from fontTools.ttLib import TTFont',
     'from fontTools.varLib.instancer import instantiateVariableFont',
     "base = 'src/renderer/assets/fonts/'",
-    "latin = instantiateVariableFont(TTFont(base + 'KVMFlowSerif-Variable.woff2'), {'wght': 400, 'opsz': 8})",
-    "cjk = instantiateVariableFont(TTFont(base + 'NotoSerifSC-Variable.woff2'), {'wght': 400})",
+    "latin = instantiateVariableFont(TTFont(base + 'DMSans-Variable.woff2'), {'wght': 700, 'opsz': 9})",
+    "cjk = instantiateVariableFont(TTFont(base + 'NotoSansSC-Variable.woff2'), {'wght': 700})",
     'def cmap(font):',
     '    table = {}',
     "    for subtable in font['cmap'].tables: table.update(subtable.cmap)",
@@ -170,7 +170,7 @@ test('sidebar fixed labels fit the narrow layout with the bundled font metrics',
     "messages = json.load(open('src/renderer/i18n/messages.json', encoding='utf-8'))['messages']",
     "keys = ['nav.setup.required', 'nav.identifying', 'nav.sending', 'nav.paused', 'nav.unavailable', 'nav.waiting', 'nav.waiting.pair']",
     'failed = False',
-    "for language, budget840, budget1020, spacing in [('zh-CN', 89, 103, -0.22), ('en', 89, 103, -0.22)]:",
+    "for language, budget840, budget1020, spacing in [('zh-CN', 116, 144, -0.22), ('en', 116, 144, -0.22)]:",
     '    for key in keys:',
     '        text = messages[language][key]',
     '        w840 = width(text, 11, spacing)',
@@ -196,7 +196,7 @@ test('the woff2 cmap actually contains the subset characters', (t) => {
     'import json, sys',
     'from fontTools.ttLib import TTFont',
     "manifest = json.load(open('scripts/font-subset.json', encoding='utf-8'))",
-    "font = TTFont('src/renderer/assets/fonts/NotoSerifSC-Variable.woff2')",
+    "font = TTFont('src/renderer/assets/fonts/NotoSansSC-Variable.woff2')",
     'cmap = set()',
     "for table in font['cmap'].tables: cmap.update(table.cmap.keys())",
     "missing = [c for c in manifest['characters'] if ord(c) not in cmap]",

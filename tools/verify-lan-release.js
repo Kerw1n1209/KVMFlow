@@ -63,10 +63,10 @@ check(
 
 const fontDir = path.join(root, 'desktop/src/renderer/assets/fonts');
 const fontFiles = [
-  'NotoSerifSC-Variable.woff2',
-  'KVMFlowSerif-Variable.woff2',
-  'OFL-NotoSerifSC.txt',
-  'OFL-SourceSerif4.txt',
+  'NotoSansSC-Variable.woff2',
+  'DMSans-Variable.woff2',
+  'OFL-NotoSansSC.txt',
+  'OFL-DMSans.txt',
 ];
 check(
   'bundled renderer fonts and OFL texts are present',
@@ -74,7 +74,7 @@ check(
 );
 check(
   'THIRD_PARTY_NOTICES documents the bundled fonts',
-  notices.includes('Noto Serif SC') && notices.includes('Source Serif 4'),
+  notices.includes('Noto Sans SC') && notices.includes('DM Sans'),
 );
 
 if (process.argv.includes('--licenses')) {
@@ -86,8 +86,8 @@ if (process.argv.includes('--licenses')) {
   check('license bundle generates without gaps', result.status === 0, result.stdout + result.stderr);
   check(
     'license bundle includes the font OFL texts',
-    fs.existsSync(path.join(root, 'third-party-licenses/fonts/OFL-NotoSerifSC.txt'))
-      && fs.existsSync(path.join(root, 'third-party-licenses/fonts/OFL-SourceSerif4.txt')),
+    fs.existsSync(path.join(root, 'third-party-licenses/fonts/OFL-NotoSansSC.txt'))
+      && fs.existsSync(path.join(root, 'third-party-licenses/fonts/OFL-DMSans.txt')),
   );
 }
 

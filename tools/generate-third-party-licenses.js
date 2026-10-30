@@ -117,7 +117,7 @@ const manifest = {
 const fontSource = path.join(root, 'desktop/src/renderer/assets/fonts');
 const fontTarget = path.join(outDir, 'fonts');
 fs.mkdirSync(fontTarget, { recursive: true });
-const fontFiles = ['OFL-NotoSerifSC.txt', 'OFL-SourceSerif4.txt', 'README.md'];
+const fontFiles = ['OFL-NotoSansSC.txt', 'OFL-DMSans.txt', 'README.md'];
 for (const name of fontFiles) {
   const from = path.join(fontSource, name);
   if (!fs.existsSync(from)) fail(`missing font license file: ${from}`);

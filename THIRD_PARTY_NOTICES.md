@@ -40,12 +40,12 @@ SOFTWARE.
 
 | 字体 | 版本 | 上游 | 用途 | 许可证 |
 | --- | --- | --- | --- | --- |
-| Noto Serif SC | 2.003 | [google/fonts](https://github.com/google/fonts/tree/2e61f4355afd22b801791b0df176065082423b87/ofl/notoserifsc) | 中文正文、标题 | `OFL-NotoSerifSC.txt` |
-| Source Serif 4（子集重命名为 KVMFlow Serif） | 4.005 | [adobe-fonts/source-serif](https://github.com/adobe-fonts/source-serif/releases/tag/4.005R) | 拉丁字母、数字、标点 | `OFL-SourceSerif4.txt` |
+| Noto Sans SC | 2.004 | [google/fonts](https://github.com/google/fonts/tree/2e61f4355afd22b801791b0df176065082423b87/ofl/notosanssc) | 中文正文、标题 | `OFL-NotoSansSC.txt` |
+| DM Sans | 4.004 | [google/fonts](https://github.com/google/fonts/tree/2e61f4355afd22b801791b0df176065082423b87/ofl/dmsans) | 拉丁字母、数字、标点 | `OFL-DMSans.txt` |
 
 字体经过子集化（只保留界面文案、ASCII、常用标点和 GB2312 一级字），属于
-OFL 定义的修改版本。Source Serif 的 OFL 声明了保留字体名 “Source”，因此
-该子集使用新名称 `KVMFlow Serif`；Noto Serif SC 未声明保留字体名，沿用原名。
+OFL 定义的修改版本。Noto Sans SC 的 OFL 声明了保留字体名 “Source”，子集
+沿用的名称 `Noto Sans SC` 不含该保留名；DM Sans 未声明保留字体名，沿用原名。
 子集由 `python3 desktop/scripts/build-font-subsets.py` 生成，来源 URL、
 版本、SHA-256 和字符清单位于 `desktop/scripts/font-subset.json`。
 `npm test` 会检查 `messages.json` 中的字符是否都被子集覆盖。

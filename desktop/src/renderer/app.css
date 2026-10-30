@@ -92,16 +92,16 @@ html, body { overflow: hidden; }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
 @font-face {
-  font-family: "KVMFlow Serif";
-  src: url("assets/fonts/KVMFlowSerif-Variable.woff2") format("woff2");
-  font-weight: 200 900;
+  font-family: "DM Sans";
+  src: url("assets/fonts/DMSans-Variable.woff2") format("woff2");
+  font-weight: 100 1000;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "Noto Serif SC";
-  src: url("assets/fonts/NotoSerifSC-Variable.woff2") format("woff2");
-  font-weight: 200 900;
+  font-family: "Noto Sans SC";
+  src: url("assets/fonts/NotoSansSC-Variable.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
@@ -119,7 +119,7 @@ html, body { overflow: hidden; }
   --line-strong: #8e8b80;
   --accent: #141413;
   --accent-soft: #e8e6dc;
-  --font-family: "KVMFlow Serif", "Noto Serif SC", Charter, "Songti SC", "Noto Serif CJK SC", "SimSun", Georgia, serif;
+  --font-family: "DM Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --heading-font: var(--font-family);
   font-family: var(--font-family);
 }
