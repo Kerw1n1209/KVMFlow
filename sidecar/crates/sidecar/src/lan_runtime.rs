@@ -116,6 +116,10 @@ pub(crate) struct LanRuntime {
     /// our own. Makes the exchange symmetric and self-healing: a lost push on
     /// a replaced session is recovered without waiting for a new transition.
     profile_exchanges: BTreeMap<String, SessionGeneration>,
+    /// Latest owner report per peer with the session it arrived on. A setup
+    /// waiting for this computer's own inputs resumes from it once they are
+    /// learned, instead of depending on the peer's next snapshot arriving.
+    peer_profiles: BTreeMap<String, (Source, ProfileReport)>,
 }
 
 impl Runtime {
@@ -974,6 +978,12 @@ impl Runtime {
                 }
                 return;
             }
+            "snapshot" if drop_setup_snapshot_for_test(self.config.as_ref()) => {
+                Err(CoreError::new(
+                    "E_LAN_TEST_DROPPED",
+                    "snapshot dropped by KVMFLOW_LAN_TEST_DROP_SETUP_SNAPSHOTS",
+                ))
+            }
             "snapshot" => self.lan_merge(&source, &message.body),
             "status" => {
                 self.lan_observe_status(&source, &message.body);
@@ -1373,6 +1383,9 @@ impl Runtime {
                 .peer_platforms
                 .insert(report.device_id.clone(), report.platform.clone());
         }
+        self.lan_runtime
+            .peer_profiles
+            .insert(source.device_id.clone(), (source.clone(), report.clone()));
         let changed = if self.resume_pair_setup(source, &report) {
             true
         } else {
@@ -1569,6 +1582,26 @@ impl Runtime {
         false
     }
 
+    /// A pending setup completes on this side as soon as both owners'
+    /// inputs are known, from the peer report already received over a
+    /// still-current session. The peer completes symmetrically from ours.
+    fn resume_setup_from_known_profiles(&mut self) {
+        let pending = self
+            .config
+            .as_ref()
+            .and_then(|c| c.switch_group.as_ref())
+            .is_some_and(|g| g.sync.get("setup_pending").is_some());
+        if !pending {
+            return;
+        }
+        let known: Vec<_> = self.lan_runtime.peer_profiles.values().cloned().collect();
+        for (source, report) in known {
+            if self.current_source(&source) {
+                self.resume_pair_setup(&source, &report);
+            }
+        }
+    }
+
     /// Low-frequency pending-input polling (§6.1 step 4): while any local
     /// monitor input was never observed (source Unknown), retry reading it
     /// (the user may have just switched the monitor to this host) and fold
@@ -1674,6 +1707,7 @@ impl Runtime {
                     for peer in self.lan_runtime.online.clone() {
                         self.lan_send_profile(&peer);
                     }
+                    self.resume_setup_from_known_profiles();
                     if !disk_is_v1 {
                         self.lan_broadcast_snapshot("change");
                     }
@@ -1925,6 +1959,16 @@ impl Runtime {
 }
 
 const DEFAULT_LAN_PORT: u16 = 47820;
+
+/// Debug builds only: lets the end-to-end tests lose every snapshot that
+/// reaches a computer whose setup is still pending.
+fn drop_setup_snapshot_for_test(config: Option<&MultiDeviceConfig>) -> bool {
+    cfg!(debug_assertions)
+        && std::env::var("KVMFLOW_LAN_TEST_DROP_SETUP_SNAPSHOTS").as_deref() == Ok("1")
+        && config
+            .and_then(|c| c.switch_group.as_ref())
+            .is_some_and(|g| g.sync.get("setup_pending").is_some())
+}
 
 fn lan_hint(code: &str) -> &'static str {
     match code {

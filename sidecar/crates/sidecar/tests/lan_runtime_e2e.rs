@@ -42,6 +42,16 @@ impl Client {
         peers: &[SocketAddr],
         scenario: &str,
     ) -> Self {
+        Self::spawn_with_env(config_path, lan_port, peers, scenario, &[])
+    }
+
+    fn spawn_with_env(
+        config_path: &std::path::Path,
+        lan_port: u16,
+        peers: &[SocketAddr],
+        scenario: &str,
+        env: &[(&str, &str)],
+    ) -> Self {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_kvmflow-sidecar"));
         cmd.args(["--backend", "simulated", "--scenario", scenario, "--config"])
             .arg(config_path)
@@ -54,6 +64,7 @@ impl Client {
             cmd.arg("--lan-peer").arg(peer.to_string());
         }
         cmd.env("KVMFLOW_LAN_ALLOW_LOOPBACK", "1");
+        cmd.envs(env.iter().copied());
         let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -2023,10 +2034,11 @@ fn wait_complete_topology(a: &mut Client, b: &mut Client) -> (Value, Value) {
         {
             return (ca, cb);
         }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "topology never completed: a={ca} b={cb}"
-        );
+        if std::time::Instant::now() >= deadline {
+            let ia = a.request("state.get", json!({}))["lan"]["issues"].clone();
+            let ib = b.request("state.get", json!({}))["lan"]["issues"].clone();
+            panic!("topology never completed: a={ca} b={cb} a_issues={ia} b_issues={ib}");
+        }
         thread::sleep(Duration::from_millis(150));
     }
 }
@@ -2378,4 +2390,44 @@ fn dialing_computer_adopts_the_waiting_computers_trigger_only_when_aligned() {
         let kept: Value = serde_json::from_slice(&std::fs::read(&pb).unwrap()).unwrap();
         assert_eq!(kept["trigger"]["members"], members);
     }
+}
+
+#[test]
+fn pending_setup_completes_from_the_peer_profile_when_its_snapshot_is_lost() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let pa = dir.path().join("primary/config.json");
+    let pb = dir.path().join("secondary/config.json");
+    std::fs::create_dir_all(pa.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(pb.parent().unwrap()).unwrap();
+    let mut a = Client::spawn(&pa, 0, &[]);
+    // The secondary rejects every snapshot while its setup is pending, as when
+    // the primary's one broadcast after completing is lost.
+    let mut b = Client::spawn_with_env(
+        &pb,
+        0,
+        &[],
+        "idle",
+        &[("KVMFLOW_LAN_TEST_DROP_SETUP_SNAPSHOTS", "1")],
+    );
+    let primary = a.request("lan.identity", json!({}))["device_id"].clone();
+    let displays = a.request("display.list", json!({}))["displays"].clone();
+    let monitors: Vec<Value> = displays
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            json!({"fingerprint":d["edid_id"], "label":d["model_name"],
+                "local_input":if i==0 {16} else {8}, "source":"learned_active_read"})
+        })
+        .collect();
+    let cfg = json!({"schema_version":2,"local_device":{"device_id":primary,"host_label":"Windows primary","monitors":monitors},
+        "trigger":{"anchor":{"vid_pid":"1a40:0101"},"members":[{"vid_pid":"3837:303c"}],"debounce":{"t_stable_ms":0,"t_absent_ms":0,"t_cooldown_ms":1000}},
+        "advanced":{"ddc_retry":{"attempts":1,"delay_ms":0}}});
+    a.request("config.set", json!({"config":cfg}));
+    b.request("lan.setup.secondary", json!({"host_label":"Studio Mac"}));
+    complete_pairing(&mut a, &mut b);
+    let (_, cb) = wait_complete_topology(&mut a, &mut b);
+    assert!(cb["switch_group"]["sync"].get("setup_pending").is_none());
 }
