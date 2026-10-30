@@ -394,8 +394,6 @@ input, select { font-weight: 400; }
 /* Recent events use the page scroll; short lists must not create a nested scroller. */
 #diagnostics-page .event-box { max-height: none; overflow: visible; }
 #diagnostics-page .event > div { min-width: 0; overflow-wrap: anywhere; }
-.recovery { margin-top: 20px; }
-.recovery-row { padding-top: 14px; padding-bottom: 14px; }
 button:active:not(:disabled) { transform: translateY(1px); }
 .toggle-control:active .toggle-track { border-color: var(--ink); }
 @media (max-width: 900px) {
