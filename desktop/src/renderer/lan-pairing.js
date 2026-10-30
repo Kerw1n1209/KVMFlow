@@ -402,6 +402,16 @@
 
   // ---- role-free onboarding -------------------------------------------------
   let discoveryTimer = null, followTimer = null, profileTimer = null;
+  // The 2 s poll retries a failed profile refresh; only a run of failures
+  // (about 10 s) ends the flow, so one dropped request cannot.
+  let profileFailures = 0;
+  function pollProfile() {
+    const current = session;
+    return window.kvmflow.request('lan.profile.refresh', {}).then(() => { profileFailures = 0; }, error => {
+      if (session !== current || mode !== 'confirm') return;
+      if (++profileFailures >= 5) failFlow(error);
+    });
+  }
   let flowGeneration = 0, initiator = false, busy = false, failedMonitors = [], recoveryMode = null;
   let detected = [], skipped = new Set(), capture = null, testRun = null;
   const committed = () => ['committed', 'peer_committed'].includes(note?.phase);
@@ -634,7 +644,8 @@
           mode = 'confirm';
           await window.kvmflow.request('lan.profile.refresh', {});
           if (session !== current) return;
-          profileTimer = setInterval(() => { if (mode === 'confirm') void window.kvmflow.request('lan.profile.refresh', {}).catch(failFlow); }, 2000);
+          profileFailures = 0;
+          profileTimer = setInterval(() => { if (mode === 'confirm') void pollProfile(); }, 2000);
         } else if (note.config_merged === false || !window.KVMFlowPairingConfig.hasTopology(current.deviceId)) failFlow({ code: 'E_LAN_SETUP_PENDING' });
         else mode = 'done';
       } catch (error) { if (session === current) failFlow(error); }
@@ -864,7 +875,7 @@
   window.kvmflow?.onNotification?.('lan.profile', async data => {
     const current = session;
     if (!Array.isArray(data?.monitors)) {
-      if (data?.phase === 'inputs_learned') void window.kvmflow.request('lan.profile.refresh', {}).catch(failFlow);
+      if (data?.phase === 'inputs_learned') void pollProfile();
       return;
     }
     // Settings still follows every owner, but a stale/foreign owner cannot
