@@ -918,7 +918,7 @@
     } catch (error) { log(t("export.failed"), String(error?.message || t("unable.to.export.records"))); }
   }, true);
   const resetButton = byId('reset-config');
-  Promise.resolve(S.info).then((info) => { resetButton.hidden = !String(info?.version || '').includes('-beta'); }).catch(() => {});
+  Promise.resolve(S.info).then((info) => { byId('reset-panel').hidden = !String(info?.version || '').includes('-beta'); }).catch(() => {});
   resetButton.addEventListener('click', async () => {
     resetButton.disabled = true;
     try {
@@ -927,7 +927,7 @@
     resetButton.disabled = false;
   });
   S.onClientNavigate((target) => {
-    // "settings#mixed" opens the settings page at the mixed mode section.
+    // "settings#mixed" opens the mixed mode page.
     const [page, section] = String(target).split('#');
     navigate(page === 'wizard' ? 'guide' : page, { section });
     if (page === 'diagnostics' && section === 'feedback') window.KVMFlowFeedback.open();

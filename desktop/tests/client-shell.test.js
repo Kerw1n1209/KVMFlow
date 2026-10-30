@@ -403,11 +403,11 @@ test('hidden host mode retains its saved value and is not cleared by saving sett
 
 test('only beta builds offer a configuration reset, and a failed reset is reported', async t => {
   const stable = await client(t);
-  assert.equal(stable.win.document.querySelector('#reset-config').hidden, true);
+  assert.equal(stable.win.document.querySelector('#reset-panel').hidden, true);
   let resets = 0;
   const beta = await client(t, { version: '0.4.0-beta.9', resetConfig: async () => { resets += 1; throw new Error('display restore timed out'); } });
   const button = beta.win.document.querySelector('#reset-config');
-  assert.equal(button.hidden, false);
+  assert.equal(beta.win.document.querySelector('#reset-panel').hidden, false);
   button.click(); await tick();
   assert.equal(resets, 1);
   assert.equal(button.disabled, false);

@@ -4,6 +4,11 @@ const { client, v2, tick, mixedState } = require('./client-helper');
 const clone = value => structuredClone(value);
 const state = (mixed, lan) => ({state:'idle',enabled:true,mixed,...(lan ? {lan} : {})});
 const text = (win, selector) => win.document.querySelector(selector).textContent;
+const flip = (win, on) => {
+  const toggle = win.document.querySelector('#mixed-toggle');
+  toggle.checked = on;
+  toggle.dispatchEvent(new win.Event('change', {bubbles: true}));
+};
 
 test('normal mode renders screens, observed keyboard holder and next physical port without LAN placeholders', async t => {
   const {win, requests} = await client(t);
@@ -60,17 +65,18 @@ test('closed lid and single screen prevent enabling but never disabling active m
   assert.equal(win.document.querySelectorAll('.assign-select').length, 0);
   mixed.enabled = true; subscriptions.get('state')(state(mixed));
   assert.equal(win.document.querySelector('#mixed-toggle').disabled, false);
-  win.document.querySelector('#mode-action').click();
+  flip(win, false);
   await tick();
 });
 
-test('all-to-one reason names the computer and the status action opens mixed settings', async t => {
+test('all-to-one reason names the computer and keeps mixed mode from being enabled', async t => {
   const mixed = mixedState(); mixed.assignment.forEach(a => a.device_id = 'host-mac');
   mixed.validation={ok:false,reasons:[{code:'all_to_one_computer',severity:'error'}]};
   const {win,requests} = await client(t, {state:state(mixed)});
   assert.match(text(win, '#mixed-description'), /Mac，混屏没有效果/);
-  win.document.querySelector('#mode-action').click();
-  assert.equal(win.document.querySelector('#settings-page').classList.contains('hidden'), false);
+  assert.equal(win.document.querySelector('#mixed-toggle').disabled, true);
+  flip(win, true); await tick();
+  assert.equal(win.document.querySelector('#mixed-toggle').checked, false);
   assert.equal(requests.some(r=>r.method==='mixed.set'), false);
 });
 
@@ -102,7 +108,6 @@ test('runtime restoring phase disables all edit controls and finishes with fallb
   const mixed=mixedState(); mixed.transition={phase:'restoring',started_ms:10,outcome:'ok',reasons:[]};
   const {win,subscriptions}=await client(t,{state:state(mixed)});
   assert.match(text(win,'#mode-bar'), /正在恢复同屏/);
-  assert.equal(win.document.querySelector('#mode-action').disabled,true);
   assert.equal(win.document.querySelector('#mixed-toggle').disabled,true);
   assert.ok([...win.document.querySelectorAll('.assign-select')].every(el=>el.disabled));
   mixed.transition={phase:'idle',outcome:'partial',reasons:[]};
@@ -131,11 +136,11 @@ test('mixed.set is serialized against assignment edits and partial execution is 
   const {win,requests}=await client(t,{state:state(mixed),request:(method)=>{
     if(method==='mixed.set') return new Promise(resolve=>{finish=resolve;});
   }});
-  win.document.querySelector('#mode-action').click();
+  flip(win, true);
   await tick();
   assert.equal(win.document.querySelector('#mixed-toggle').disabled,true);
   assert.ok([...win.document.querySelectorAll('.assign-select')].every(el=>el.disabled));
-  win.document.querySelector('#mode-action').click();
+  flip(win, true);
   const updated={...mixed,enabled:true,revision:2,execution:[{ok:false,error:{code:'E_BACKEND',message:'failed'}}],transition:{phase:'idle',outcome:'partial'}};
   finish({saved:true,mixed:updated}); await tick();
   assert.equal(requests.filter(r=>r.method==='mixed.set').length,1);

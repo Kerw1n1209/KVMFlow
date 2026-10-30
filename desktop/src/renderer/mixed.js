@@ -56,14 +56,13 @@
     if (!root) return;
     const ctx = context();
     const bar = View.modeBar(ctx, transition);
+    byId('mode-bar').hidden = !bar;
     if (!bar) { root.hidden = true; return; }
     root.hidden = false;
     const blocked = bar.blocked.length > 0;
     byId('mode-bar').className = `mode-bar ${bar.mode}`;
     html('mode-bar', `<div class="mode-copy"><div class="mode-title"><strong>${bar.title}</strong>${bar.tag ? `<span class="settings-tag">${bar.tag}</span>` : ''}</div>
-      <p class="hint" role="status">${esc(bar.description)}</p></div>
-      <button type="button" class="secondary" id="mode-action" data-mixed-action="${bar.action}" ${bar.busy ? 'disabled' : ''}
-        ${blocked ? `title="${esc(bar.blocked[0])}" aria-describedby="mode-blocked"` : ''}>${t(bar.action === 'enable' ? 'mixed.enable' : 'mixed.disable')}</button>` + (blocked ? `<p id="mode-blocked" class="mode-blocked hint">${esc(bar.blocked[0])}</p>` : ''));
+      <p class="hint" role="status">${esc(bar.description)}</p></div>` + (blocked ? `<p id="mode-blocked" class="mode-blocked hint">${esc(bar.blocked[0])}</p>` : ''));
     const screens = View.statusScreens(ctx);
     byId('screen-row').classList.toggle('many', screens.length >= 3);
     html('screen-row', screens.map(screenHtml).join(''));
@@ -269,7 +268,7 @@
   async function setEnabled(enabled) {
     if (!mixed || assignBusy || ['enabling', 'disabling'].includes(View.effectiveTransition(mixed, transition))) return;
     const ctx = context();
-    if (enabled && View.blockReasons(ctx).length) { window.navigate('settings', { section: 'mixed' }); return; }
+    if (enabled && View.blockReasons(ctx).length) return;
     transition = enabled ? 'enabling' : 'disabling';
     settingsError = null;
     render();
@@ -320,14 +319,10 @@
 
   document.addEventListener('click', (event) => {
     const dismiss = event.target.closest('[data-mixed-dismiss]');
-    if (dismiss) {
-      const keys = dismissed(); keys.add(dismiss.dataset.mixedDismiss);
-      try { localStorage.setItem(dismissedKey(), JSON.stringify([...keys].slice(-100))); } catch { /* Still hide this occurrence. */ }
-      dismiss.closest('.status-banner').remove(); return;
-    }
-    const control = event.target.closest('[data-mixed-action]');
-    if (!control || control.disabled) return;
-    void setEnabled(control.dataset.mixedAction === 'enable');
+    if (!dismiss) return;
+    const keys = dismissed(); keys.add(dismiss.dataset.mixedDismiss);
+    try { localStorage.setItem(dismissedKey(), JSON.stringify([...keys].slice(-100))); } catch { /* Still hide this occurrence. */ }
+    dismiss.closest('.status-banner').remove();
   });
   byId('mixed-toggle')?.addEventListener('change', (event) => {
     const checked = event.currentTarget.checked;
