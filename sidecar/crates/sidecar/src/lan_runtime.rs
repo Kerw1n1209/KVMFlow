@@ -2005,6 +2005,7 @@ mod record_key_tests {
             last_candidates: None,
             wizard_active: false,
             config_recovery: None,
+            config_etag: None,
         }
     }
 

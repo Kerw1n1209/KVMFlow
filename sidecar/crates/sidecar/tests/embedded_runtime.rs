@@ -354,3 +354,47 @@ fn paired_legacy_config_emits_actionable_issue_without_changing_bytes() {
     );
     runtime.shutdown();
 }
+
+#[test]
+fn a_save_from_an_older_view_is_refused_and_changes_are_announced() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("config.json"),
+        serde_json::to_vec(&config()).unwrap(),
+    )
+    .unwrap();
+    let (runtime, rx) = start(dir.path(), "config.json");
+    let read = runtime
+        .request("config.get", json!({ "with_etag": true }))
+        .unwrap();
+    let (mut config, old) = (read["config"].clone(), read["etag"].clone());
+    assert_eq!(config, runtime.request("config.get", json!({})).unwrap());
+    config["local_device"]["host_label"] = json!("renamed");
+    runtime
+        .request(
+            "config.set",
+            json!({ "config": config, "expected_etag": old }),
+        )
+        .unwrap();
+    let new = runtime
+        .request("config.get", json!({ "with_etag": true }))
+        .unwrap()["etag"]
+        .clone();
+    assert_ne!(new, old);
+    let announced = rx
+        .iter()
+        .find(|(kind, _)| kind == "config.changed")
+        .unwrap();
+    assert_eq!(announced.1["etag"], new);
+    config["local_device"]["host_label"] = json!("stale");
+    let error = runtime
+        .request(
+            "config.set",
+            json!({ "config": config, "expected_etag": old }),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "E_CONFIG_STALE");
+    let current = runtime.request("config.get", json!({})).unwrap();
+    assert_eq!(current["local_device"]["host_label"], "renamed");
+    runtime.shutdown_and_join().unwrap();
+}

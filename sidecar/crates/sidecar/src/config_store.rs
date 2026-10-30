@@ -347,6 +347,27 @@ impl Runtime {
         value
     }
 
+    /// Content tag of the config as `config.get` shows it. A settings save
+    /// built from an older view is refused instead of reverting changes a
+    /// paired computer synced in the meantime.
+    pub(crate) fn config_etag(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(self.active_config_value().to_string().as_bytes());
+        digest[..12].iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Tells the UI when the config changed behind it (LAN sync, pairing,
+    /// remote mixed updates), so it reloads before the next save.
+    pub(crate) fn publish_config_change(&mut self) {
+        let etag = self.config_etag();
+        match self.config_etag.replace(etag.clone()) {
+            Some(previous) if previous != etag => {
+                self.notify("config.changed", json!({ "etag": etag }));
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn config_mode(&self) -> &'static str {
         match &self.config {
             Some(config) if config.ready_for_group_switch() => "multi_device_armed",
@@ -492,9 +513,10 @@ impl Runtime {
                     Level::Info,
                     json!({"path": self.config_path.to_string_lossy(), "mode": mode}),
                 );
+                let etag = self.config_etag();
                 self.respond(ResponseLine::ok(
                     id,
-                    json!({"saved": true, "path": self.config_path.to_string_lossy(), "mode": mode}),
+                    json!({"saved": true, "path": self.config_path.to_string_lossy(), "mode": mode, "etag": etag}),
                 ));
             }
             Err(error) => self.respond(ResponseLine::err(id, E_CONFIG_IO, error.to_string())),

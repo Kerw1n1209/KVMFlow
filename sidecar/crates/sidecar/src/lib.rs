@@ -98,6 +98,8 @@ struct Runtime {
     /// Set when the saved config could not be parsed at startup, so the UI
     /// can explain why setup is required again. Cleared by the next save.
     config_recovery: Option<Value>,
+    /// Tag of the config the UI last saw; see `publish_config_change`.
+    config_etag: Option<String>,
 }
 
 impl Runtime {
@@ -765,6 +767,7 @@ fn run_runtime(
         last_candidates: None,
         wizard_active: false,
         config_recovery: None,
+        config_etag: None,
     };
 
     rt.notify(
@@ -795,6 +798,7 @@ fn run_runtime(
 
     while !stopped.load(Ordering::Acquire) {
         rt.poll_lan();
+        rt.publish_config_change();
         // Idle tick path: drain with timeout so time-based tracker windows advance.
         let msg = match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(m) => m,
@@ -866,6 +870,7 @@ fn run_runtime(
             rt.check_bounce_watch();
             rt.poll_mixed_topology();
         }
+        rt.publish_config_change();
     }
 
     // Display recovery must not wait for network teardown or peer deadlines.

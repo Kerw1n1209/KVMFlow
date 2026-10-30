@@ -75,6 +75,7 @@ pub const NOTIFICATION_KINDS: &[&str] = &[
     "trigger",
     "switch.report",
     "layout.report",
+    "config.changed",
     "mixed.changed",
     "mixed.pending_remote",
     "mixed.warning",

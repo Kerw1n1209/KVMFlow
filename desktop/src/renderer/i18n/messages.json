@@ -703,7 +703,8 @@
       "v2.error.identity": "无法读取本机身份。请重启 KVMFlow 后重试。",
       "v2.error.monitors": "显示器配置不完整。请把每台显示器切到本机后重试。",
       "v2.error.generic": "配对失败（{p0}）。请重试；仍失败时请发送反馈。",
-      "v2.error.backend": "KVMFlow 后台组件未响应。请重启 KVMFlow 后重试。"
+      "v2.error.backend": "KVMFlow 后台组件未响应。请重启 KVMFlow 后重试。",
+      "config.stale": "设置刚在另一台电脑上更新，请再保存一次。"
     },
     "en": {
       "this.computer": "This computer",
@@ -1396,7 +1397,8 @@
       "v2.error.identity": "Could not read this computer’s identity. Restart KVMFlow and try again.",
       "v2.error.monitors": "The monitor setup is incomplete. Switch each monitor to this computer, then try again.",
       "v2.error.generic": "Pairing failed ({p0}). Try again; if it still fails, send feedback.",
-      "v2.error.backend": "The KVMFlow background component is not responding. Restart KVMFlow and try again."
+      "v2.error.backend": "The KVMFlow background component is not responding. Restart KVMFlow and try again.",
+      "config.stale": "Settings changed on another computer. Save again."
     }
   }
 }

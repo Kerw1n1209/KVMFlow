@@ -10,6 +10,7 @@ pub const E_DDC_FAILED: &str = "E_DDC_FAILED";
 pub const E_DDC_NOT_READABLE: &str = "E_DDC_NOT_READABLE";
 pub const E_CONFIG_INVALID: &str = "E_CONFIG_INVALID";
 pub const E_CONFIG_IO: &str = "E_CONFIG_IO";
+pub const E_CONFIG_STALE: &str = "E_CONFIG_STALE";
 pub const E_NOT_OWNER: &str = "E_NOT_OWNER";
 pub const E_LAN_GROUP_CONFLICT: &str = "E_LAN_GROUP_CONFLICT";
 pub const E_LAN_NOT_MEMBER: &str = "E_LAN_NOT_MEMBER";

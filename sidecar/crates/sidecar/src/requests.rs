@@ -60,9 +60,28 @@ impl Runtime {
                 self.respond(ResponseLine::ok(id, result));
             }
             "config.get" => {
-                self.respond(ResponseLine::ok(id, self.active_config_value()));
+                let config = self.active_config_value();
+                if req.params.get("with_etag").and_then(Value::as_bool) == Some(true) {
+                    let etag = self.config_etag();
+                    self.respond(ResponseLine::ok(
+                        id,
+                        json!({ "config": config, "etag": etag }),
+                    ));
+                } else {
+                    self.respond(ResponseLine::ok(id, config));
+                }
             }
             "config.set" => {
+                if let Some(expected) = req.params.get("expected_etag").and_then(Value::as_str) {
+                    if expected != self.config_etag() {
+                        self.respond(ResponseLine::err(
+                            id,
+                            kvmflow_core::errors::E_CONFIG_STALE,
+                            "Settings changed on another computer. Save again.",
+                        ));
+                        return true;
+                    }
+                }
                 let mut cfg_value = req.params.get("config").cloned().unwrap_or(Value::Null);
                 // Internal convergence registers are never an external settings
                 // surface. Reject injection and restore live values on UI saves.

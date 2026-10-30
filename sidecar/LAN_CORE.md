@@ -99,6 +99,13 @@ rejects any explicit attempt to supply them with `E_NOT_OWNER`, and preserves th
 live internal registers when an ordinary UI settings save omits them. Direct
 snapshot serialization for authenticated synchronization still includes them.
 
+`config.get` with `{"with_etag": true}` returns `{config, etag}`, a content tag
+of that view; `config.set` returns the new tag. A `config.set` carrying
+`expected_etag` from an older view fails with `E_CONFIG_STALE` instead of
+reverting a change a paired computer synced in between. Whenever the view changes
+by any other path (sync, pairing, remote mixed updates) the runtime sends
+`config.changed {etag}` so the UI reloads before its next save.
+
 ## Synchronization APIs
 
 ```rust

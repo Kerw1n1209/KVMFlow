@@ -15,6 +15,7 @@
   let sidecarConfig = null;
   let runtimeDeviceId = null;
   let pairingConfigStale = false;
+  let configEtag = null; // runtime tag of the config sidecarConfig was read from
   let appliedModel = null;
   let computerName = t("this.computer");
   let computerNameIsFallback = true;
@@ -273,6 +274,20 @@
     };
   }
 
+  // A save carries the tag of the config it was built from; the runtime
+  // refuses it (E_CONFIG_STALE) if a paired computer synced a change since.
+  async function readConfig() {
+    const result = await S.request('config.get', { with_etag: true });
+    const tagged = result && typeof result === 'object' && 'etag' in result && 'config' in result;
+    configEtag = tagged ? result.etag : null;
+    return tagged ? result.config : result;
+  }
+  async function saveConfig(config) {
+    const result = await S.request('config.set', { config, ...(configEtag ? { expected_etag: configEtag } : {}) });
+    configEtag = result?.etag ?? null;
+    return result;
+  }
+
   async function persistManualMapping(computerGroupOnly = false) {
     return serializeConfigWrite(async () => {
       if (computerGroupOnly && !sidecarConfig) {
@@ -283,14 +298,28 @@
         return;
       }
       if (pairingConfigStale) await reloadPairingConfig();
-      const next = localConfigFromModel();
-      if (computerGroupOnly) {
-        next.trigger = structuredClone(sidecarConfig.trigger);
-        next.advanced = structuredClone(sidecarConfig.advanced);
+      const build = () => {
+        const next = localConfigFromModel();
+        if (computerGroupOnly) {
+          next.trigger = structuredClone(sidecarConfig.trigger);
+          next.advanced = structuredClone(sidecarConfig.advanced);
+        }
+        if ('host_label' in next) next.host_label = current().name;
+        writtenModel = structuredClone(model);
+        return next;
+      };
+      let writtenModel;
+      let next = build();
+      try {
+        await saveConfig(next);
+      } catch (error) {
+        if (error?.code !== 'E_CONFIG_STALE') throw error;
+        // A paired computer synced a change meanwhile: reload keeps the
+        // user's edits on top of it, then save once more.
+        await reloadPairingConfig();
+        next = build();
+        await saveConfig(next);
       }
-      if ('host_label' in next) next.host_label = current().name;
-      const writtenModel = structuredClone(model);
-      await S.request('config.set', { config: next });
       appliedModel = writtenModel;
       sidecarConfig = next;
       window.KVMFlowMixed?.setConfig(next);
@@ -304,7 +333,7 @@
   // Configuration writes and LAN reloads share a queue: a settings save can
   // never race a committed snapshot and write the pre-pairing topology back.
   async function reloadPairingConfig() {
-    const config = await S.request('config.get');
+    const config = await readConfig();
     if (!config && sidecarConfig?.schema_version === 2) throw new Error(t('lan.error.config.refresh'));
     // Read drafts AFTER the await: Save may already have copied form edits
     // into model while waiting behind this reload in the write queue.
@@ -392,22 +421,22 @@
     skipLocal: fingerprint => { onboardingMonitors = (onboardingMonitors || []).filter(m => m.fingerprint !== fingerprint); },
     saveTrigger: trigger => serializeConfigWrite(async () => {
       if (!validTrigger(trigger)) throw new Error(t('lan.error.local.setup'));
-      const config = await S.request('config.get');
+      const config = await readConfig();
       if (!config?.local_device) { pendingSetupTrigger = structuredClone(trigger); return null; }
       config.trigger = structuredClone(trigger);
-      await S.request('config.set', { config });
+      await saveConfig(config);
       applySidecarConfig(config, null); redrawAll();
       return config;
     }),
     hasTopology: peerId => completePairTopology(sidecarConfig, peerId),
     confirmTopology: (peerId, name) => serializeConfigWrite(async () => {
-      const config = await S.request('config.get');
+      const config = await readConfig();
       if (!completePairTopology(config, peerId)) throw Object.assign(new Error(t('lan.error.setup.pending')), { code: 'E_LAN_SETUP_PENDING' });
       const peer = config.switch_group.devices.find(d => d.device_id === peerId);
       if (name?.trim()) peer.name = name.trim();
       config.switch_group.sync ||= {};
       config.switch_group.sync.ports_confirmed = true;
-      await S.request('config.set', { config });
+      await saveConfig(config);
       applySidecarConfig(config, null); redrawAll();
       return config;
     }),
@@ -432,7 +461,7 @@
         || m.local_input < 0 || m.local_input > 65535 || !['learned_active_read', 'manual'].includes(m.source))) {
         throw Object.assign(new Error(t('lan.error.local.setup')), { code: 'E_LAN_LOCAL_SETUP' });
       }
-      const previous = await S.request('config.get');
+      const previous = await readConfig();
       const config = { ...(previous || {}), schema_version: 2, local_device: {
         ...(previous?.local_device || {}), device_id: self.device_id, host_label: localComputer.name, monitors: structuredClone(monitors),
       }, switch_group: previous?.switch_group || null, trigger: { ...structuredClone(trigger), debounce: { ...debounceSettings } }, advanced: previous?.advanced || {
@@ -440,7 +469,7 @@
       } };
       const groupLocal = config.switch_group?.devices?.find(d => d.device_id === self.device_id);
       if (groupLocal) groupLocal.monitors = structuredClone(monitors);
-      await S.request('config.set', { config });
+      await saveConfig(config);
       onboardingMonitors = null; pendingSetupTrigger = null;
       applySidecarConfig(config, null);
     }),
@@ -586,7 +615,7 @@
       if (recalibrationNeedsPersist) {
         try {
           const updatedConfig = localConfigFromModel();
-          await S.request('config.set', { config: updatedConfig });
+          await saveConfig(updatedConfig);
           sidecarConfig = updatedConfig;
           recalibrationNeedsPersist = false;
         } catch (error) {
@@ -627,7 +656,7 @@
       };
       const clearedConfig = localConfigFromModel();
       sidecarConfig = clearedConfig;
-      await S.request('config.set', { config: clearedConfig });
+      await saveConfig(clearedConfig);
       configCleared = true;
       recalibrationNeedsPersist = true;
       model.usbConfirmed = false;
@@ -641,7 +670,7 @@
       let previousConfigRestored = !configCleared;
       if (configCleared && previousConfig) {
         try {
-          await S.request('config.set', { config: previousConfig });
+          await saveConfig(previousConfig);
           previousConfigRestored = true;
         } catch { /* report that the old configuration could not be restored */ }
       }
@@ -712,7 +741,7 @@
           if (sidecarConfig) {
             const next = structuredClone(sidecarConfig);
             next.trigger.debounce = timing;
-            await S.request('config.set', { config: next });
+            await saveConfig(next);
             sidecarConfig = next;
             if (learnedTrigger) learnedTrigger = { ...learnedTrigger, debounce: timing };
           } else {
@@ -903,6 +932,13 @@
     navigate(page === 'wizard' ? 'guide' : page, { section });
     if (page === 'diagnostics' && section === 'feedback') window.KVMFlowFeedback.open();
   });
+  // LAN sync, pairing and remote mixed updates change the config behind the
+  // settings page; reload it so a later save starts from the current one.
+  S.onNotification('config.changed', (data) => {
+    if (data?.etag && data.etag === configEtag) return;
+    pairingConfigStale = true;
+    serializeConfigWrite(reloadPairingConfig).catch(error => console.warn('KVMFlow config reload failed', error));
+  });
   S.onNotification('state', (state) => {
     state = window.KVMFlowMixed ? window.KVMFlowMixed.setState(state) : state;
     if (!state) return;
@@ -960,7 +996,7 @@
     computerNameIsFallback = !(typeof info.computerName === 'string' && info.computerName.trim());
     computerName = typeof info.computerName === 'string' && info.computerName.trim()
       ? info.computerName.trim() : t("this.computer");
-    const config = await S.request('config.get');
+    const config = await readConfig();
     try { runtimeDeviceId = (await S.request('lan.identity'))?.device_id || null; } catch { runtimeDeviceId = null; }
     applySidecarConfig(config, null);
     redrawAll();
@@ -972,7 +1008,7 @@
     // screen on this host. Loading the saved mappings needs no DDC traffic.
     if (!timingMigrationPending || !sidecarConfig || !validTrigger(sidecarConfig.trigger)) return;
     try {
-      await S.request('config.set', { config: sidecarConfig });
+      await saveConfig(sidecarConfig);
       await S.request('usb.watch.start');
       timingMigrationPending = false;
       log(t("switch.timing.updated"), t("monitor.commands.will.now.be.sent.immediately.after.usb.switch.departure"));
