@@ -11,7 +11,7 @@
 在电脑之间切换时，无需再逐台操作显示器菜单。
 
 [![Release](https://img.shields.io/github/v/release/Kerw1n1209/KVMFlow?label=release&color=111111)](https://github.com/Kerw1n1209/KVMFlow/releases) [![Stars](https://img.shields.io/github/stars/Kerw1n1209/KVMFlow?style=flat&color=111111)](https://github.com/Kerw1n1209/KVMFlow/stargazers) [![License](https://img.shields.io/badge/license-MIT-111111)](LICENSE)<br>
-![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-111111?logo=apple&logoColor=white) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
+![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-111111?logo=apple&logoColor=white) ![Windows x64](https://img.shields.io/badge/Windows-x64-111111)
 
 **[官网](https://kvmflow.net)** &nbsp;·&nbsp; **[下载与发行](https://github.com/Kerw1n1209/KVMFlow/releases)** &nbsp;·&nbsp; **[构建指南](docs/building.md)** &nbsp;·&nbsp; **[反馈问题](https://github.com/Kerw1n1209/KVMFlow/issues)** &nbsp;·&nbsp; [English](README.md) · **简体中文**
 
@@ -55,7 +55,7 @@
 
 ### 混屏模式
 
-在**设置**中打开混屏模式，并为每台显示器指定一台电脑。打开后立即生效：按 USB 切换器只切换键鼠，显示器保持各自的电脑；macOS 会暂时断开不属于本机的显示器，让光标不会移到看不见的屏幕上。托盘菜单也可以开关混屏。关闭时，KVMFlow 通过局域网让另一台电脑把屏幕切回来，所以两台电脑都需要在线。
+在**混屏**页打开混屏模式，并为每台显示器指定一台电脑。打开后立即生效：按 USB 切换器只切换键鼠，显示器保持各自的电脑；macOS 会暂时断开不属于本机的显示器，让光标不会移到看不见的屏幕上。托盘菜单也可以开关混屏。关闭时，KVMFlow 通过局域网让另一台电脑把屏幕切回来，所以两台电脑都需要在线。
 
 Windows 上断开显示器的功能尚未完成真机验证，目前默认关闭。
 
@@ -67,9 +67,14 @@ Windows 上断开显示器的功能尚未完成真机验证，目前默认关闭
 
 ## 应用截图
 
-截图来自 KVMFlow v0.2.7（混屏和配对界面的截图待更新），使用示例设备数据。输入值仅作演示，请按自己的显示器读取结果填写。
+截图来自 KVMFlow 0.4.0，使用示例设备数据。输入值仅作演示，请按自己的显示器读取结果填写。
 
-![KVMFlow v0.2.7 状态页面](docs/screenshots/v0.2.7/zh-CN/status.png)
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/v0.4.0/zh-CN/status.png" alt="KVMFlow 状态页面"></td>
+<td width="50%"><img src="docs/screenshots/v0.4.0/zh-CN/mixed.png" alt="KVMFlow 混屏页面"></td>
+</tr>
+</table>
 
 [查看初始化、设置和诊断页面](docs/screenshots/README.md)
 

@@ -11,7 +11,7 @@ A local desktop app watches your shared USB devices and sends DDC/CI commands,<b
 so you can move between computers without separately reaching for each monitor’s menu.
 
 [![Release](https://img.shields.io/github/v/release/Kerw1n1209/KVMFlow?label=release&color=111111)](https://github.com/Kerw1n1209/KVMFlow/releases) [![Stars](https://img.shields.io/github/stars/Kerw1n1209/KVMFlow?style=flat&color=111111)](https://github.com/Kerw1n1209/KVMFlow/stargazers) [![License](https://img.shields.io/badge/license-MIT-111111)](LICENSE)<br>
-![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-111111?logo=apple&logoColor=white) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)
+![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-111111?logo=apple&logoColor=white) ![Windows x64](https://img.shields.io/badge/Windows-x64-111111)
 
 **[Website](https://kvmflow.net)** &nbsp;·&nbsp; **[Releases](https://github.com/Kerw1n1209/KVMFlow/releases)** &nbsp;·&nbsp; **[Build guide](docs/building.md)** &nbsp;·&nbsp; **[Report an issue](https://github.com/Kerw1n1209/KVMFlow/issues)** &nbsp;·&nbsp; **English** · [简体中文](README.zh-CN.md)
 
@@ -55,7 +55,7 @@ Change the interface language under **Settings → Language**: follow the system
 
 ### Mixed mode
 
-Turn on mixed mode in **Settings** and assign each monitor to a computer. It takes effect right away: the USB switch moves only the keyboard and mouse, and each monitor stays on its computer. On macOS, monitors that belong to the other computer are temporarily detached so the cursor can’t wander onto a screen you can’t see. You can also toggle mixed mode from the tray. When you turn it off, KVMFlow asks the other computer over the LAN to switch its screens back, so both computers need to be online.
+Open **Mixed**, turn mixed mode on, and assign each monitor to a computer. It takes effect right away: the USB switch moves only the keyboard and mouse, and each monitor stays on its computer. On macOS, monitors that belong to the other computer are temporarily detached so the cursor can’t wander onto a screen you can’t see. You can also toggle mixed mode from the tray. When you turn it off, KVMFlow asks the other computer over the LAN to switch its screens back, so both computers need to be online.
 
 Display detach on Windows hasn’t been verified on real hardware yet and is off by default.
 
@@ -67,9 +67,14 @@ Display detach on Windows hasn’t been verified on real hardware yet and is off
 
 ## Screenshots
 
-KVMFlow v0.2.7 (mixed mode and pairing screenshots coming), using example device data. Input values are examples, not presets for your monitors.
+KVMFlow 0.4.0 with example device data. Input values are examples, not presets for your monitors.
 
-![KVMFlow v0.2.7 status page](docs/screenshots/v0.2.7/en/status.png)
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/v0.4.0/en/status.png" alt="KVMFlow status page"></td>
+<td width="50%"><img src="docs/screenshots/v0.4.0/en/mixed.png" alt="KVMFlow mixed mode page"></td>
+</tr>
+</table>
 
 [Setup, settings and diagnostics screenshots](docs/screenshots/README.md)
 
