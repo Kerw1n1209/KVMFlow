@@ -1,6 +1,8 @@
 //! Resume the SAS-confirmed setup when pending owner inputs become available.
 use super::*;
-use kvmflow_core::pairing::{plan_pair, PairOptions, PairSide, ProfileInput};
+use kvmflow_core::pairing::{
+    keep_owner_profile_rev, plan_pair, PairOptions, PairSide, ProfileInput,
+};
 
 impl Runtime {
     pub(super) fn resume_pair_setup(&mut self, source: &Source, report: &ProfileReport) -> bool {
@@ -63,6 +65,7 @@ impl Runtime {
                 return Ok(None);
             }
             let mut ready = plan.snapshot.unwrap();
+            keep_owner_profile_rev(&mut ready, report);
             let mut sync = ready.group_sync();
             sync.members = group.group_sync().members;
             sync.extra.remove("setup_pending");

@@ -706,3 +706,24 @@ fn a_pinned_old_id_is_never_claimed_as_an_unpaired_placeholder() {
         .iter()
         .any(|d| d.device_id == "win"));
 }
+
+#[test]
+fn computers_finishing_setup_separately_agree_on_the_owner_profile_rev() {
+    let (mac, mut win) = sides();
+    let rev_of = |s: &kvmflow_core::multidevice::SwitchGroupSnapshot, id: &str| {
+        s.devices
+            .iter()
+            .find(|d| d.device_id == id)
+            .unwrap()
+            .profile_rev
+    };
+    // Windows finishes first and reports the revision it just gave itself.
+    let on_win = pair(&mac, &win, &options()).snapshot.unwrap();
+    win.profile.profile_rev = rev_of(&on_win, "dev-WIN");
+    // The Mac then finishes from that report; a second bump would leave its
+    // copy ahead of the owner, and the owner never accepts a relayed profile.
+    let mut on_mac = pair(&mac, &win, &options()).snapshot.unwrap();
+    assert!(rev_of(&on_mac, "dev-WIN") > rev_of(&on_win, "dev-WIN"));
+    keep_owner_profile_rev(&mut on_mac, &win.profile);
+    assert_eq!(rev_of(&on_mac, "dev-WIN"), rev_of(&on_win, "dev-WIN"));
+}

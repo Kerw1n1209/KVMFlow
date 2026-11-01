@@ -337,6 +337,19 @@ fn check_side(s: &PairSide) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Finishing a pending setup bumps both owners in the plan, but each computer
+/// finishes on its own and only the owner may advance its revision. Keeping the
+/// peer's reported value stops our copy from staying ahead of the owner forever.
+pub fn keep_owner_profile_rev(snapshot: &mut SwitchGroupSnapshot, report: &ProfileReport) {
+    if let Some(device) = snapshot
+        .devices
+        .iter_mut()
+        .find(|d| d.device_id == report.device_id)
+    {
+        device.profile_rev = report.profile_rev;
+    }
+}
+
 /// Argument order is irrelevant: the initiator and basis are selected from
 /// explicit identities and established group state, not the receiver's view.
 pub fn plan_pair(a: &PairSide, b: &PairSide, options: &PairOptions) -> Result<PairPlan, CoreError> {
