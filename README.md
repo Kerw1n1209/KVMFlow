@@ -21,7 +21,7 @@ so you can move between computers without separately reaching for each monitor�
 <tr>
 <td align="center" width="25%"><h3>1 button</h3>keyboard, mouse, and displays</td>
 <td align="center" width="25%"><h3>Mixed mode</h3>keep each monitor on one computer</td>
-<td align="center" width="25%"><h3>LAN pairing</h3>set everything up from one computer</td>
+<td align="center" width="25%"><h3>LAN pairing</h3>two computers, one shared setup</td>
 <td align="center" width="25%"><h3>Local</h3>no cloud, no input forwarding</td>
 </tr>
 </table>
@@ -37,7 +37,7 @@ KVMFlow is for a desk where multiple computers share a keyboard, mouse, and one 
 - **Work locally.** USB detection and input switching run on each computer. Automatic update checks use the update service, and feedback is sent only when you choose to send it.
 - **Stay in control.** Run from the tray, launch at login, pause automatic switching, and export diagnostics.
 - **Mixed mode (beta).** Assign each monitor to one computer. The USB switch then moves only the keyboard and mouse while the pictures stay put; turning mixed mode off asks the other computer to switch its screens back.
-- **LAN pairing (beta).** Both computers find each other on the local network and pair after you compare a 6-digit code. You then set everything up on the primary computer, without typing input values on the secondary.
+- **LAN pairing (beta).** Both computers find each other on the local network, pair automatically and share one configuration.
 
 You need monitors that support DDC/CI input switching. KVMFlow does not transmit keyboard or mouse input over the network; the LAN link only syncs configuration and coordinates switching.
 
@@ -47,7 +47,7 @@ You need monitors that support DDC/CI input switching. KVMFlow does not transmit
 
 **2 · Connect the hardware.** Plug the shared keyboard and mouse into the USB sharing switch. Connect each computer’s video output to its own monitor input, then enable **DDC/CI** in the monitor’s on-screen menu.
 
-**3 · Set up.** Open KVMFlow on both computers and choose **This is the primary** or **This is the secondary** in **Setup**. The primary identifies the USB switch, records its own monitor input values, then connects to the secondary over the LAN; once both screens show the same 6-digit code, the secondary’s monitors appear on the primary. If the secondary can’t read a monitor’s input value, switch that monitor to the secondary once with its own buttons. Without a LAN connection, you can still enter the other computer’s values by hand on the primary.
+**3 · Set up.** Open KVMFlow on both computers and go through the same three steps in **Setup**: **Local setup**, **Connect another computer** and **Test switching**. The first computer waits; the second finds it on the LAN and pairs with it. If several computers are waiting, pick one from the list. If discovery fails, connect by IP address. Monitor input values can be reviewed in **Settings**.
 
 **4 · Press USB Switch.** Check that both the USB devices and the actual monitor picture move to the intended computer.
 
