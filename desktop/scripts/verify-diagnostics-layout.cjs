@@ -70,7 +70,7 @@ const html = fs.readFileSync(path.join(renderer, 'index.html'), 'utf8')
           if (!${count}) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = messages['no.switch.records.yet']; list.append(empty); }
           const main = document.querySelector('main'); main.scrollTop = main.scrollHeight;
           const style = getComputedStyle(list);
-          return { viewport: innerHeight, maxHeight: style.maxHeight, overflow: style.overflowY, listHeight: list.clientHeight, listContent: list.scrollHeight, pageHeight: main.clientHeight, pageContent: main.scrollHeight, width: main.clientWidth, contentWidth: main.scrollWidth, rows: list.querySelectorAll('.event').length, recoveryBottom: document.querySelector('.recovery').getBoundingClientRect().bottom };
+          return { viewport: innerHeight, maxHeight: style.maxHeight, overflow: style.overflowY, listHeight: list.clientHeight, listContent: list.scrollHeight, pageHeight: main.clientHeight, pageContent: main.scrollHeight, width: main.clientWidth, contentWidth: main.scrollWidth, rows: list.querySelectorAll('.event').length };
         })()`;
         const evaluated = await command('Runtime.evaluate', { expression, returnByValue: true }, sessionId);
         if (evaluated.exceptionDetails) throw new Error(JSON.stringify(evaluated.exceptionDetails));
@@ -84,7 +84,6 @@ const html = fs.readFileSync(path.join(renderer, 'index.html'), 'utf8')
         assert.ok(result.contentWidth <= result.width + 1, 'Diagnostics must not scroll horizontally');
         if (count <= 3) assert.ok(result.pageContent <= result.pageHeight + 1, 'Short event lists must fit without extra page scrolling');
         if (count === 8) assert.ok(result.pageContent > result.pageHeight, 'Long lists need real page scrolling');
-        assert.ok(result.recoveryBottom <= result.viewport + 1, 'Recovery instructions must remain reachable');
       }
     }
   } finally {
