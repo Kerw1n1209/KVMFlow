@@ -114,7 +114,7 @@ test('every documented pairing error code maps to readable copy in both language
   }
 });
 
-test('mixed conflict choice offers both assignments and resolves with the selection', async t => {
+test('mixed assignment conflict never asks the user and keeps the default', async t => {
   const requests = [];
   const { win, subscriptions } = await client(t, { state: state(mixedState(), peers([discovered()])), request: async (method, params) => {
     if (method === 'lan.pair.start') return { phase: 'connecting' };
@@ -129,17 +129,11 @@ test('mixed conflict choice offers both assignments and resolves with the select
       joiner: { enabled: true, revision: 1, assignment: [{ fingerprint: 'display-a', device_id: 'host-mac' }, { fingerprint: 'display-b', device_id: 'host-win' }] } } },
   ], proposed_snapshot: {} });
   await tick();
-  const options = [...win.document.querySelectorAll('.pair-option')];
-  assert.equal(options.length, 2);
-  assert.match(options[0].textContent, /Windows/); // this computer is host-win in the fixture
-  assert.ok(options[0].classList.contains('selected')); // basis defaults selected
-  options[1].click();
-  await tick();
-  const fresh = [...win.document.querySelectorAll('.pair-option')];
-  assert.ok(fresh[1].classList.contains('selected'));
+  assert.equal(win.document.querySelectorAll('.pair-option').length, 0);
+  assert.doesNotMatch(text(win, '#pairing-body'), /混屏/);
   win.document.querySelector('[data-pair-action="resolve"]').click();
   await tick();
-  assert.equal(requests.at(-1).params.mixed, 'joiner');
+  assert.equal(requests.at(-1).params.mixed, 'basis');
   assert.match(text(win, '#pairing-body'), /正在完成配对/);
 });
 

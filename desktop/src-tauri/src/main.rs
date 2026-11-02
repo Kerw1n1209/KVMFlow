@@ -4,6 +4,9 @@ mod compatibility;
 mod feedback;
 mod host_name;
 mod locale;
+// Only the leftover shutdown and the tray's current-computer line run until
+// mixed mode comes back; the rest of this module waits for its tray entries.
+#[allow(dead_code)]
 mod mixed_menu;
 mod paths;
 mod recovery;
@@ -39,11 +42,7 @@ struct Host {
     quit: MenuItem<tauri::Wry>,
     last_state: Mutex<runtime_state::Snapshot>,
     tray_config: Mutex<Value>,
-    mixed: CheckMenuItem<tauri::Wry>,
-    mixed_assignment: MenuItem<tauri::Wry>,
-    mixed_configure: MenuItem<tauri::Wry>,
-    mixed_notice_mode: Mutex<Option<bool>>,
-    mixed_busy: AtomicBool,
+    mixed_closing: AtomicBool,
     pause: CheckMenuItem<tauri::Wry>,
     ready: AtomicBool,
     wants_visible: AtomicBool,
@@ -96,7 +95,7 @@ fn update_status(app: &AppHandle, data: &Value) {
                 state.value()["switch_group"].clone();
         }
     }
-    notify_mixed_mode(app);
+    close_leftover_mixed_mode(app);
     refresh_tray(app);
 }
 
@@ -136,35 +135,11 @@ fn refresh_tray(app: &AppHandle) {
         let _ = host.diagnostics.set_text(tr(&handle, "native.diagnostics"));
         let _ = host.feedback.set_text(tr(&handle, "native.feedback"));
         let _ = host.quit.set_text(tr(&handle, "native.quit"));
-        let _ = host.mixed.set_text(tr(&handle, "mixed.mode"));
-        let _ = host.mixed.set_checked(mixed["enabled"] == true);
-        let allowed = mixed_menu::interaction_allowed(
-            mixed,
-            handle
-                .state::<updates::Updates>()
-                .installing
-                .load(Ordering::Acquire),
-            host.mixed_busy.load(Ordering::Acquire),
-        );
-        let _ = host.mixed.set_enabled(allowed);
-        let _ = host
-            .mixed_configure
-            .set_text(tr(&handle, "native.mixed.configure"));
         if let Some(tray) = handle.tray_by_id("kvmflow") {
             let _ = tray.set_tooltip(Some(format!("KVMFlow - {text}")));
             let result = (|| -> tauri::Result<()> {
                 let menu = Menu::new(&handle)?;
                 menu.append(&host.status)?;
-                if let Some(text) = mixed_menu::assignment(&config, mixed, &translate) {
-                    host.mixed_assignment.set_text(text)?;
-                    menu.append(&host.mixed_assignment)?;
-                }
-                menu.append(&host.mixed)?;
-                // Disabled native menu items cannot receive click events. Keep
-                // a live settings entry next to the disabled checkbox.
-                if !allowed {
-                    menu.append(&host.mixed_configure)?;
-                }
                 menu.append(&PredefinedMenuItem::separator(&handle)?)?;
                 menu.append(&host.settings)?;
                 menu.append(&host.diagnostics)?;
@@ -182,29 +157,35 @@ fn refresh_tray(app: &AppHandle) {
     });
 }
 
-fn notify_mixed_mode(app: &AppHandle) {
-    let handle = app.clone();
-    // Like the tray refresh, notification tasks read the newest accepted
-    // snapshot when they run. Never retain an older response across dispatch.
-    let _ = app.run_on_main_thread(move || {
-        let Some(host) = handle.try_state::<Host>() else {
-            return;
-        };
-        let state = host.last_state.lock().unwrap().value().clone();
-        let changed = {
-            let mut baseline = host.mixed_notice_mode.lock().unwrap();
-            mixed_menu::should_notify(&mut baseline, &state["mixed"])
-        };
-        if changed {
-            let config = host.tray_config.lock().unwrap().clone();
-            let _ = handle
-                .notification()
-                .builder()
-                .title(tr(&handle, "native.mixed.title"))
-                .body(mixed_menu::summary(&config, &state, &|key| {
-                    tr(&handle, key)
-                }))
-                .show();
+/// Mixed mode has no UI until it is finished. A config saved by 0.4.0, or an
+/// older peer, can still switch it on; switching it off restores the displays.
+fn close_leftover_mixed_mode(app: &AppHandle) {
+    let Some(host) = app.try_state::<Host>() else {
+        return;
+    };
+    let enabled = host.last_state.lock().unwrap().value()["mixed"]["enabled"] == true;
+    if !enabled
+        || host.exit_pending.load(Ordering::Acquire)
+        || host.mixed_closing.swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let (runtime, generation) = app.state::<Host>().runtime.snapshot();
+        let worker_app = app.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            mixed_menu::close_leftover(
+                &worker_app.state::<updates::Updates>().installing,
+                |method, params| runtime.request(method, params),
+            )
+        })
+        .await;
+        app.state::<Host>()
+            .mixed_closing
+            .store(false, Ordering::Release);
+        if let Ok(Ok(Some(data))) = result {
+            update_runtime_status(&app, generation, data);
         }
     });
 }
@@ -592,17 +573,14 @@ fn main() {
             let feedback = MenuItem::with_id(app, "feedback", tr(app.app_handle(), "native.feedback"), true, None::<&str>)?;
             let pause = CheckMenuItem::with_id(app, "pause", tr(app.app_handle(), "native.pause"), true, false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", tr(app.app_handle(), "native.quit"), true, None::<&str>)?;
-            let mixed = CheckMenuItem::with_id(app, "mixed", tr(app.app_handle(), "mixed.mode"), false, false, None::<&str>)?;
-            let mixed_assignment = MenuItem::with_id(app, "mixed-assignment", "", false, None::<&str>)?;
-            let mixed_configure = MenuItem::with_id(app, "mixed-configure", tr(app.app_handle(), "native.mixed.configure"), true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&status, &mixed, &mixed_configure, &settings, &diagnostics, &feedback, &pause, &quit])?;
+            let menu = Menu::with_items(app, &[&status, &settings, &diagnostics, &feedback, &pause, &quit])?;
             let generation = recovery::INITIAL_GENERATION;
             let runtime = start_runtime(&handle, &data_dir, generation)?;
             let restart_handle = handle.clone();
             let restart_dir = data_dir.clone();
             let slot = recovery::RuntimeSlot::new(runtime.clone(), move |generation| start_runtime(&restart_handle, &restart_dir, generation));
             app.manage(Host { runtime: slot, pairing_gate: Arc::new(Mutex::new(())), pairing_closing: AtomicBool::new(false), data_dir, page: Mutex::new(page.into()), status, settings, diagnostics, feedback, quit, pause, last_state: Mutex::new(runtime_state::Snapshot::default()),
-                tray_config: Mutex::new(json!({})), mixed, mixed_assignment, mixed_configure, mixed_notice_mode: Mutex::new(None), mixed_busy: AtomicBool::new(false),
+                tray_config: Mutex::new(json!({})), mixed_closing: AtomicBool::new(false),
                 ready: AtomicBool::new(false), wants_visible: AtomicBool::new(!hidden),
                 exit_pending: AtomicBool::new(false), exit_ready: AtomicBool::new(false) });
             let icon = if cfg!(target_os = "macos") {
@@ -614,33 +592,6 @@ fn main() {
                 .menu(&menu).tooltip("KVMFlow")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => open_client(app, "status"),
-                    "mixed-configure" => open_client(app, "settings#mixed"),
-                    "mixed" => {
-                        if app.state::<updates::Updates>().installing.load(Ordering::Acquire) { refresh_tray(app); return; }
-                        let host = app.state::<Host>();
-                        if host.mixed_busy.swap(true, Ordering::AcqRel) { refresh_tray(app); return; }
-                        refresh_tray(app);
-                        let app = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let (runtime, generation) = app.state::<Host>().runtime.snapshot();
-                            let worker_app = app.clone();
-                            let result = tauri::async_runtime::spawn_blocking(move || {
-                                mixed_menu::perform_toggle(&worker_app.state::<updates::Updates>().installing,
-                                    |method,params| runtime.request(method,params))
-                            }).await;
-                            app.state::<Host>().mixed_busy.store(false, Ordering::Release);
-                            match result {
-                                Ok(Ok(Some(data))) => update_runtime_status(&app, generation, data),
-                                Ok(Ok(None)) => refresh_tray(&app),
-                                _ => {
-                                    refresh_tray(&app);
-                                    open_client(&app, "settings#mixed");
-                                    let _ = app.notification().builder().title(tr(&app, "native.mixed.title"))
-                                        .body(tr(&app, "native.mixed.failed")).show();
-                                }
-                            }
-                        });
-                    },
                     "diagnostics" => open_client(app, "diagnostics"),
                     "feedback" => open_client(app, "diagnostics#feedback"),
                     "pause" => {

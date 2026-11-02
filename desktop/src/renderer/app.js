@@ -927,7 +927,6 @@
     resetButton.disabled = false;
   });
   S.onClientNavigate((target) => {
-    // "settings#mixed" opens the mixed mode page.
     const [page, section] = String(target).split('#');
     navigate(page === 'wizard' ? 'guide' : page, { section });
     if (page === 'diagnostics' && section === 'feedback') window.KVMFlowFeedback.open();

@@ -63,6 +63,23 @@ pub fn perform_toggle<E>(
     request("state.get", serde_json::json!({})).map(Some)
 }
 
+/// Turns mixed mode off if the runtime still has it on, and returns the new state.
+pub fn close_leftover<E>(
+    installing: &std::sync::atomic::AtomicBool,
+    mut request: impl FnMut(&str, Value) -> Result<Value, E>,
+) -> Result<Option<Value>, E> {
+    use std::sync::atomic::Ordering;
+    if installing.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    let state = request("state.get", serde_json::json!({}))?;
+    if state["mixed"]["enabled"] != true || installing.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    request("mixed.set", serde_json::json!({"enabled":false}))?;
+    request("state.get", serde_json::json!({})).map(Some)
+}
+
 pub fn current(config: &Value, mixed: &Value, tr: Tr) -> Option<String> {
     let id = mixed["keyboard_holder_device_id"].as_str()?;
     let device = config["switch_group"]["devices"]

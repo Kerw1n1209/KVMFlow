@@ -435,6 +435,51 @@ mod integration_tests {
         Arc::new(RuntimeHandle::start(options, |_, _| {}).unwrap())
     }
     #[test]
+    fn config_saved_with_mixed_on_is_turned_off_and_stays_off_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let config: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/runtime-mixed.json")).unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+        let installing = std::sync::atomic::AtomicBool::new(false);
+        let runtime = start(dir.path());
+        runtime
+            .request("mixed.set", json!({"enabled":true}))
+            .unwrap();
+        runtime.shutdown_and_join().unwrap();
+
+        let runtime = start(dir.path());
+        assert_eq!(
+            runtime.request("state.get", json!({})).unwrap()["mixed"]["enabled"],
+            true
+        );
+        let state = crate::mixed_menu::close_leftover(&installing, |method, params| {
+            runtime.request(method, params)
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(state["mixed"]["enabled"], false);
+        runtime.shutdown_and_join().unwrap();
+
+        let runtime = start(dir.path());
+        assert_eq!(
+            runtime.request("state.get", json!({})).unwrap()["mixed"]["enabled"],
+            false
+        );
+        assert!(
+            crate::mixed_menu::close_leftover(&installing, |method, params| {
+                runtime.request(method, params)
+            })
+            .unwrap()
+            .is_none()
+        );
+        runtime.shutdown_and_join().unwrap();
+    }
+
+    #[test]
     fn rebuilt_worker_is_accepted_by_native_and_renderer_before_late_old_work() {
         let dir = Arc::new(tempfile::tempdir().unwrap());
         let config: Value =

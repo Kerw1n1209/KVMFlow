@@ -19,7 +19,7 @@
   let requestError = null;    // code of the failed lan.pair.* request
   let windowOwned = false;    // we opened the inbound pairing window
   let dialPeer = null;        // discovered peer the primary is connecting to
-  let resolveDraft = { mixed: null, replacement: null, aliases: {} }; // unanswered lan.pair.resolve answers
+  let resolveDraft = { replacement: null, aliases: {} }; // unanswered lan.pair.resolve answers
   let profileNote = null;     // latest lan.profile report (owner data)
   let peerName = '';          // display name of the pairing peer
   // Null leaves onboarding inactive while the settings dialog is in use.
@@ -36,7 +36,7 @@
     if (retiredSessions.size > 32) retiredSessions.delete(retiredSessions.values().next().value);
     session = { generation: ++generation, deviceId: row?.deviceId || null, id: null, seq: -1, confirmPending: false };
     note = null; requestError = null; profileNote = null;
-    resolveDraft = { mixed: null, replacement: null, aliases: {} };
+    resolveDraft = { replacement: null, aliases: {} };
     return session;
   }
   function retireSession() {
@@ -176,19 +176,6 @@
       <div class="pair-flags">${flag(flags?.local, 'lan.confirm.local.done', 'lan.confirm.local.waiting')}${flag(flags?.peer, 'lan.confirm.peer.done', 'lan.confirm.peer.waiting')}</div>`;
   }
 
-  function miniScreens(assignment) {
-    const name = (id) => {
-      const computer = model.computers?.find(entry => entry.id === id);
-      if (computer?.name) return computer.name;
-      const peer = peerRows().find(entry => entry.deviceId === id);
-      return peer?.name || id || t('computer');
-    };
-    return assignment.map((entry, index) => `<div class="pair-mini">
-      <div class="pair-mini-screen">${esc(name(entry.deviceId))}</div>
-      <span class="desk-stand" aria-hidden="true"></span>
-      <span class="pair-mini-label">${t('monitor.value', { p0: index + 1 })}</span></div>`).join('');
-  }
-
   function identityIssuesHtml() {
     return (lan?.issues || []).filter(issue => ['E_LAN_ID_CONFLICT', 'E_LAN_ID_MIGRATION_REQUIRED', 'E_LAN_IDENTITY_IO', 'E_LAN_TOPOLOGY_MISSING_SELF', 'E_LAN_SETUP_PENDING'].includes(issue?.code))
       .map(issue => `<p class="pair-error" role="alert">${t(View.errorCopy(issue.code).id)}</p>`).join('');
@@ -215,24 +202,6 @@
   // ---- pairing dialog ------------------------------------------------------
 
   const dialog = () => byId('pairing-dialog');
-
-  function conflictHtml() {
-    const groups = View.issueGroups(note?.issues, note?.initiator === true);
-    const issue = groups.choices.find(entry => entry?.detail?.kind === 'mixed');
-    if (!issue) return null;
-    const choice = View.mixedChoice(issue,
-      model.computers?.find(computer => computer.local)?.name || t('this.computer'), peerName || t('other.computer'));
-    if (!choice || choice.resolved) return null;
-    const selected = (value) => resolveDraft.mixed === value
-      || (resolveDraft.mixed === null && value === 'basis') ? ' selected' : '';
-    const card = (side, value, title, hint) => `<div class="pair-option${selected(value)}" role="button" tabindex="0" aria-pressed="${resolveDraft.mixed === value || (resolveDraft.mixed === null && value === 'basis')}" data-pair-mixed="${value}">
-      <div class="pair-option-copy"><strong>${title}</strong>
-      ${hint ? `<span class="hint">${hint}</span>` : ''}</div>
-      <div class="pair-mini-row">${miniScreens(side.assignment)}</div></div>`;
-    return `<div class="pair-conflict">
-      ${card(choice.basis, 'basis', t('lan.conflict.basis.title', { p0: esc(choice.basis.name) }), t('lan.conflict.basis.note'))}
-      ${card(choice.joiner, 'joiner', t('lan.conflict.joiner.title', { p0: esc(choice.joiner.name) }), '')}</div>`;
-  }
 
   const openChoices = () => View.issueGroups(note?.issues, note?.initiator === true).choices
     .filter(issue => issue?.detail?.resolved !== true);
@@ -266,7 +235,7 @@
     if (note?.initiator !== true || !openChoices().length) return null;
     const params = {}, aliases = {};
     for (const { detail } of openChoices()) {
-      if (detail.kind === 'mixed') params.mixed = resolveDraft.mixed || detail.default || 'basis';
+      if (detail.kind === 'mixed') params.mixed = detail.default || 'basis';
       else if (detail.kind === 'monitor_alias' && detail.local_fingerprint && detail.group_fingerprint) {
         // `false` is the explicit "different physical display" answer: the
         // runtime keeps it unmatched and commits pin-only instead of
@@ -324,14 +293,13 @@
           </div>`;
       }
       case 'resolve': {
-        const conflict = conflictHtml();
-        return `<h2 id="pairing-title">${t(conflict ? 'lan.conflict.title' : 'lan.resolve.title')}</h2>
-          ${conflict ? `<p class="sub">${t('lan.conflict.head')}</p>${conflict}` : `<p class="sub">${t('lan.resolve.copy')}</p>`}
+        return `<h2 id="pairing-title">${t('lan.resolve.title')}</h2>
+          <p class="sub">${t('lan.resolve.copy')}</p>
           ${additionalChoicesHtml()}
           ${resolveExtras()}
           <div class="confirmation-actions">
             <button class="secondary" data-pair-action="cancel">${t('lan.pair.cancel')}</button>
-            ${openChoices().length ? `<button class="primary" data-pair-action="resolve" ${!resolveParams() || session?.resolvePending ? 'disabled' : ''}>${t(conflict && openChoices().length === 1 ? 'lan.conflict.use.selected' : 'lan.resolve.confirm')}</button>` : ''}
+            ${openChoices().length ? `<button class="primary" data-pair-action="resolve" ${!resolveParams() || session?.resolvePending ? 'disabled' : ''}>${t('lan.resolve.confirm')}</button>` : ''}
           </div>`;
       }
       case 'committing':
@@ -379,9 +347,6 @@
       root.dataset.rendered = body;
       byId('pairing-body').innerHTML = body;
     }
-    const conflict = (note?.issues || []).some(issue => issue?.severity === 'choice'
-      && issue?.detail?.kind === 'mixed' && issue.detail.resolved !== true);
-    root.classList.toggle('pair-wide', effective.state === 'resolve' && conflict);
     renderPeerList();
   }
 
@@ -734,14 +699,12 @@
     if (alias && note?.initiator === true) { resolveDraft.aliases[alias.dataset.pairAliasFp] = alias.dataset.pairAlias; renderDialog(); return; }
     const replacement = event.target.closest('[data-pair-replacement]');
     if (replacement && note?.initiator === true) { resolveDraft.replacement = replacement.dataset.pairReplacement === 'true'; renderDialog(); return; }
-    const mixed = event.target.closest('[data-pair-mixed]');
-    if (mixed && note?.initiator === true) { resolveDraft.mixed = mixed.dataset.pairMixed; renderDialog(); return; }
     const action = event.target.closest('button[data-pair-action]');
     if (action && !action.disabled && action.closest('#pairing-body, #guide-content')) void handleAction(action.dataset.pairAction);
   });
   document.addEventListener('keydown', event => {
     if (!['Enter', ' '].includes(event.key)) return;
-    const control = event.target.closest('[role="button"][data-pair-mixed], [role="button"][data-pair-replacement], [role="button"][data-pair-alias]');
+    const control = event.target.closest('[role="button"][data-pair-replacement], [role="button"][data-pair-alias]');
     if (control) { event.preventDefault(); control.click(); }
   });
   async function handleAction(action) {

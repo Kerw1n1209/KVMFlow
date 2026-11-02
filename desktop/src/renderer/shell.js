@@ -295,9 +295,8 @@ function renderDiagnostics() {
     `<div class="event"><div><strong>${escapeHtml(window.KVMFlowI18n.format(event.titleMessage ?? event.title))}</strong><p class="hint">${escapeHtml(window.KVMFlowI18n.format(event.copyMessage ?? event.copy))}</p></div>
       <span class="time">${escapeHtml(event.time)}</span></div>`).join('') || `<p class="hint">${t('no.switch.records.yet')}</p>`;
 }
-const pages = ['status', 'mixed', 'guide', 'settings', 'diagnostics'];
+const pages = ['status', 'guide', 'settings', 'diagnostics'];
 function navigate(page, options = {}) {
-  if (page === 'settings' && options.section === 'mixed') page = 'mixed';
   if (!pages.includes(page)) return;
   $('.shell').classList.toggle('settings-active', page === 'settings');
   pages.forEach(name => $(`#${name}-page`).classList.toggle('hidden', name !== page));
