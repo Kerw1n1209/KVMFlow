@@ -22,7 +22,32 @@
   --border: 2px solid var(--ink);
   --shadow: 4px 4px 0 0 var(--ink);
   --shadow-sm: 2px 2px 0 0 var(--ink);
+  color-scheme: light;
 }
+/* Dark palette (theme.js sets data-theme). Same structure, inverted ink. */
+:root[data-theme="dark"] {
+  --bg: #161614;
+  --grid: #20201d;
+  --surface: #232320;
+  --surface-muted: #4a4a45;
+  --surface-raised: #232320;
+  --main: #4a4a45;
+  --ink: #f2f2ee;
+  --sub: #a8a8a0;
+  --muted: #8a8a82;
+  --line: #3d3d39;
+  --line-strong: #f2f2ee;
+  --line-soft: #3d3d39;
+  --accent: #f2f2ee;
+  --accent-dark: #f2f2ee;
+  --accent-soft: #4a4a45;
+  --good: #f2f2ee;
+  --warn: #a8a8a0;
+  --danger: #ff7b86;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] .nav .brand-mark { background-image: url("assets/brand-mark-dark.svg"); }
+:root[data-theme="dark"] input[type="checkbox"]:not(.toggle-control input):checked { background-image: url("assets/check-dark.svg"); }
 
 body { font-weight: 500; }
 h1, h2, h3, .brand, strong, .step.active,
@@ -108,6 +133,26 @@ main {
   border-top: var(--border);
 }
 .nav .nav-state { color: var(--ink); font-size: 14px; font-weight: 500; }
+/* Pairing requests: a sidebar group between the menu and the footer. */
+.nav-requests { margin-top: auto; padding: 12px 8px; border-top: var(--border); }
+.nav-requests:not([hidden]) ~ .nav-bottom { margin-top: 0; }
+.nav-requests[hidden] { display: none; }
+.nav-requests h2 { margin: 0 0 8px; padding: 0 8px; color: var(--sub); font-size: 12px; font-weight: 700; letter-spacing: 0; }
+.nav-request {
+  padding: 10px;
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  animation: nav-request-in .18s ease-out;
+}
+.nav-request-copy { display: grid; gap: 2px; }
+.nav-request-copy strong { overflow-wrap: anywhere; font-size: 14px; }
+.nav-request-copy span { color: var(--sub); font-size: 12px; line-height: 1.4; }
+.nav-request-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.nav-request-actions button { height: 32px; min-height: 32px; padding: 4px 8px; font-size: 13px; white-space: nowrap; }
+@keyframes nav-request-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .nav-request { animation: none; } }
 .dot { border: 0; background: var(--ink); }
 
 /* The site's scrollbar, on every page. */
@@ -165,6 +210,7 @@ main { padding: 32px 40px 48px; }
 #settings-page .response-row:first-child { padding-top: 0; border-top: 0; }
 #settings-page .response-row:last-child { padding-bottom: 0; }
 #settings-page .language-panel .response-row,
+#settings-page .appearance-panel .response-row,
 #settings-page .startup-panel .response-row { border-top: 0; padding: 0; }
 .response-copy span { color: var(--sub); font-size: 12px; }
 #settings-page .response-copy label,
@@ -427,6 +473,7 @@ input[type="radio"]:checked::before,
 
 /* ---- status: switch board and desktop map ---- */
 .setup-prompt { margin: 0 0 24px; }
+.setup-prompt .topology-head { margin: 0; padding: 0; }
 .switch-board { border: 0; background: transparent; }
 .switch-board-scroll { padding: 8px 0; }
 .switch-chassis { border: var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }

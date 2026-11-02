@@ -331,3 +331,47 @@
 }
 .pairing-v2-page > .header { min-height: 92px; }
 .pairing-v2 .wizard-head .sub { line-height: 19px; }
+
+/* ---- add a computer (app page) ---- */
+.add-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: start; }
+@media (max-width: 1040px) { .add-grid { grid-template-columns: 1fr; } }
+#add-page .panel { margin: 0; }
+.add-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.add-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.add-count:empty { display: none; }
+.add-count { min-width: 24px; height: 24px; padding: 0 7px; border: var(--border); border-radius: 999px; background: var(--main); font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; }
+.add-refresh, .add-refresh:hover:not(:disabled), .add-refresh:active:not(:disabled) { display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; box-shadow: var(--shadow-sm); }
+.add-refresh:hover:not(:disabled), .add-refresh:active:not(:disabled) { box-shadow: none; transform: translate(2px, 2px); }
+.add-refresh svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.add-refresh.spin svg { animation: add-spin .7s linear infinite; }
+@keyframes add-spin { to { transform: rotate(360deg); } }
+.add-list { display: grid; gap: 8px; }
+.add-row, .add-empty { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 12px 10px 14px; border: var(--border); border-radius: var(--radius); background: var(--surface); }
+.add-empty { border-style: dashed; border-color: var(--line); color: var(--sub); }
+.add-row > svg { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.add-copy { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.add-copy strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.add-empty .add-copy strong { color: var(--ink); }
+.add-copy .hint { font-size: 12px; }
+.add-row button, .add-row button:hover:not(:disabled), .add-row button:active:not(:disabled) { min-height: 36px; height: 36px; padding: 0 16px; box-shadow: var(--shadow-sm); }
+.add-row button:hover:not(:disabled), .add-row button:active:not(:disabled) { box-shadow: none; transform: translate(2px, 2px); }
+.add-ip { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.add-ip label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 700; }
+.add-ip-row { display: flex; gap: 12px; }
+.add-ip input { flex: 1; min-width: 0; height: 40px; min-height: 40px; padding: 0 12px; font: inherit; }
+.add-ip input.ob-shake { animation: ob-shake .28s steps(5); }
+.add-ip button { min-width: 88px; }
+.add-iperr { min-height: 18px; margin: 6px 0 0; color: var(--danger); font-size: 12px; }
+.add-self h2 { margin: 0 0 16px; }
+.add-self dl { margin: 0 0 12px; }
+.add-self dt { color: var(--sub); font-size: 12px; }
+.add-self dd { margin: 2px 0 12px; overflow-wrap: anywhere; font-weight: 700; }
+.add-self code { font: 700 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.add-self .hint { margin: 0 0 16px; font-size: 12px; }
+.add-manual { display: flex; align-items: center; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line-soft); font-size: 13px; cursor: pointer; }
+.add-manual input { flex: none; width: 20px; height: 20px; min-height: 20px; margin: 0; }
+.add-state { max-width: 560px; }
+.add-state h2 { margin: 0; }
+.add-state .sub { margin: 8px 0 20px; }
+.add-state-actions { display: flex; gap: 12px; }
+@media (prefers-reduced-motion: reduce) { .add-refresh.spin svg { animation: none; } }

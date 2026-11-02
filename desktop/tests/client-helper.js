@@ -83,6 +83,7 @@ async function client(t, options = {}) {
     resetConfig: async () => options.resetConfig ? options.resetConfig() : false,
   };
   await initializeI18n(win, options.language || 'zh-CN');
+  vm.runInContext(read('src/renderer/theme.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/shell.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/redact.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/compat-report.js'), dom.getInternalVMContext());
@@ -90,6 +91,7 @@ async function client(t, options = {}) {
   vm.runInContext(read('src/renderer/mixed-view.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/mixed.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/lan-pairing-view.js'), dom.getInternalVMContext());
+  vm.runInContext(read('src/renderer/onboarding-view.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/lan-pairing.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/app.js'), dom.getInternalVMContext());
   await new Promise(resolve => setTimeout(resolve, 10));

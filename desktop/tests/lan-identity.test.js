@@ -49,7 +49,7 @@ for (const language of ['zh-CN', 'en']) test(`${language} preserves identity con
 test('unpaired waiting hints permit dialing without inventing an authenticated online session', async t => {
   const { setup, peer } = require('./pairing-v2-helper');
   const discovered = peer({ online: false, addr: null, pair_addr: '192.168.1.23:47820' });
-  const c = await setup(t, { config: null, state: { ...state, lan: { ...state.lan, peers: [discovered] } } }); await c.start();
+  const c = await setup(t, { config: null, state: { ...state, lan: { ...state.lan, peers: [discovered] } } }); await c.dial();
   const row = c.win.KVMFlowPairingView.discoveryList({ peers: [discovered] })[0];
   assert.equal(row.online, false); assert.equal(row.available, true);
   assert.equal(c.requests.find(r => r.method === 'lan.pair.start').params.addr, discovered.pair_addr);

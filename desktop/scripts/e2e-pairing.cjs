@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Two simulated sidecars, each driven by the real renderer (jsdom), walk the
-// role-free setup the way a person does: start on one computer, press the USB
-// switch, start on the other, then test. Catches renderer <-> sidecar contract
+// role-free setup the way a person does: reach the connect page on one
+// computer, press the USB switch, pair from the other, then test. Catches renderer <-> sidecar contract
 // bugs before a release. It is not hardware acceptance.
 //
 //   npm run e2e:pairing          (both orders)
 //   node scripts/e2e-pairing.cjs [--early-press] [--no-build] [--keep]
 //
-// --early-press presses the switch while the first computer is still
-// searching, before it starts identifying the switch.
+// --early-press presses the switch while the first computer is still on its
+// "this computer" page, before it reaches the connect page.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -89,12 +89,13 @@ async function rendererFor(name, sidecar, computerName) {
   sidecar.listeners.add((kind, data) => emit('runtime-notification', { kind, data: { ...data, runtime_generation: 1 }, runtime_generation: 1 }));
   win.KVMFLOW_I18N_CONFIG = structuredClone(messages);
   const run = file => vm.runInContext(fs.readFileSync(path.join(renderer, file), 'utf8'), dom.getInternalVMContext(), { filename: file });
+  run('theme.js');
   run('i18n.js');
   await win.KVMFlowI18n.ready;
   win.KVMFlowI18n.setPreference('zh-CN', { persist: false, notify: false });
   run('bridge.js');
   await win.kvmflow.ready;
-  for (const file of ['shell.js', 'redact.js', 'compat-report.js', 'compatibility.js', 'mixed-view.js', 'mixed.js', 'lan-pairing-view.js', 'lan-pairing.js', 'app.js']) run(file);
+  for (const file of ['shell.js', 'redact.js', 'compat-report.js', 'compatibility.js', 'mixed-view.js', 'mixed.js', 'lan-pairing-view.js', 'onboarding-view.js', 'lan-pairing.js', 'app.js']) run(file);
   await sleep(50);
   emit('client-navigate', 'wizard');
   await sleep(50);
@@ -155,20 +156,27 @@ async function main() {
     const a = await rendererFor('A', sa, 'Mac A');
     const b = await rendererFor('B', sb, 'PC B');
 
-    a.click('start');
-    await a.until('A searching', () => a.mode() === 'search');
-    if (earlyPress) { await sleep(2000); await press(b, a); }
-    await a.until('A waiting', () => a.mode() === 'wait', 20000);
+    // Welcome → appearance → this computer → connect.
+    const reachConnect = async (side, beforeNext = async () => {}) => {
+      side.click('ob-theme');
+      side.click('start');
+      await side.until(`${side.name} checked`, () => side.mode() === 'local' && !side.win.document.querySelector('[data-pair-action="local-next"]')?.disabled, 20000);
+      await beforeNext();
+      side.click('local-next');
+      await side.until(`${side.name} connect page`, () => side.mode() === 'connect', 20000);
+    };
+    await reachConnect(a, async () => { if (earlyPress) { await sleep(1000); await press(b, a); } });
     if (!earlyPress) { await sleep(1000); await press(b, a); }
     await sleep(500);
     await showMonitors(b, a);
     await sleep(1500);
 
-    b.click('start');
-    await b.until('B connected', () => b.mode() === 'confirm', 40000);
-    await b.until('B next enabled', () => b.win.document.querySelector('[data-pair-action="v2-next"]')?.disabled === false, 30000);
-    b.click('v2-next');
-    await b.until('B testing', () => ['try', 'try-hint'].includes(b.mode()), 10000);
+    await reachConnect(b);
+    await b.until('B sees A', () => b.win.document.querySelector('#guide-content [data-pair-action="v2-connect"]')?.disabled === false, 30000);
+    b.click('v2-connect');
+    // Pairing confirms itself; B (which dialled) moves on to the test, A is done.
+    await b.until('B testing', () => ['try', 'try-hint'].includes(b.mode()), 40000);
+    await a.until('A done', () => a.mode() === 'done', 10000);
     await sleep(1500);
     const reports = { A: [], B: [] };
     for (const side of [a, b]) side.sidecar.listeners.add((kind, data) => { if (kind === 'switch.report') reports[side.name].push(data); });
@@ -181,6 +189,9 @@ async function main() {
     await sleep(1000);
     for (const side of [a, b]) if (side.mode() === 'test-error') throw new Error(`${side.name} shows E3: ${side.text()}`);
     if (a.mode() !== 'done') throw new Error(`A is not done: ${a.text()}`);
+    // A saw the keyboard and mouse arrive; that evidence finishes B's test.
+    await b.until('B done', () => b.mode() === 'done', 10000);
+    for (const side of [a, b]) if (/dev-[0-9A-Z]{26}/.test(side.text())) throw new Error(`${side.name} shows a device id: ${side.text()}`);
     // And back: A sends the monitors to B.
     await sleep(6000);
     await press(b, a);

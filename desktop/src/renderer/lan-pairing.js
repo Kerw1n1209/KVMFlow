@@ -366,7 +366,13 @@
   }
 
   // ---- role-free onboarding -------------------------------------------------
-  let discoveryTimer = null, followTimer = null, profileTimer = null;
+  // Full-screen pages (onboarding-view.js): welcome → theme → this computer →
+  // connect → pair → test → done. Modes keep the names the runtime glue and
+  // diagnostics already use; `pageOf` maps them to the page that shows them.
+  const Ob = window.KVMFlowOnboardingView;
+  // Short pauses let a finished step register before the next page replaces it.
+  const PAIRED_PAUSE_MS = 900, SWITCHED_PAUSE_MS = 1100, HINT_MS = 5000, ROW_EXIT_MS = 130;
+  let followTimer = null, profileTimer = null, advanceTimer = null;
   // The 2 s poll retries a failed profile refresh; only a run of failures
   // (about 10 s) ends the flow, so one dropped request cannot.
   let profileFailures = 0;
@@ -379,13 +385,18 @@
   }
   let flowGeneration = 0, initiator = false, busy = false, failedMonitors = [], recoveryMode = null;
   let detected = [], skipped = new Set(), capture = null, testRun = null;
+  // Pairing confirms the code automatically unless the user asked to compare it.
+  let manualSas = false, ipOpen = false, ipError = '', errorInPairing = false;
+  // Which entry started the flow: first-run setup, or the "add a computer"
+  // page. Pairing pages are shared; going back returns to where it began.
+  let entry = 'setup', addState = 'idle', addRefreshing = false, addDial = null;
+  let appInfo = null;
+  window.kvmflow?.info?.then?.(info => { appInfo = info; if (mode === 'welcome') renderWizard(); }, () => {});
+  const PLATFORM_NAMES = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
+  const selfPlatform = () => PLATFORM_NAMES[appInfo?.platform] || '';
   const committed = () => ['committed', 'peer_committed'].includes(note?.phase);
   const guideVisible = () => !byId('guide-page')?.classList.contains('hidden');
-  const head = (title, copy = '') => `<div class="wizard-head"><h1>${title}</h1>${copy ? `<p class="sub">${copy}</p>` : ''}</div>`;
-  const button = (action, id, disabled = false, link = false) => `<button class="${link ? 'link pair-link' : 'primary'}" data-pair-action="${action}" ${disabled ? 'disabled' : ''}>${t(id)}</button>`;
-  const footer = (right = '', left = '') => `<div class="wizard-footer">${left || '<span></span>'}${right}</div>`;
-  const rowsHtml = rows => `<div class="pair-monitors">${rows.map(row => `<div class="pair-monitor"><div class="pair-monitor-copy"><strong>${esc(row.name)}</strong>${row.copy ? `<p class="hint">${row.copy}</p>` : ''}</div><span class="settings-tag">${row.tag}</span></div>`).join('')}</div>`;
-  const instructions = ids => `<ol class="v2-instructions">${ids.map((id, i) => `<li><span class="number">${i + 1}</span><span>${t(id)}</span></li>`).join('')}</ol>`;
+  const addVisible = () => byId('add-page') ? !byId('add-page').classList.contains('hidden') : false;
   function localNamesByFingerprint() {
     return new Map((window.__kvmflowDisplayFingerprints || []).map((fp, i) => [fp, model.displays[i]]));
   }
@@ -394,58 +405,288 @@
     return committed() && profileNote && !View.pendingCount(profileRows())
       && note.config_merged !== false && window.KVMFlowPairingConfig.hasTopology(session?.deviceId) && !requestError && !busy;
   }
-  const waitingRows = () => View.waitingPeers(lan, memberIds());
-  function peerCard(row, selectable = false) {
-    const tag = selectable ? 'v2.waiting.tag' : 'v2.connecting';
-    return `<${selectable ? 'button type="button"' : 'div'} class="pair-monitor v2-peer${selectable && dialPeer?.deviceId === row.deviceId ? ' selected' : ''}" ${selectable ? `data-v2-peer="${esc(row.deviceId)}" aria-pressed="${dialPeer?.deviceId === row.deviceId}"` : ''}><span class="pair-monitor-copy"><strong>${esc(row.name)}</strong><span class="hint">${esc(hostOf(row.addr))}</span></span><span class="settings-tag">${t(tag)}</span></${selectable ? 'button' : 'div'}>`;
-  }
-  function wizardHtml() {
+  const pairableRows = () => View.pairablePeers(lan, memberIds());
+  const connectRows = () => pairableRows().map(row => ({ deviceId: row.deviceId, name: row.name, detail: [row.platform, hostOf(row.addr)].filter(Boolean).join(' · ') }));
+  const validAddress = value => {
+    const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/.exec(value);
+    return Boolean(match) && match[1].split('.').every(part => Number(part) <= 255)
+      && (match[2] === undefined || (Number(match[2]) >= 1 && Number(match[2]) <= 65535));
+  };
+
+  function pageOf() {
     switch (mode) {
-      case 'start': case 'detect': return head(t('v2.start.title'), t('v2.start.copy')) + '<div class="v2-space"></div>' + footer(button('start', 'v2.start', busy));
-      case 'read-error': return head(t('v2.read.title'), detected.length ? '' : t('v2.ddc')) + rowsHtml(detected.map(row => ({ ...row, copy: row.ready ? '' : t('v2.ddc'), tag: t(row.ready ? 'v2.normal' : 'v2.read.tag') }))) + footer(button('read-retry', 'retry', busy), button('read-skip', 'v2.read.skip', busy || !detected.some(r => !r.ready), true));
-      case 'search': return head(t('v2.connect.title')) + `<p class="hint" role="status">${t('lan.searching')}</p>` + footer('', button('v2-cancel', 'cancel', false, true));
-      case 'wait': return head(t('v2.wait.title')) + instructions(['v2.wait.usb', 'v2.wait.display', 'v2.wait.open']) + `<div class="v2-address"><span class="hint">${t('v2.local.ip')}</span><strong>${esc(hostOf(lan?.self?.addr))}</strong></div>` + footer('', `<div class="v2-wait-actions"><span class="hint" role="status">${t('v2.wait.status')}</span>${button('ip', 'v2.ip.connect', false, true)}</div>`);
-      case 'select': return head(t('v2.connect.title'), t('v2.select.copy')) + `<div class="pair-monitors">${waitingRows().map(row => peerCard(row, true)).join('')}</div>` + footer(button('v2-connect', 'lan.connect', !waitingRows().some(row => row.deviceId === dialPeer?.deviceId)));
-      case 'connecting': return head(t('v2.connect.title')) + (dialPeer ? `<div class="pair-monitors">${peerCard(dialPeer)}</div>` : `<p class="hint" role="status">${t('v2.connecting')}</p>`) + footer('', button('v2-cancel', 'cancel', false, true));
-      case 'confirm': return head(t('v2.connected', { p0: esc(peerName) })) + (profileNote ? rowsHtml(profileRows().map(row => ({ name: row.localName || row.name, copy: row.pending ? t('v2.pending.copy') : '', tag: t(row.pending ? 'v2.pending' : 'v2.ready') }))) : `<p class="hint" role="status">${t('lan.profile.waiting')}</p>`) + (note?.config_merged === false ? `<p class="hint">${t('lan.error.setup.pending')}</p>` : '') + footer(button('v2-next', 'v2.next', !canTest()));
-      case 'try': case 'try-hint': return head(t('v2.test.title'), t('v2.test.copy', { p0: esc(peerName) })) + `<div class="callout v2-test" role="status">${t(mode === 'try-hint' ? 'v2.test.hint' : 'v2.test.wait', { p0: esc(peerName) })}</div>` + footer('', mode === 'try' ? button('v2-finish', 'v2.skip', busy, true) : '');
-      case 'done': return head(t('v2.done.title')) + '<div class="v2-space"></div>' + footer(button('v2-finish', 'v2.done'));
-      case 'test-error': return head(t('v2.test.error'), t('v2.test.error.copy', { p0: esc(failedMonitors.map(row => row.summary).join(t('mixed.list.separator'))) })) + rowsHtml((model.displays || []).map((name, i) => { const failed = failedMonitors.some(row => row.fingerprint === window.__kvmflowDisplayFingerprints?.[i]); return { name, copy: failed ? t('v2.ddc') : '', tag: t(failed ? 'v2.unswitched' : 'v2.ready') }; })) + footer(button('test-retry', 'retry', busy), button('feedback', 'v2.feedback', false, true));
-      case 'ip': return head(t('v2.notfound')) + instructions(['v2.ip.open', 'v2.ip.network']) + `<form class="v2-ip-form"><label for="v2-ip">${t('v2.ip.connect')}</label><div class="v2-ip-row"><input id="v2-ip" name="addr" aria-describedby="v2-ip-hint" autocomplete="off" spellcheck="false" required placeholder="192.168.31.243"><button class="secondary" type="submit">${t('lan.connect')}</button></div><p id="v2-ip-hint" class="hint">${t('v2.ip.hint')}</p></form>` + footer(button('search', 'v2.search'));
-      case 'error': { const e = View.setupErrorCopy(requestError); return head(t(e.title), t(e.copy, e.params)) + '<div class="v2-space"></div>' + footer(button('v2-retry', 'retry', busy)); }
-      default: return null;
+      case 'detect': case 'local': return 'local';
+      case 'connecting': case 'confirm': return 'pair';
+      case 'try': case 'try-hint': case 'try-ok': case 'test-error': return 'test';
+      case 'error': return errorInPairing ? 'pair' : 'error';
+      default: return mode;
+    }
+  }
+  function pairPeer() {
+    const id = session?.deviceId || dialPeer?.deviceId;
+    const row = id ? View.discoveryList(lan).find(entry => entry.deviceId === id) : null;
+    return { peer: peerName || dialPeer?.name || row?.name || '', peerPlatform: row?.platform || dialPeer?.platform || '' };
+  }
+  // A closed window on the computer we dialed means different things
+  // depending on what its discovery record says about pairing requests.
+  function refusalCopy() {
+    if (requestError !== 'E_LAN_PAIR_WINDOW' || !initiator || entry !== 'add') return null;
+    const id = session?.deviceId || dialPeer?.deviceId;
+    const row = id ? View.discoveryList(lan).find(item => item.deviceId === id) : null;
+    if (!row) return null;
+    return row.requests === null ? 'v2.error.upgrade' : row.requests ? 'v2.error.declined' : 'v2.error.requests.off';
+  }
+  function errorCopy() {
+    const copy = View.setupErrorCopy(requestError), refusal = refusalCopy();
+    return { title: esc(t(copy.title)), copy: esc(t(refusal || copy.copy, copy.params)) };
+  }
+  // The dialer confirmed; a computer that is not on its add page shows our
+  // attempt as a request, so tell the user where to accept it.
+  function waitingAccept() {
+    if (!initiator || note?.local_confirmed !== true || note?.peer_confirmed === true) return false;
+    const id = session?.deviceId || dialPeer?.deviceId;
+    const row = id ? View.discoveryList(lan).find(item => item.deviceId === id) : null;
+    return row ? !row.waiting && row.requests !== false : false;
+  }
+  function pageModel(page) {
+    const issues = identityIssuesHtml();
+    switch (page) {
+      case 'welcome': return { version: appInfo?.version || '' };
+      case 'theme': return { preference: window.KVMFlowTheme?.preference || 'system', issues };
+      case 'local': return { reading: mode === 'detect', rows: detected, busy, issues,
+        canNext: !busy && mode === 'local' && detected.length > 0 && detected.every(row => row.ready) };
+      case 'connect': return { busy, issues, ipOpen, ipError, manual: manualSas, offline: lan?.enabled === false,
+        selfIp: hostOf(lan?.self?.addr), rows: connectRows() };
+      case 'pair': {
+        const base = { ...pairPeer(), selfPlatform: selfPlatform(), busy, skippable: entry !== 'add', issues };
+        if (mode === 'error') return { ...base, state: 'fail', error: errorCopy() };
+        if (mode === 'confirm') {
+          const notes = [];
+          if (initiator && !profileNote) notes.push(esc(t('lan.profile.waiting')));
+          if (note?.config_merged === false) notes.push(esc(t('lan.error.setup.pending')));
+          const pendingRows = initiator && profileNote ? profileRows().filter(row => row.pending)
+            .map(row => ({ name: row.localName || row.name, copy: esc(t('v2.pending.copy')), tag: esc(t('v2.pending')) })) : [];
+          return { ...base, state: 'ok', notes, pendingRows };
+        }
+        const phase = View.pairPhase(note);
+        const sas = manualSas && phase.state === 'sas' && note?.sas && !phase.flags.local && !session?.confirmPending;
+        return { ...base, state: sas ? 'sas' : 'run', sas: note?.sas, waitingAccept: !sas && waitingAccept() };
+      }
+      case 'test': {
+        const base = { ...pairPeer(), selfPlatform: selfPlatform(), busy, issues };
+        if (mode !== 'test-error') return { ...base, state: mode === 'try-ok' ? 'ok' : 'wait', hint: mode === 'try-hint' };
+        const failedRows = (model.displays || []).map((name, i) => {
+          const failed = failedMonitors.some(row => row.fingerprint === window.__kvmflowDisplayFingerprints?.[i]);
+          return { name, copy: failed ? esc(t('v2.ddc')) : '', tag: esc(t(failed ? 'v2.unswitched' : 'v2.ready')), bad: failed };
+        });
+        return { ...base, state: 'error', failedRows, failedNames: failedMonitors.map(row => row.summary).join(t('mixed.list.separator')) };
+      }
+      case 'error': return { ...errorCopy(), busy, skippable: entry !== 'add', issues };
+      default: return { issues };
     }
   }
   function navStatus() {
     if (!mode || !guideVisible()) return null;
-    return t(['wait', 'ip'].includes(mode) ? 'v2.nav.waiting' : ['done', 'confirm', 'try', 'try-hint', 'test-error'].includes(mode) ? 'v2.nav.paired' : ['search', 'select', 'connecting'].includes(mode) ? 'v2.nav.connecting' : 'nav.setup.required');
+    return t(mode === 'connect' ? 'v2.nav.waiting' : ['done', 'confirm', 'try', 'try-hint', 'try-ok', 'test-error'].includes(mode) ? 'v2.nav.paired' : mode === 'connecting' ? 'v2.nav.connecting' : 'nav.setup.required');
+  }
+  // Same page, new data: patch the live regions so discovery updates never
+  // reset the IP draft, the open IP drawer or the entrance animation.
+  function patchRegions(root, html) {
+    const next = document.createElement('template');
+    next.innerHTML = html;
+    for (const region of next.content.querySelectorAll('[data-region]')) {
+      const live = root.querySelector(`[data-region="${region.dataset.region}"]`);
+      if (live && live.innerHTML !== region.innerHTML) live.innerHTML = region.innerHTML;
+    }
+    const submit = root.querySelector('.v2-ip-form button[type="submit"]');
+    if (submit) submit.disabled = busy;
+  }
+  function addModel() {
+    const issues = identityIssuesHtml();
+    if (addState === 'error' || (mode === 'error' && !guideVisible())) return { state: 'error', error: errorCopy(), busy, issues };
+    if (addState === 'local') return { state: 'local', busy, issues };
+    return { state: addState === 'ready' ? 'ready' : 'loading', rows: addState === 'ready' ? connectRows() : [], busy, issues, ipError,
+      manual: manualSas, offline: lan?.enabled === false, refreshing: addRefreshing,
+      selfName: model.computers?.find(c => c.local)?.name || '', selfIp: hostOf(lan?.self?.addr) };
+  }
+  function renderAdd() {
+    const root = byId('add-content');
+    if (!root || !addVisible()) return;
+    const data = addModel(), html = Ob.add(data);
+    if (root.dataset.addRendered === html) return;
+    if (data.state === 'ready' && root.dataset.addState === 'ready') {
+      patchRegions(root, html);
+      // The refresh spin lives outside the patched regions.
+      root.querySelector('.add-refresh')?.classList.toggle('spin', addRefreshing);
+      root.dataset.addRendered = html;
+      return;
+    }
+    const draft = root.querySelector('.add-ip input')?.value;
+    root.innerHTML = html;
+    root.dataset.addRendered = html; root.dataset.addState = data.state;
+    const input = root.querySelector('.add-ip input');
+    if (input && draft) input.value = draft;
   }
   function renderWizard() {
+    renderAdd();
     if (!mode || !guideVisible()) return;
     const root = byId('guide-content');
     if (!root) return;
-    root.classList.add('pair-wizard', 'pairing-v2');
-    byId('guide-page').classList.add('pairing-v2-page');
-    const active = ['start', 'detect', 'read-error'].includes(mode) ? 0 : ['try', 'try-hint', 'test-error'].includes(mode) ? 2 : mode === 'done' ? -1 : 1;
-    byId('steps').classList.remove('hidden');
-    byId('steps').innerHTML = ['v2.step.local', 'v2.step.connect', 'v2.step.test'].map((id, i) => `<div class="step${active === i ? ' active' : ''}" ${active === i ? 'aria-current="step"' : ''}>${i + 1} ${t(id)}</div>`).join('');
+    scheduleAdvance();
+    root.classList.add('ob-root');
+    byId('steps')?.classList.add('hidden');
     byId('guide-count').textContent = '';
     byId('nav-state').textContent = byId('nav-state').title = navStatus();
-    const html = identityIssuesHtml() + wizardHtml();
-    // Do not replace an IP input on unrelated runtime notifications.
-    if (root.dataset.pairRendered !== html || root.dataset.v2Mode !== mode) {
-      root.innerHTML = html; root.dataset.pairRendered = html; root.dataset.v2Mode = mode;
+    const page = pageOf(), data = pageModel(page);
+    const locale = document.documentElement.lang;
+    const html = Ob.top({ page, locale, exit: !['welcome', 'done'].includes(page), dots: entry !== 'add' })
+      + `<div class="ob-view" data-ob-page="${page}">${Ob.pages[page](data)}</div>`;
+    if (root.dataset.pairRendered === html) return;
+    // Page states that differ only in progress keep one entrance animation.
+    const key = `${page}:${['ok', 'run', 'wait'].includes(data.state) ? '' : data.state || ''}`;
+    if (page === 'connect' && root.dataset.obKey === key && root.dataset.obLocale === locale) {
+      patchRegions(root, html);
+      root.dataset.pairRendered = html;
+      return;
     }
+    const draft = root.querySelector('.ob-ipform input')?.value;
+    const focused = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id : '';
+    root.classList.toggle('ob-quiet', root.dataset.obKey === key);
+    root.innerHTML = html;
+    root.dataset.pairRendered = html; root.dataset.v2Mode = mode; root.dataset.obKey = key; root.dataset.obLocale = locale;
+    const input = root.querySelector('.ob-ipform input');
+    if (input && draft) input.value = draft;
+    if (focused) byId(focused)?.focus();
   }
   window.renderGuide = () => {
-    mode ||= 'start';
+    if (!mode) { mode = 'welcome'; entry = 'setup'; }
     renderWizard();
   };
-  function render() { renderDialog(); renderWizard(); }
+  function render() { renderDialog(); renderWizard(); renderRequests(); renderRequestSetting(); }
+  // Pairing from the add page continues full screen, like first-run setup.
+  function showFlow() { if (entry === 'add' && !guideVisible()) originalNavigate('guide'); }
+  const backToAdd = () => window.navigate('add');
+
+  // ---- pairing requests ----------------------------------------------------
+  // Another computer asked to pair while no pairing screen was open. The
+  // sidecar holds it at the SAS step until the user accepts or declines it.
+  let incoming = null;          // { deviceId, sessionId, name, data }
+  const answered = new Set();   // request sessions already accepted, declined or ended
+  let accepting = false;
+  const requestName = request => request.name
+    || View.discoveryList(lan).find(row => row.deviceId === request.deviceId)?.name || request.deviceId;
+  function takeRequest(data) {
+    if (!data?.device_id || !data.session_id || answered.has(data.session_id)) return false;
+    if (session?.id === data.session_id) return false;
+    if (incoming?.sessionId === data.session_id) { incoming.data = { ...incoming.data, ...data }; return false; }
+    incoming = { deviceId: data.device_id, sessionId: data.session_id, name: data.peer_name?.trim() || '', data };
+    return true;
+  }
+  function endRequest(copy) {
+    if (!incoming) return;
+    answered.add(incoming.sessionId);
+    if (copy && typeof log === 'function') log(t(copy, { p0: requestName(incoming) }), '');
+    incoming = null;
+  }
+  // A reloaded window learns about an unanswered request from lan state.
+  // Only events end a request: a stale snapshot must not drop a live one.
+  function syncRequest() {
+    const pending = lan?.pair_request;
+    if (!pending?.session_id) return;
+    takeRequest({ phase: 'await_confirm', request: true, initiator: false, local_confirmed: false,
+      device_id: pending.device_id, session_id: pending.session_id, sas: pending.sas, peer_name: pending.peer_name });
+  }
+  // Returns true when the event belongs to a request rather than the session.
+  function requestEvent(data) {
+    if (data?.request !== true || (session && data.session_id && session.id === data.session_id)) return false;
+    if (['failed', 'cancelled'].includes(data.phase)) {
+      if (incoming?.sessionId === data.session_id) endRequest(data.code === 'E_LAN_PAIR_DECLINED' ? null : 'pair.request.ended');
+      else if (data.session_id) answered.add(data.session_id);
+    } else if (takeRequest(data) && mode === 'connect' && !busy && !(session && !terminal())) {
+      // The pairing screen opened after the request arrived: accept it the
+      // same way that screen accepts every inbound attempt.
+      void acceptIncoming();
+    }
+    renderRequests();
+    return true;
+  }
+  async function acceptIncoming() {
+    const request = incoming;
+    if (!request || accepting || (session && !terminal())) return;
+    accepting = true; answered.add(request.sessionId); incoming = null;
+    try {
+      if (mode !== 'connect') { await cleanupFlow(); entry = 'add'; }
+      initiator = false; dialPeer = null; profileNote = null; requestError = null; errorInPairing = false; recoveryMode = null;
+      peerName = requestName(request);
+      resetSession({ deviceId: request.deviceId });
+      acceptPair(request.data);
+      session.peerName = request.name;
+      mode = 'connecting'; showFlow(); render();
+      await advancePair();
+    } finally { accepting = false; render(); }
+  }
+  async function declineIncoming() {
+    const request = incoming;
+    if (!request) return;
+    answered.add(request.sessionId); incoming = null; renderRequests();
+    try { await window.kvmflow.request('lan.pair.decline', { device_id: request.deviceId }); }
+    catch { /* the request already ended */ }
+    if (typeof log === 'function') log(t('pair.request.declined', { p0: requestName(request) }), '');
+  }
+  function renderRequests() {
+    const root = byId('pair-requests'), list = byId('pair-request-list');
+    if (!root || !list) return;
+    root.hidden = !incoming;
+    const html = incoming ? `<div class="nav-request"><div class="nav-request-copy"><strong>${esc(requestName(incoming))}</strong><span>${esc(t('pair.request.copy'))}</span></div>
+      <div class="nav-request-actions"><button type="button" class="secondary" data-request-action="decline">${esc(t('pair.request.decline'))}</button><button type="button" data-request-action="accept">${esc(t('pair.request.accept'))}</button></div></div>` : '';
+    if (list.dataset.rendered !== html) { list.innerHTML = html; list.dataset.rendered = html; }
+  }
+  document.addEventListener('click', event => {
+    const action = event.target.closest?.('[data-request-action]');
+    if (!action || !action.closest('#pair-requests')) return;
+    if (action.dataset.requestAction === 'accept') void acceptIncoming(); else void declineIncoming();
+  });
+
+  // Settings: allow requests while no pairing screen is open.
+  let requestSettingPending = false;
+  function renderRequestSetting() {
+    const control = byId('pair-requests-toggle');
+    if (!control) return;
+    const known = typeof lan?.pair_requests === 'boolean';
+    if (known && !requestSettingPending) control.checked = lan.pair_requests;
+    control.disabled = requestSettingPending || !known;
+    const label = control.closest('.toggle-control')?.querySelector('.toggle-label');
+    if (label) { label.dataset.i18n = control.checked ? 'on' : 'off'; label.textContent = t(label.dataset.i18n); }
+  }
+  document.addEventListener('change', async event => {
+    if (event.target?.id !== 'pair-requests-toggle') return;
+    const control = event.target, enabled = control.checked, status = byId('pair-requests-status');
+    requestSettingPending = true; renderRequestSetting();
+    try {
+      const result = await window.kvmflow.request('lan.pair.requests', { enabled });
+      lan = { ...(lan || {}), pair_requests: result?.enabled === true };
+      if (status) status.textContent = '';
+    } catch {
+      control.checked = !enabled;
+      if (status) status.textContent = t('pair.requests.save.failed');
+    } finally { requestSettingPending = false; renderRequestSetting(); }
+  });
 
   function clearTimers() {
-    clearTimeout(discoveryTimer); clearTimeout(followTimer); clearInterval(profileTimer);
-    discoveryTimer = followTimer = profileTimer = null;
+    clearTimeout(followTimer); clearInterval(profileTimer); clearTimeout(advanceTimer);
+    followTimer = profileTimer = advanceTimer = null;
+  }
+  // Paired: the initiator moves on to the switch test once the other
+  // computer's monitors are known; the waiting computer is done.
+  function scheduleAdvance() {
+    if (advanceTimer || mode !== 'confirm' || (initiator && !canTest())) return;
+    const token = flowGeneration, current = session;
+    advanceTimer = setTimeout(() => {
+      advanceTimer = null;
+      if (token !== flowGeneration || session !== current || mode !== 'confirm') return;
+      if (!initiator) { mode = 'done'; renderWizard(); return; }
+      if (canTest()) void startTry(); else renderWizard();
+    }, PAIRED_PAUSE_MS);
   }
   // The USB switch was identified during this setup run.
   let switchLearned = false;
@@ -477,10 +718,11 @@
   }
   function failFlow(error) {
     recoveryMode = committed() ? (initiator ? 'confirm' : 'done') : null;
+    errorInPairing = ['connecting', 'confirm'].includes(mode) || (mode === 'error' && errorInPairing);
     // Without a code the cause is unknown; never guess a network failure.
     requestError = error?.code || (/^E_[A-Z0-9_]+$/.test(error?.message || '') ? error.message : 'E_UNKNOWN');
     // The error page shows one generic message; keep the cause in diagnostics.
-    if (typeof log === 'function') log('v2.error.title', `${requestError}${error?.message ? `: ${error.message}` : ''}`);
+    if (typeof log === 'function') log(t('v2.error.title'), `${requestError}${error?.message ? `: ${error.message}` : ''}`);
     mode = 'error'; busy = false; clearTimers();
     void stopCapture(); void stopTest(); void closePairingWindow(true);
     renderWizard();
@@ -490,86 +732,100 @@
     const token = flowGeneration; busy = true; mode = 'detect'; renderWizard();
     try {
       // Users press the USB switch as soon as they leave this computer, often
-      // before discovery decides it is the one that waits: watch from here.
+      // before they reach the connect page: watch from here.
       switchLearned = false; void startCapture();
       detected = await window.KVMFlowPairingConfig.detectLocal([...skipped]);
-      if (token !== flowGeneration) return;
-      busy = false;
-      if (!detected.length || detected.some(row => !row.ready)) { mode = 'read-error'; renderWizard(); return; }
-      await search();
-    } catch (error) {
-      if (token !== flowGeneration) return;
-      busy = false; mode = 'read-error'; renderWizard();
+    } catch {
+      detected = [];
     }
+    if (token !== flowGeneration) return;
+    busy = false; mode = 'local'; renderWizard();
   }
-  async function search() {
+  // The connect page both waits to be found and lists computers that wait.
+  async function enterConnect() {
     const cleaning = cleanupFlow({ keepCapture: true }), token = flowGeneration;
     await cleaning;
     if (token !== flowGeneration) return;
-    mode = 'search'; initiator = false; dialPeer = null; profileNote = null; requestError = null;
-    renderWizard();
+    mode = 'connect'; initiator = false; dialPeer = null; profileNote = null; requestError = null; ipError = ''; errorInPairing = false;
+    busy = true; renderWizard();
     try {
       await window.KVMFlowPairingConfig.preparePrimary();
       if (token !== flowGeneration) return;
-      if (discoverWaiting()) return;
-      discoveryTimer = setTimeout(() => { if (token === flowGeneration && mode === 'search') void startWaiting(); }, 10000);
-    } catch (error) { if (token === flowGeneration) failFlow(error); }
-  }
-  function discoverWaiting() {
-    if (!['search', 'wait', 'select'].includes(mode) || busy || session && !terminal()) return false;
-    const rows = waitingRows();
-    if (!rows.length) {
-      if (mode === 'select') {
-        mode = 'search'; dialPeer = null;
-        const token = flowGeneration;
-        discoveryTimer = setTimeout(() => { if (token === flowGeneration && mode === 'search') void startWaiting(); }, 10000);
-        renderWizard();
-      }
-      return false;
-    }
-    if (mode === 'wait') {
-      const self = lan?.self?.device_id;
-      if (!self) return false;
-      // A deterministic total order prevents two open windows dialing each other.
-      const eligible = rows.filter(row => self < row.deviceId);
-      if (!eligible.length) return false;
-      if (rows.length > 1) { mode = 'select'; dialPeer = null; renderWizard(); return true; }
-    }
-    clearTimeout(discoveryTimer);
-    if (rows.length > 1 || mode === 'select') { mode = 'select'; renderWizard(); }
-    else { dialPeer = rows[0]; void beginPairing(); }
-    return true;
-  }
-  async function startWaiting() {
-    if (busy) return;
-    const token = flowGeneration; busy = true;
-    try {
       await window.kvmflow.request('lan.setup.secondary', { host_label: model.computers?.find(c => c.local)?.name || '' });
       if (token !== flowGeneration) { await closePairingWindow(true); return; }
-      mode = 'wait'; initiator = false;
       await openPairingWindow();
       if (token !== flowGeneration) return;
       if (requestError) throw new Error(requestError);
       if (!switchLearned) await startCapture();
       if (token !== flowGeneration) return;
-      busy = false; renderWizard(); discoverWaiting();
+      busy = false; renderWizard();
+      if (incoming) await acceptIncoming();
     } catch (error) { if (token === flowGeneration) failFlow(error); }
     finally { if (token === flowGeneration) busy = false; }
+  }
+  // The add page: this computer becomes findable (as on the connect page)
+  // and lists the others that are. It needs this computer's monitors first.
+  async function openAdd() {
+    const cleaning = cleanupFlow(), token = flowGeneration;
+    await cleaning;
+    if (token !== flowGeneration || !addVisible()) return;
+    entry = 'add'; mode = 'connect'; addState = 'loading';
+    initiator = false; dialPeer = null; profileNote = null; requestError = null; ipError = ''; errorInPairing = false; recoveryMode = null;
+    busy = true; renderAdd();
+    try {
+      try { await window.KVMFlowPairingConfig.preparePrimary(); }
+      catch (error) {
+        if (error?.code !== 'E_LAN_LOCAL_SETUP') throw error;
+        if (token === flowGeneration) { addState = 'local'; mode = null; }
+        return;
+      }
+      if (token !== flowGeneration) return;
+      await window.kvmflow.request('lan.setup.secondary', { host_label: model.computers?.find(c => c.local)?.name || '' });
+      if (token !== flowGeneration) { await closePairingWindow(true); return; }
+      await openPairingWindow();
+      if (token !== flowGeneration) return;
+      if (requestError) throw new Error(requestError);
+      addState = 'ready';
+      const row = addDial; addDial = null;
+      if (row) { busy = false; dialPeer = row; await beginPairing(); }
+      else if (incoming) { busy = false; await acceptIncoming(); }
+    } catch (error) {
+      if (token !== flowGeneration) return;
+      requestError = error?.code || (/^E_[A-Z0-9_]+$/.test(error?.message || '') ? error.message : 'E_UNKNOWN');
+      if (typeof log === 'function') log(t('v2.error.title'), `${requestError}${error?.message ? `: ${error.message}` : ''}`);
+      addState = 'error'; mode = null; void closePairingWindow(true);
+    } finally { if (token === flowGeneration) { busy = false; addDial = null; renderAdd(); } }
+  }
+  async function refreshNearby() {
+    if (addRefreshing || addState !== 'ready') return;
+    addRefreshing = true; renderAdd();
+    // Long enough to read as a refresh even when the reply is instant.
+    const shown = new Promise(resolve => setTimeout(resolve, 600));
+    try {
+      const data = await window.kvmflow.request('lan.discover.start', {});
+      if (data && typeof data === 'object') lan = { ...(lan || {}), ...(data.lan || data) };
+    } catch { /* discovery keeps running; the list still updates */ }
+    await shown;
+    addRefreshing = false; render();
   }
   async function beginPairing() {
     if (!dialPeer?.addr || busy || session && !terminal()) return;
     const row = dialPeer;
+    // The sidecar pairs with one computer at a time: dialing the computer
+    // that is asking already is the same as accepting it.
+    if (incoming) {
+      if (incoming.deviceId === row.deviceId) { await acceptIncoming(); return; }
+      await declineIncoming();
+    }
     const token = flowGeneration;
     busy = true; initiator = true; peerName = row.name; mode = mode ? 'connecting' : null;
-    const current = resetSession(row); render();
+    const current = resetSession(row); showFlow(); render();
     try {
       await cleanupPending;
       if (token !== flowGeneration || session !== current) return;
       await stopCapture();
       await window.KVMFlowPairingConfig.preparePrimary();
       if (token !== flowGeneration || session !== current) return;
-      // lan.pair.start opens admission itself; opening it here first would
-      // briefly advertise this dialing computer as waiting.
       await pairRequest(row.manual ? 'lan.connect.manual' : 'lan.pair.start', { addr: row.addr, ...(row.manual ? { pair: true } : {}) });
       await advancePair();
     } catch (error) {
@@ -580,7 +836,7 @@
     if (!mode || !session) return;
     const current = session;
     if (requestError || ['failed', 'cancelled'].includes(note?.phase)) { failFlow({ code: requestError || note.code }); return; }
-    if (View.pairPhase(note).state === 'sas' && !note.local_confirmed && !current.autoConfirmed) {
+    if (View.pairPhase(note).state === 'sas' && !note.local_confirmed && !current.autoConfirmed && !manualSas) {
       current.autoConfirmed = true;
       try { await pairRequest('lan.pair.confirm', { sas_ok: true }); }
       catch (error) { if (session === current) failFlow(error); return; }
@@ -612,7 +868,7 @@
           profileFailures = 0;
           profileTimer = setInterval(() => { if (mode === 'confirm') void pollProfile(); }, 2000);
         } else if (note.config_merged === false || !window.KVMFlowPairingConfig.hasTopology(current.deviceId)) failFlow({ code: 'E_LAN_SETUP_PENDING' });
-        else mode = 'done';
+        else mode = 'confirm';
       } catch (error) { if (session === current) failFlow(error); }
       finally { current.completionPending = false; }
     }
@@ -658,11 +914,11 @@
   function pressObserved() {
     if (!['try', 'try-hint'].includes(mode) || followTimer) return;
     const token = flowGeneration;
-    followTimer = setTimeout(() => { if (token === flowGeneration && mode === 'try') { mode = 'try-hint'; renderWizard(); } }, 5000);
+    followTimer = setTimeout(() => { if (token === flowGeneration && mode === 'try') { mode = 'try-hint'; renderWizard(); } }, HINT_MS);
   }
   function acceptReport(report, sender) {
     if (!report?.test_id || !report.press_id || !Array.isArray(report.per_monitor) || !report.per_monitor.length) return;
-    if (!['try', 'try-hint', 'done', 'test-error'].includes(mode)) return;
+    if (!['try', 'try-hint', 'try-ok', 'confirm', 'done', 'test-error'].includes(mode) || (mode === 'confirm' && initiator)) return;
     const localId = testRun?.localId || model.localId, peerId = testRun?.peerId || session?.deviceId;
     if (sender && report.reporting_device_id && sender !== report.reporting_device_id) return;
     if (testRun && Number.isFinite(report.ts_ms) && report.ts_ms < testRun.startedMs) return;
@@ -677,22 +933,92 @@
       const index = (window.__kvmflowDisplayFingerprints || []).indexOf(fingerprint);
       return { fingerprint, name: names.get(fingerprint) || row.name || t('monitor.value', { p0: report.per_monitor.indexOf(row) + 1 }), summary: t('monitor.value', { p0: index >= 0 ? index + 1 : report.per_monitor.indexOf(row) + 1 }) };
     });
-    // DDC acceptance alone never proves that a picture arrived.
-    if (!testRun && failed.length) { failedMonitors = failed; mode = 'test-error'; renderWizard(); }
+    // This computer's own commands failing is proof enough that a monitor
+    // stayed put; DDC acceptance alone never proves that a picture arrived.
+    const ownCommands = testRun && (report.reporting_device_id || sender) === localId && report.test_kind !== 'picture_arrived';
+    if (failed.length && (!testRun || ownCommands)) {
+      clearTimeout(advanceTimer); advanceTimer = null;
+      failedMonitors = failed; mode = 'test-error'; renderWizard();
+    }
+  }
+  // The other computer saw the keyboard and mouse arrive during this test.
+  function acceptArrival(body, sender) {
+    if (!testRun?.id || !['try', 'try-hint'].includes(mode) || body?.test_kind !== 'picture_arrived') return;
+    if (body.test_id !== testRun.id || body.target_device_id !== testRun.peerId) return;
+    if ((sender || body.reporting_device_id) !== testRun.peerId) return;
+    clearTimeout(followTimer); followTimer = null;
+    mode = 'try-ok'; renderWizard();
+    const token = flowGeneration;
+    advanceTimer = setTimeout(async () => {
+      advanceTimer = null;
+      if (token !== flowGeneration || mode !== 'try-ok') return;
+      await stopTest();
+      if (token !== flowGeneration || mode !== 'try-ok') return;
+      mode = 'done'; renderWizard();
+    }, SWITCHED_PAUSE_MS);
   }
 
   // ---- actions and lifecycle -------------------------------------------------
   document.addEventListener('submit', event => {
     if (!event.target.matches('.v2-ip-form')) return;
     event.preventDefault();
-    const addr = event.target.elements.addr.value.trim();
-    if (!addr || busy) return;
+    const input = event.target.elements.addr, addr = input.value.trim();
+    if (busy) return;
+    const message = event.target.closest('.ob-ipbody, .add-ip')?.querySelector('[data-region="ip-error"]');
+    if (!validAddress(addr)) {
+      ipError = 'ob.ip.invalid';
+      if (message) message.textContent = t(ipError);
+      input.classList.remove('ob-shake'); void input.offsetWidth; input.classList.add('ob-shake');
+      input.focus();
+      return;
+    }
+    ipError = '';
+    if (message) message.textContent = '';
     dialPeer = { addr, name: hostOf(addr), manual: true };
     void beginPairing();
   });
+  function chooseTheme(name) {
+    const apply = () => {
+      window.KVMFlowTheme?.set(name);
+      document.querySelectorAll('[data-ob-theme]').forEach(card => {
+        const on = card.dataset.obTheme === name;
+        card.classList.toggle('on', on); card.setAttribute('aria-checked', String(on));
+        card.querySelector('.ob-box')?.classList.toggle('on', on);
+      });
+    };
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (document.startViewTransition && !still) document.startViewTransition(apply); else apply();
+  }
+  async function chooseLanguage(value) {
+    if (document.documentElement.lang === value) return;
+    window.KVMFlowI18n.setPreference(value);
+    try { await window.kvmflow.language?.set(value, window.KVMFlowI18n.systemLocale()); } catch { /* the choice still applies to this window */ }
+  }
+  function toggleIp(control) {
+    const wrap = control.closest('.ob-ipwrap');
+    if (!wrap) return;
+    ipOpen = !ipOpen;
+    wrap.classList.toggle('open', ipOpen);
+    control.setAttribute('aria-expanded', String(ipOpen));
+    wrap.querySelector('.ob-ipbody')?.toggleAttribute('inert', !ipOpen);
+    if (ipOpen) setTimeout(() => wrap.querySelector('input')?.focus(), 120);
+  }
+  document.addEventListener('change', event => {
+    if (event.target.matches?.('[data-ob-manual]')) manualSas = event.target.checked;
+  });
   document.addEventListener('click', event => {
-    const card = event.target.closest('[data-v2-peer]');
-    if (card) { dialPeer = waitingRows().find(row => row.deviceId === card.dataset.v2Peer) || null; renderWizard(); return; }
+    const root = event.target.closest?.('#guide-content.ob-root');
+    if (root) {
+      const theme = event.target.closest('[data-ob-theme]');
+      if (theme) { chooseTheme(theme.dataset.obTheme); return; }
+      const language = event.target.closest('[data-ob-lang]');
+      if (language) { void chooseLanguage(language.dataset.obLang); return; }
+      const ip = event.target.closest('[data-ob-ip]');
+      if (ip) { toggleIp(ip); return; }
+      // A click on the welcome page finishes its entrance at once.
+      const welcome = event.target.closest('.ob-view[data-ob-page="welcome"]');
+      if (welcome && !event.target.closest('button') && !welcome.classList.contains('ob-skip')) { welcome.classList.add('ob-skip'); return; }
+    }
     const peer = event.target.closest('[data-pair-peer]');
     if (peer && !peer.disabled) { dialPeer = peerRows().find(row => row.deviceId === peer.dataset.pairPeer); peerName = dialPeer?.name || ''; renderDialog(); return; }
     const alias = event.target.closest('[data-pair-alias]');
@@ -700,30 +1026,47 @@
     const replacement = event.target.closest('[data-pair-replacement]');
     if (replacement && note?.initiator === true) { resolveDraft.replacement = replacement.dataset.pairReplacement === 'true'; renderDialog(); return; }
     const action = event.target.closest('button[data-pair-action]');
-    if (action && !action.disabled && action.closest('#pairing-body, #guide-content')) void handleAction(action.dataset.pairAction);
+    if (action && !action.disabled && action.closest('#pairing-body, #guide-content, #add-content')) void handleAction(action.dataset.pairAction, action);
   });
   document.addEventListener('keydown', event => {
     if (!['Enter', ' '].includes(event.key)) return;
     const control = event.target.closest('[role="button"][data-pair-replacement], [role="button"][data-pair-alias]');
     if (control) { event.preventDefault(); control.click(); }
   });
-  async function handleAction(action) {
+  async function handleAction(action, control = null) {
     switch (action) {
+      case 'ob-theme': mode = 'theme'; renderWizard(); return;
+      case 'ob-welcome': mode = 'welcome'; renderWizard(); return;
       case 'start': skipped = new Set(); detected = []; await detectLocal(); return;
+      case 'ob-back-theme': if (entry === 'add') { backToAdd(); return; } await cleanupFlow(); mode = 'theme'; renderWizard(); return;
       case 'read-retry': await detectLocal(); return;
       case 'read-skip': {
-        const row = detected.find(row => !row.ready);
-        if (!row) return;
+        const fingerprint = control?.dataset.fp;
+        const row = detected.find(item => !item.ready && (!fingerprint || item.fingerprint === fingerprint));
+        if (!row || busy) return;
         skipped.add(row.fingerprint);
         detected = detected.filter(item => item !== row);
         await window.KVMFlowPairingConfig.skipLocal(row.fingerprint);
-        if (detected.some(item => !item.ready)) renderWizard(); else await search();
+        const card = control?.closest('.ob-row');
+        if (card) { card.classList.add('ob-gone'); setTimeout(renderWizard, ROW_EXIT_MS); } else renderWizard();
         return;
       }
-      case 'search': await search(); return;
-      case 'ip': { const token = flowGeneration; await stopCapture(); if (token === flowGeneration) { mode = 'ip'; renderWizard(); } return; }
-      case 'v2-connect': if (waitingRows().some(row => row.deviceId === dialPeer?.deviceId)) await beginPairing(); return;
-      case 'v2-cancel': await cleanupFlow(); mode = 'start'; renderWizard(); return;
+      case 'local-next':
+        if (mode !== 'local' || busy || !detected.length || !detected.every(row => row.ready)) return;
+        if (entry === 'add') backToAdd(); else await enterConnect();
+        return;
+      case 'add-local': if (!busy) { entry = 'add'; await rereadLocal(); } return;
+      case 'add-retry': await openAdd(); return;
+      case 'add-refresh': await refreshNearby(); return;
+      case 'v2-connect': {
+        const row = pairableRows().find(item => item.deviceId === control?.dataset.v2Peer);
+        if (!row || busy) return;
+        dialPeer = row; await beginPairing(); return;
+      }
+      case 'v2-cancel': if (entry === 'add') backToAdd(); else await enterConnect(); return;
+      case 'ob-exit':
+        if (entry === 'add' && !committed()) { backToAdd(); return; }
+        await cleanupFlow(); mode = null; window.navigate('status'); navState(); return;
       case 'v2-retry': {
         if (recoveryMode && committed()) {
           const target = recoveryMode; busy = true; renderWizard();
@@ -735,16 +1078,16 @@
           } catch (error) { failFlow(error); } finally { busy = false; renderWizard(); }
           return;
         }
-        const row = dialPeer, wasInitiator = initiator;
+        const row = dialPeer, wasInitiator = initiator, pairing = errorInPairing;
         const cleaning = cleanupFlow(), token = flowGeneration;
         await cleaning;
         if (token !== flowGeneration) return;
         requestError = null;
-        if (wasInitiator && row) { dialPeer = row; await beginPairing(); } else await search();
+        if (pairing && wasInitiator && row) { dialPeer = row; mode = 'connecting'; await beginPairing(); } else if (entry === 'add') backToAdd(); else await enterConnect();
         return;
       }
-      case 'v2-next': await startTry(); return;
-      case 'v2-finish': await cleanupFlow(); mode = 'start'; window.navigate('status'); return;
+      case 'v2-skip': await stopTest(); clearTimers(); mode = 'done'; renderWizard(); return;
+      case 'v2-finish': await cleanupFlow(); mode = null; window.navigate('status'); return;
       case 'test-retry': await retryTest(); return;
       case 'feedback': byId('submit-device')?.click(); return;
       case 'connect': await beginPairing(); return;
@@ -752,9 +1095,14 @@
       case 'restart': { const row = dialPeer; await endPairing(); dialPeer = row; if (row) await beginPairing(); else await openPairingWindow(); return; }
       case 'confirm':
         if (!session || session.confirmPending || View.pairPhase(note).state !== 'sas' || View.confirmedFlags(note).local || !note?.sas) return;
-        { const current = session; current.confirmPending = true;
-          try { await pairRequest('lan.pair.confirm', { sas_ok: true }); } catch { /* dialog renders the error */ } finally { if (session === current) current.confirmPending = false; render(); } return; }
-      case 'mismatch': try { await pairRequest('lan.pair.confirm', { sas_ok: false }); } catch {} return;
+        { const current = session; current.confirmPending = true; render();
+          try { await pairRequest('lan.pair.confirm', { sas_ok: true }); } catch { /* the page renders the error */ } finally { if (session === current) current.confirmPending = false; render(); }
+          if (mode && session === current) await advancePair();
+          return; }
+      case 'mismatch':
+        try { await pairRequest('lan.pair.confirm', { sas_ok: false }); } catch {}
+        if (mode && session) await advancePair();
+        return;
       case 'resolve': {
         const params = resolveParams();
         if (!params || !session || session.resolvePending) return;
@@ -793,7 +1141,7 @@
   // ---- notifications --------------------------------------------------------
   window.kvmflow?.onNotification?.('wizard.candidates', async data => {
     const run = capture, token = flowGeneration;
-    if (!run || run.stopped || run.saving || !['detect', 'search', 'select', 'wait', 'try', 'try-hint'].includes(mode)) return;
+    if (!run || run.stopped || run.saving || !['detect', 'local', 'connect', 'try', 'try-hint'].includes(mode)) return;
     const trigger = window.KVMFlowPairingConfig.triggerFromCandidates(data);
     if (!trigger) return;
     run.saving = true;
@@ -812,13 +1160,16 @@
     } catch (error) { if (token === flowGeneration) failFlow(error); }
   });
   window.kvmflow?.onNotification?.('lan.pair', async data => {
+    if (requestEvent(data)) return;
     if (!acceptPair(data)) return;
     if (['failed', 'cancelled'].includes(note?.phase)) log(t('lan.log.pair.failed'), t(View.errorCopy(note.code).id, { p0: note.code || '', p1: note.message || '' }));
     const current = session;
-    peerName = data.peer_name?.trim() || View.discoveryList(lan).find(row => row.deviceId === session.deviceId)?.name || peerName;
+    // Only some events carry the name; a discovery row without one falls back to the device id.
+    if (data.peer_name?.trim()) session.peerName = data.peer_name.trim();
+    peerName = session.peerName || View.discoveryList(lan).find(row => row.deviceId === session.deviceId)?.name || peerName;
     if (mode) {
       if (data.initiator === false) initiator = false;
-      if (['wait', 'ip', 'search', 'select'].includes(mode)) mode = 'connecting';
+      if (mode === 'connect') { mode = 'connecting'; showFlow(); }
       await advancePair();
     } else if (committed()) {
       await closePairingWindow();
@@ -828,12 +1179,12 @@
   });
   window.kvmflow?.onNotification?.('lan.peers', data => {
     if (Array.isArray(data?.peers)) lan = { ...(lan || {}), peers: data.peers };
-    discoverWaiting(); render();
+    render();
   });
   window.kvmflow?.onNotification?.('lan.status', data => {
     if (!data || typeof data !== 'object') return;
     lan = { ...(lan || {}), ...(data.lan || data) };
-    discoverWaiting(); render();
+    syncRequest(); render();
   });
   window.kvmflow?.onNotification?.('lan.profile', async data => {
     const current = session;
@@ -842,7 +1193,7 @@
       return;
     }
     // Settings still follows every owner, but a stale/foreign owner cannot
-    // unlock the selected peer's Next button.
+    // unlock the selected peer's switch test.
     try { await window.KVMFlowPairingConfig.refresh(); }
     catch (error) { if (session === current) requestError = error?.code || 'E_LAN_CONFIG_REFRESH'; }
     if (session !== current || !session?.deviceId || data.device_id !== session.deviceId || (data.profile_rev ?? 0) < (profileNote?.profile_rev ?? 0)) return;
@@ -878,18 +1229,46 @@
     for (const event of data?.events || []) {
       if (!['test.event', 'switch.report'].includes(event?.kind) || event.body?.test_id !== data.test_id) continue;
       acceptReport(event.body, event.device_id);
+      acceptArrival(event.body, event.device_id);
     }
   });
   function acceptLanState(state) {
-    if (state?.lan) { lan = state.lan; discoverWaiting(); render(); }
+    if (state?.lan) { lan = state.lan; syncRequest(); render(); }
   }
+  // Re-running setup from the app skips the welcome and appearance pages.
+  async function rereadLocal() {
+    if (mode) await cleanupFlow();
+    skipped = new Set(); detected = []; mode = 'detect';
+    originalNavigate('guide');
+    await detectLocal();
+  }
+  async function restartSetup() { entry = 'setup'; await rereadLocal(); }
+  async function showWelcome() {
+    await cleanupFlow();
+    entry = 'setup'; mode = 'welcome';
+    originalNavigate('guide');
+  }
+  // A hidden window closed admission; coming back to the add page reopens it.
+  const reopenAdd = () => { if (addVisible() && !mode && !busy && addState === 'ready') void openAdd(); };
+  window.addEventListener('focus', reopenAdd);
+  byId('show-welcome')?.addEventListener('click', () => { void showWelcome(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reopenAdd(); });
   window.KVMFlowPairingStateHook = acceptLanState;
   window.KVMFlowPairing = {
     openDialog, closeDialog, acceptLanState, renderWizard,
     activeMode: () => mode, navStatus,
-    // Entry points use the same role-free flow, including re-running setup.
-    startPrimaryAdd: () => { window.navigate('guide'); mode = 'start'; renderWizard(); },
-    startRoleChoice: () => { window.navigate('guide'); mode = 'start'; renderWizard(); },
+    startPrimaryAdd: () => { void restartSetup(); },
+    startRoleChoice: () => { void restartSetup(); },
+    openAdd: () => openAdd(), showWelcome: () => showWelcome(),
+    // Pairing from settings runs through the add page, which first makes
+    // this computer ready, then continues full screen.
+    addWith: deviceId => {
+      const row = View.discoveryList(lan).find(item => item.deviceId === deviceId);
+      if (!row?.addr || !row.available) return;
+      if (window.KVMFlowPairingConfig?.isTrusted(deviceId)) { void window.kvmflow.request('lan.connect.manual', { addr: row.addr }).catch(() => {}); return; }
+      if (session && !terminal()) return;
+      addDial = row; window.navigate('add');
+    },
     pairWith: deviceId => {
       const row = View.discoveryList(lan).find(entry => entry.deviceId === deviceId);
       if (!row?.addr || !row.available) return;

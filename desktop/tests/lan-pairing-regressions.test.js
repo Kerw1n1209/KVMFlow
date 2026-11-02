@@ -30,7 +30,7 @@ test('fresh waiting computer persists its identity, observed inputs and captured
     } });
   await V.waiting(c);
   await emit(c, 'wizard.candidates', { disappeared: [{ vid_pid: '1234:5678', product: 'USB Hub' }, { vid_pid: '2345:6789', product: 'Keyboard' }] });
-  await emit(c, 'lan.peers', { peers: [V.peer()] });
+  await emit(c, 'lan.peers', { peers: [V.peer()] }); await c.pair();
   assert.equal(persisted.local_device.device_id, 'aaa');
   assert.equal(persisted.local_device.monitors[0].fingerprint, 'real-display');
   assert.equal(persisted.local_device.monitors[0].local_input, 17);
@@ -44,7 +44,7 @@ test('fresh initiator cannot dial if saving local setup fails', async t => {
   const V = require('./pairing-v2-helper');
   const c = await V.setup(t, { config: null,
     request: async method => { if (method === 'config.set') throw Object.assign(new Error('disk'), { code: 'E_CONFIG_IO' }); } });
-  await c.start();
+  await c.connect();
   assert.equal(c.requests.filter(r => r.method === 'config.set').length, 1);
   assert.equal(c.requests.filter(r => r.method === 'lan.pair.start').length, 0);
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'error');

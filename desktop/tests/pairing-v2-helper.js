@@ -3,26 +3,38 @@ const { client, tick, pairedV2 } = require('./client-helper');
 const peer = (over = {}) => ({ device_id: 'dev-peer', name: 'GAME', online: true, waiting: true, addr: '192.168.1.23:47820', ...over });
 const displays = [{ edid_id: 'display-a', model_name: '显示器 1', ddc: { state: 'available', input: 15 } }, { edid_id: 'display-b', model_name: '显示器 2', ddc: { state: 'available', input: 7 } }];
 const state = (peers = [peer()], id = 'host-win') => ({ state: 'idle', enabled: true, lan: { enabled: true, self: { device_id: id, addr: '192.168.1.22:47820' }, peers } });
-const click = (c, action) => { const el = c.win.document.querySelector(`[data-pair-action="${action}"]`); assert.ok(el, action); el.click(); };
+const click = (c, action, attrs = '') => { const el = c.win.document.querySelector(`[data-pair-action="${action}"]${attrs}`); assert.ok(el, action); el.click(); };
 const body = c => c.win.document.querySelector('#guide-content').textContent;
 const emit = async (c, kind, data) => { await c.subscriptions.get(kind)(data); await tick(); };
+// Timers the onboarding uses for pauses and hints; tests fire them on demand.
+const HELD = [900, 1100, 5000];
 async function setup(t, options = {}) {
   const c = await client(t, { state: state(), displays, ...options });
   const timers = new Map();
   const nativeTimeout = c.win.setTimeout.bind(c.win);
   c.win.setTimeout = (fn, delay, ...args) => {
-    if ([10000, 5000].includes(delay)) { const id = nativeTimeout(() => {}, 1000000); timers.set(delay, { id, fn: () => fn(...args) }); return id; }
+    if (HELD.includes(delay)) { const id = nativeTimeout(() => {}, 1000000); timers.set(delay, { id, fn: () => fn(...args) }); return id; }
     return nativeTimeout(fn, delay, ...args);
   };
-  c.fire = async delay => { const timer = timers.get(delay); assert.ok(timer, `timer ${delay}`); c.win.clearTimeout(timer.id); timers.delete(delay); timer.fn(); await tick(); };
+  const nativeClear = c.win.clearTimeout.bind(c.win);
+  c.win.clearTimeout = id => { for (const [delay, timer] of timers) if (timer.id === id) timers.delete(delay); nativeClear(id); };
+  c.pending = delay => timers.has(delay);
+  c.fire = async delay => { const timer = timers.get(delay); assert.ok(timer, `timer ${delay}`); nativeClear(timer.id); timers.delete(delay); await timer.fn(); await tick(); };
   c.win.navigate('guide');
+  // Welcome → appearance; `start` on the appearance page reads this computer.
+  click(c, 'ob-theme');
   c.start = async () => { click(c, 'start'); await tick(); };
+  c.next = async () => { click(c, 'local-next'); await tick(); };
+  c.connect = async () => { await c.start(); await c.next(); };
+  c.pair = async (id = 'dev-peer') => { click(c, 'v2-connect', `[data-v2-peer="${id}"]`); await tick(); };
+  c.dial = async id => { await c.connect(); await c.pair(id); };
+  c.advance = () => c.fire(900);
   return c;
 }
-async function waiting(c) { await c.start(); await c.fire(10000); assert.equal(c.win.KVMFlowPairing.activeMode(), 'wait'); }
+async function waiting(c) { await c.connect(); assert.equal(c.win.KVMFlowPairing.activeMode(), 'connect'); }
 const profile = (pending = false, rev = 1) => ({ device_id: 'dev-peer', profile_rev: rev, monitors: displays.map((d, i) => ({ fingerprint: d.edid_id, name: d.model_name, input: pending && i === 1 ? { state: 'pending' } : { state: 'value', value: i + 17 } })) });
 async function ready(c, pending = false) {
-  await c.start(); c.setConfig(pairedV2());
+  await c.dial(); c.setConfig(pairedV2());
   await emit(c, 'lan.pair', { phase: 'committed', device_id: 'dev-peer', initiator: true, config_merged: true });
   await emit(c, 'lan.profile', profile(pending));
 }

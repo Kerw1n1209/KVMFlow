@@ -43,9 +43,13 @@ function log(title, copy) {
   save(); renderDiagnostics();
 }
 
+// Setup was skipped: this computer is saved, but nothing is paired with it yet.
+const unpaired = () => model.computers.length === 1;
+
 function navState() {
   const state = window.__kvmflowRuntimeState;
   const label = window.KVMFlowPairing?.navStatus() || (state === 'error' ? t("nav.unavailable")
+    : unpaired() ? t("nav.unpaired")
     : !model.usbConfirmed ? t("nav.setup.required")
     : state === 'learning' ? t("nav.identifying")
     : state === 'pushing' ? t("nav.sending")
@@ -58,8 +62,9 @@ function navState() {
 function renderStatus() {
   const ready = model.usbConfirmed && model.computers.length > 1;
   $('#topology').hidden = ready;
-  $('#topology').innerHTML = ready ? '' : `<div class="topology-head"><h2>${t("setup.incomplete")}</h2><button class="primary" data-action="beginSetup">${t("start.setup")}</button></div>`;
+  $('#topology').innerHTML = ready ? '' : `<div class="topology-head"><h2>${t(unpaired() ? "status.unpaired" : "setup.incomplete")}</h2><button class="primary" data-action="beginSetup">${t(unpaired() ? "nav.add" : "start.setup")}</button></div>`;
   window.KVMFlowMixed?.render();
+  if (unpaired()) { $('#last-title').textContent = ''; $('#last-copy').textContent = ''; return; }
   if (window.KVMFlowMixed?.renderLast()) return;
   const report = window.__kvmflowLastSwitchReport;
   const outcomes = report?.per_monitor || [];
@@ -284,26 +289,23 @@ function saveSettings() {
   model.nextId = queue[(at + 1) % queue.length].id;
   save(); renderComputers(); renderStatus();
 }
-function addComputer() {
-  const id = 'pc-' + Date.now();
-  model.computers.push({ id, name: t("new.computer"), nameKey: "new.computer", port: model.computers.length + 1, local: false, sources: model.displays.map(() => null) });
-  editingId = id; save(); renderComputers();
-  markComputerSettingsStructureChanged();
-}
 function renderDiagnostics() {
   $('#event-list').innerHTML = model.events.map(event =>
     `<div class="event"><div><strong>${escapeHtml(window.KVMFlowI18n.format(event.titleMessage ?? event.title))}</strong><p class="hint">${escapeHtml(window.KVMFlowI18n.format(event.copyMessage ?? event.copy))}</p></div>
       <span class="time">${escapeHtml(event.time)}</span></div>`).join('') || `<p class="hint">${t('no.switch.records.yet')}</p>`;
 }
-const pages = ['status', 'guide', 'settings', 'diagnostics'];
+const pages = ['status', 'add', 'guide', 'settings', 'diagnostics'];
 function navigate(page, options = {}) {
   if (!pages.includes(page)) return;
   $('.shell').classList.toggle('settings-active', page === 'settings');
+  // Setup runs full screen, without the sidebar.
+  document.documentElement.classList.toggle('onboarding-active', page === 'guide');
   pages.forEach(name => $(`#${name}-page`).classList.toggle('hidden', name !== page));
   document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.page === page));
   $('main').scrollTop = 0;
   if (page === 'status') renderStatus();
   if (page === 'guide') renderGuide();
+  if (page === 'add') void window.KVMFlowPairing?.openAdd();
   if (page === 'settings') renderComputers();
   if (page === 'diagnostics') renderDiagnostics();
 }
@@ -312,7 +314,7 @@ function dispatchAction(event) {
   const control = event.target.closest('[data-action]');
   if (!control || control.disabled) return;
   const action = control.dataset.action;
-  if (action === 'beginSetup') { step = 0; navigate('guide'); return; }
+  if (action === 'beginSetup') { navigate('add'); return; }
   if (!actions.has(action)) return;
   const result = action === 'selectChoice'
     ? window.selectChoice(event, control.dataset.value)
@@ -327,5 +329,5 @@ document.addEventListener('keydown', event => {
 });
 document.querySelectorAll('[data-page]').forEach(control => control.addEventListener('click', () => navigate(control.dataset.page)));
 $('#save-settings').addEventListener('click', () => { void window.saveSettings(); });
-$('#add-computer').addEventListener('click', addComputer);
+$('#add-computer').addEventListener('click', () => navigate('add'));
 navState(); renderStatus(); renderDiagnostics();

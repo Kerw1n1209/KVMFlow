@@ -166,7 +166,7 @@
               log(t('mixed.log.warning'),errorText(error));
             });
           } else {
-            window.KVMFlowPairing?.pairWith(peer.device_id);
+            window.KVMFlowPairing?.addWith(peer.device_id);
           }
         });
         element.append(' ',button);

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="4 4 108 108">
+  <!-- In-app mark for the dark palette: the same drawing as brand-mark.svg. -->
+  <rect x="14" y="14" width="96" height="96" rx="20" fill="#f2f2ee"/>
+  <rect x="8" y="8" width="96" height="96" rx="20" fill="#232320" stroke="#f2f2ee" stroke-width="5"/>
+  <path d="M58 41H74a8 8 0 0 1 8 8V58" fill="none" stroke="#f2f2ee" stroke-width="14" stroke-linecap="round"/>
+  <path d="M58 41H74a8 8 0 0 1 8 8V58" fill="none" stroke="#232320" stroke-width="7" stroke-linecap="round"/>
+  <rect x="19" y="26" width="41" height="28" rx="6" fill="#f2f2ee"/>
+  <rect x="57.5" y="58.5" width="36" height="24" rx="5" fill="#4a4a45" stroke="#f2f2ee" stroke-width="5"/>
+  <path d="M35 55V63a8 8 0 0 0 8 8H71" fill="none" stroke="#f2f2ee" stroke-width="14" stroke-linecap="round"/>
+  <path d="M35 55V63a8 8 0 0 0 8 8H71" fill="none" stroke="#232320" stroke-width="7" stroke-linecap="round"/>
+  <rect x="28" y="49" width="14" height="5" fill="#f2f2ee"/>
+</svg>

@@ -858,6 +858,12 @@
       } finally { languageControl.disabled = false; }
     });
   }
+  const themeControl = byId('theme-select');
+  if (themeControl && window.KVMFlowTheme) {
+    themeControl.value = window.KVMFlowTheme.preference;
+    themeControl.addEventListener('change', () => window.KVMFlowTheme.set(themeControl.value));
+    window.addEventListener('theme-changed', () => { themeControl.value = window.KVMFlowTheme.preference; });
+  }
   byId('add-computer')?.addEventListener('click', () => setTimeout(renderTimingSettings, 0));
   byId('computer-list')?.addEventListener('click', (event) => {
     if (event.target.closest('.danger-button')) setTimeout(renderTimingSettings, 0);

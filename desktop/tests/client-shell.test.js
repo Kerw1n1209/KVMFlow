@@ -348,7 +348,7 @@ test('dynamic names and diagnostics are text rather than executable markup', asy
 
 test('role-free setup and dynamically rendered actions work without inline JavaScript', async t => {
   const c = await require('./pairing-v2-helper').setup(t);
-  await c.start();
+  await c.connect();
   assert.match(c.win.document.querySelector('#guide-content').textContent, /连接另一台电脑/);
   assert.equal(c.win.document.querySelectorAll('[onclick]').length, 0);
 });
@@ -460,7 +460,7 @@ test('English renders dynamic status, setup, timing and local-input confirmation
   assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB');
   assert.equal(doc.querySelector('#nav-state').title, 'Waiting for USB');
   c.win.navigate('guide');
-  assert.equal(doc.querySelector('#steps .active').textContent, '1 Local setup');
+  assert.match(doc.querySelector('#guide-content').textContent, /One keyboard and mouse\. Two computers\./);
   c.win.navigate('settings');
   assert.equal(doc.querySelector('#local-input-origin').textContent, 'Read automatically');
   assert.equal(doc.querySelector('label[for="timing-absent"]').textContent, 'Departure delay');
@@ -580,7 +580,7 @@ test('language changes during background USB identification preserve the active 
   const { setup, waiting, state } = require('./pairing-v2-helper');
   const c = await setup(t, { state: state([]) }); await waiting(c);
   c.win.KVMFlowI18n.setPreference('en');
-  assert.match(c.win.document.querySelector('#guide-content').textContent, /Switch to the other computer/);
+  assert.match(c.win.document.querySelector('#guide-content').textContent, /Not open on the other computer\?/);
   assert.equal(c.requests.filter(r => r.method === 'wizard.begin').length, 1);
   assert.equal(c.requests.filter(r => r.method === 'wizard.end').length, 0);
 });

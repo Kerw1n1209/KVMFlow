@@ -41,8 +41,8 @@ test('a failed waiting connection retries by reopening discovery and capture', a
   const c = await V.setup(t, { state: V.state([]) }); await V.waiting(c);
   await V.emit(c, 'lan.pair', { phase: 'await_confirm', device_id: 'dev-peer', initiator: false });
   await V.emit(c, 'lan.pair', { phase: 'failed', device_id: 'dev-peer', code: 'E_LAN_PAIR_TIMEOUT' });
-  V.click(c, 'v2-retry'); await tick(); await c.fire(10000);
-  assert.equal(c.win.KVMFlowPairing.activeMode(), 'wait');
+  V.click(c, 'v2-retry'); await tick();
+  assert.equal(c.win.KVMFlowPairing.activeMode(), 'connect');
   assert.equal(count(c, 'lan.setup.secondary'), 2);
   assert.equal(count(c, 'wizard.begin'), 2);
 });
@@ -50,8 +50,9 @@ test('a failed waiting connection retries by reopening discovery and capture', a
 test('continuing setup after a rejected attempt starts cleanly without role or manual input pages', async t => {
   let reject = true;
   const c = await V.setup(t, { request: async method => { if (method === 'lan.pair.start' && reject) throw new Error('offline'); } });
-  await c.start(); assert.equal(c.win.KVMFlowPairing.activeMode(), 'error');
-  c.win.navigate('settings'); c.win.navigate('guide'); reject = false; await c.start();
+  await c.dial(); assert.equal(c.win.KVMFlowPairing.activeMode(), 'error');
+  c.win.navigate('settings'); c.win.navigate('guide'); reject = false;
+  V.click(c, 'ob-theme'); await c.dial();
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'connecting');
   assert.equal(count(c, 'lan.pair.start'), 2);
 });
@@ -60,8 +61,7 @@ test('navigation and delayed state never restore removed role or manual steps', 
   const c = await V.setup(t, { config: null, state: V.state([]) });
   c.win.navigate('settings'); c.win.navigate('guide');
   c.win.KVMFlowPairingStateHook({ lan: V.state([]).lan }); c.win.renderGuide();
-  assert.equal(c.win.document.querySelectorAll('#steps .step').length, 3);
-  assert.match(V.body(c), /开始配置/);
+  assert.match(V.body(c), /一套键鼠，两台电脑/);
   assert.doesNotMatch(V.body(c), /主机|副机|手动填写|配对码/);
 });
 
@@ -76,14 +76,14 @@ test('malformed post-pair config preserves the local model and exposes identity 
   assert.match(c.win.document.querySelector('#guide-content [role="alert"]').textContent, /重新添加/);
 });
 
-test('a delayed owner profile retries reads automatically and cannot enable Next without topology', async t => {
-  const c = await V.setup(t); await c.start();
+test('a delayed owner profile retries reads automatically and cannot start the test without topology', async t => {
+  const c = await V.setup(t); await c.dial();
   await V.emit(c, 'lan.pair', { phase: 'committed', device_id: 'dev-peer', config_merged: false });
   await V.emit(c, 'lan.profile', V.profile(false));
-  assert.equal(c.win.document.querySelector('[data-pair-action="v2-next"]').disabled, true);
+  assert.equal(c.pending(900), false);
   c.setConfig(pairedV2()); await V.emit(c, 'lan.profile', V.profile(false, 2));
-  assert.equal(c.win.document.querySelector('[data-pair-action="v2-next"]').disabled, false);
-  V.click(c, 'v2-next'); await tick();
+  assert.equal(c.pending(900), true);
+  await c.advance();
   const confirm = c.requests.findIndex(r => r.method === 'config.set' && r.params.config.switch_group?.sync?.ports_confirmed);
   assert.ok(confirm >= 0 && c.requests.findIndex(r => r.method === 'lan.test.start') > confirm);
 });
@@ -91,11 +91,11 @@ test('a delayed owner profile retries reads automatically and cannot enable Next
 test('a failed topology save exposes E2 and retry returns to the saved confirmation', async t => {
   let reject = false;
   const c = await V.setup(t, { request: async method => { if (method === 'config.set' && reject) throw new Error('disk'); } });
-  await V.ready(c); reject = true; V.click(c, 'v2-next'); await tick();
+  await V.ready(c); reject = true; await c.advance();
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'error'); assert.equal(count(c, 'lan.test.start'), 0);
   reject = false; V.click(c, 'v2-retry'); await tick();
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'confirm');
-  V.click(c, 'v2-next'); await tick(); assert.equal(count(c, 'lan.test.start'), 1);
+  await c.advance(); assert.equal(count(c, 'lan.test.start'), 1);
 });
 
 test('waiting computer with mutual trust but no topology cannot report pairing completion', async t => {
@@ -114,7 +114,8 @@ for (const leave of [false, true]) test(`confirmation save is single-flight and 
   const c = await V.setup(t, { request: async method => method === 'config.set' && block ? saving : undefined });
   await V.ready(c); block = true;
   const writes = count(c, 'config.set');
-  const next = c.win.document.querySelector('[data-pair-action="v2-next"]'); next.click(); next.click(); await tick();
+  await c.advance();
+  assert.equal(c.pending(900), false, 'no second save is scheduled while one runs');
   assert.equal(count(c, 'config.set') - writes, 1); assert.equal(count(c, 'lan.test.start'), 0);
   if (leave) c.win.navigate('settings');
   finish({}); await tick(); await tick();

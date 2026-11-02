@@ -51,6 +51,7 @@
   function errorCopy(code, message) {
     const id = ({
       E_LAN_PAIR_REJECTED: 'lan.error.rejected',
+      E_LAN_PAIR_DECLINED: 'lan.error.declined',
       E_LAN_PAIR_CANCELLED: 'lan.error.cancelled',
       E_LAN_PAIR_ABORTED: 'lan.error.aborted',
       E_LAN_PAIR_TIMEOUT: 'lan.error.timeout',
@@ -91,6 +92,7 @@
     ['v2.error.network', ['E_LAN_IO', 'E_LAN_NOISE', 'E_LAN_LISTEN', 'E_LAN_CLOSED', 'E_LAN_DISCONNECTED', 'E_LAN_OFFLINE', 'E_LAN_PAIR_ABORTED', 'E_LAN_PAIR_INTERRUPTED']],
     ['v2.error.timeout', ['E_LAN_PAIR_TIMEOUT', 'E_LAN_TIMEOUT']],
     ['v2.error.cancelled', ['E_LAN_PAIR_REJECTED', 'E_LAN_PAIR_CANCELLED']],
+    ['v2.error.declined', ['E_LAN_PAIR_DECLINED']],
     ['v2.error.window', ['E_LAN_PAIR_WINDOW', 'E_LAN_NOT_MEMBER']],
     ['v2.error.busy', ['E_LAN_BUSY']],
     ['v2.error.group', ['E_LAN_GROUP_CONFLICT']],
@@ -130,6 +132,9 @@
           : typeof peer.pair_addr === 'string' ? peer.pair_addr : typeof peer.addr === 'string' ? peer.addr : null,
         available: peer.online === true || typeof peer.pair_addr === 'string',
         online: peer.online === true,
+        waiting: peer.waiting === true,
+        // null: the peer predates pairing requests (0.4.1 and older).
+        requests: typeof peer.requests === 'boolean' ? peer.requests : null,
       }));
   }
 
@@ -213,9 +218,13 @@
     return { first: reports[0] ? summarize(reports[0]) : null, second: reports[1] ? summarize(reports[1]) : null };
   }
 
-  function waitingPeers(lan, memberIds = []) {
-    const waiting = new Set((lan?.peers || []).filter(peer => peer.waiting === true).map(peer => peer.device_id));
-    return discoveryList(lan, memberIds).filter(row => waiting.has(row.deviceId) && row.available && row.addr && row.deviceId !== lan?.self?.device_id);
+  // Computers we can dial: those on a pairing screen, then those that take
+  // pairing requests. Older computers off their pairing screen cannot pair.
+  function pairablePeers(lan, memberIds = []) {
+    return discoveryList(lan, memberIds)
+      .filter(row => row.addr && row.deviceId !== lan?.self?.device_id
+        && ((row.waiting && row.available) || (row.requests === true && row.online)))
+      .sort((a, b) => Number(b.waiting) - Number(a.waiting));
   }
   function defaultResolutions(issues) {
     const params = {}, aliases = {};
@@ -230,7 +239,7 @@
   }
 
   window.KVMFlowPairingView = {
-    waitingPeers, defaultResolutions, pairPhase, errorCopy, setupErrorCopy, discoveryList, profileRows, pendingCount,
+    pairablePeers, defaultResolutions, pairPhase, errorCopy, setupErrorCopy, discoveryList, profileRows, pendingCount,
     mixedChoice, issueGroups, pendingGuidance, trySummary, confirmedFlags,
   };
 })();
