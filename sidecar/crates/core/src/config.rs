@@ -61,6 +61,9 @@ pub struct LanConfig {
     pub enabled: bool,
     pub listen_port: u16,
     pub public_key: String,
+    /// Other computers may ask to pair while no pairing screen is open; the
+    /// request waits for the user to accept it.
+    pub pair_requests: bool,
 }
 impl Default for LanConfig {
     fn default() -> Self {
@@ -68,6 +71,7 @@ impl Default for LanConfig {
             enabled: true,
             listen_port: 47820,
             public_key: String::new(),
+            pair_requests: true,
         }
     }
 }

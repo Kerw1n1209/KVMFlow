@@ -137,6 +137,7 @@ impl Runtime {
             "device_id": pair.link.device_id,
             "initiator": pair.link.initiator,
             "sas": pair.link.sas,
+            "request": pair.link.request,
             // Authenticated hello name (when the peer supplied one). The UI
             // must prefer it over the mDNS-discovered label.
             "peer_name": pair.link.peer_name,
@@ -216,6 +217,7 @@ impl Runtime {
         // attempts mint their own. Either way this pairing flow starts a new
         // session identity and sequence.
         let claimed = if link.initiator {
+            self.lan_runtime.pair_pending_addr = None;
             self.lan_runtime.pair_pending_session.take()
         } else {
             None
@@ -245,13 +247,19 @@ impl Runtime {
         if let Some(pair) = self.lan_runtime.pair.take() {
             let _ = pair.link.send("pair.abort", json!({"code": code}));
             pair.link.close();
-            // Pairing screen over: stop accepting inbound attempts.
-            if let Some(handle) = self.lan_runtime.handle.as_ref() {
-                handle.set_pairing_window(false);
+            // Pairing screen over: stop accepting inbound attempts. An
+            // unanswered request never had a screen; the window may belong
+            // to the add page the user opened meanwhile.
+            let unanswered = pair.link.request && !pair.local_confirmed;
+            if !unanswered {
+                if let Some(handle) = self.lan_runtime.handle.as_ref() {
+                    handle.set_pairing_window(false);
+                }
             }
-            self.pair_emit(
-                json!({"phase":"failed","code":code,"message":message,"device_id":pair.link.device_id}),
-            );
+            self.pair_emit(json!({
+                "phase": "failed", "code": code, "message": message,
+                "device_id": pair.link.device_id, "request": pair.link.request,
+            }));
             self.lan_issue(code, message);
         }
     }
@@ -278,6 +286,9 @@ impl Runtime {
                 if pair.commit_confirmed_by_peer {
                     // Handshake complete; the session ended cleanly.
                     self.lan_runtime.pair = None;
+                } else if std::time::Instant::now() >= pair.link.deadline {
+                    let id = pair.link.device_id.clone();
+                    self.pair_fail("E_LAN_PAIR_TIMEOUT", &format!("pairing with {id} timed out"));
                 } else {
                     let id = pair.link.device_id.clone();
                     self.pair_fail("E_LAN_CLOSED", &format!("pairing session with {id} closed"));

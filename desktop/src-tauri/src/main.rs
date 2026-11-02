@@ -233,12 +233,34 @@ fn forward_notification(app: &AppHandle, generation: u64, kind: &str, data: Valu
             tr(app.app_handle(), "native.error.title"),
             tr(app.app_handle(), "native.error.body"),
         )),
+        "lan.pair" if pair_request_notice(&data) && !client_in_front(app) => Some((
+            tr(app.app_handle(), "native.pair.request.title"),
+            tr(app.app_handle(), "native.pair.request.body").replace(
+                "{p0}",
+                data["peer_name"]
+                    .as_str()
+                    .filter(|name| !name.trim().is_empty())
+                    .or_else(|| data["device_id"].as_str())
+                    .unwrap_or_default(),
+            ),
+        )),
         _ => None,
     };
     if let Some((title, body)) = notice {
         let _ = app.notification().builder().title(title).body(body).show();
     }
     let _ = app.emit("runtime-notification", notification);
+}
+
+/// A new request from another computer, before the user answered it.
+fn pair_request_notice(data: &Value) -> bool {
+    data["request"] == true && data["phase"] == "await_confirm" && data["local_confirmed"] != true
+}
+
+fn client_in_front(app: &AppHandle) -> bool {
+    app.get_webview_window("main").is_some_and(|window| {
+        window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false)
+    })
 }
 
 fn opens_pairing_window(method: &str, params: &Value) -> bool {
@@ -772,6 +794,22 @@ mod pairing_lifecycle_tests {
             &json!({"open": false})
         ));
         assert!(!opens_pairing_window("lan.pair.cancel", &json!({})));
+    }
+
+    #[test]
+    fn only_unanswered_pairing_requests_raise_a_system_notification() {
+        assert!(pair_request_notice(
+            &json!({"phase": "await_confirm", "request": true, "local_confirmed": false})
+        ));
+        assert!(!pair_request_notice(
+            &json!({"phase": "await_confirm", "request": false})
+        ));
+        assert!(!pair_request_notice(
+            &json!({"phase": "await_confirm", "request": true, "local_confirmed": true})
+        ));
+        assert!(!pair_request_notice(
+            &json!({"phase": "failed", "request": true})
+        ));
     }
 
     #[test]

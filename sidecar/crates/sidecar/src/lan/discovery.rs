@@ -21,6 +21,9 @@ pub struct Advertisement {
     /// The inbound pairing window is open (TXT `w=1`). A setup wizard on
     /// another computer uses it to pick the computer to pair with.
     pub waiting: bool,
+    /// Inbound pairing requests are accepted outside the pairing window
+    /// (TXT `q`). Peers from before 0.4.2 omit the key.
+    pub requests: bool,
 }
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct DiscoveredPeer {
@@ -31,6 +34,9 @@ pub struct DiscoveredPeer {
     pub group_fp: String,
     /// Untrusted hint: the peer says its pairing window is open.
     pub waiting: bool,
+    /// Untrusted hint: `Some(false)` means the peer turned pairing requests
+    /// off, `None` means it predates them (TXT `q` absent).
+    pub requests: Option<bool>,
 }
 #[derive(Clone, Debug)]
 pub enum DiscoveryEvent {
@@ -118,6 +124,7 @@ impl Discovery for DirDiscovery {
             "key_fp": short_hash(&ad.public_key),
             "group_fp": ad.group_id.as_ref().map(|g| short_hash(g.as_bytes())).unwrap_or_default(),
             "waiting": ad.waiting,
+            "requests": ad.requests,
         });
         let file = self.dir.join(format!("{}.json", ad.device_id));
         let temp = file.with_extension("tmp");
@@ -155,6 +162,7 @@ impl Discovery for DirDiscovery {
                     key_fp: text("key_fp"),
                     group_fp: text("group_fp"),
                     waiting: v["waiting"].as_bool().unwrap_or(false),
+                    requests: v["requests"].as_bool(),
                 },
             );
         }
@@ -322,6 +330,7 @@ impl MdnsCache {
                     key_fp: info.get_property_val_str("k").unwrap_or_default().into(),
                     group_fp: info.get_property_val_str("g").unwrap_or_default().into(),
                     waiting: info.get_property_val_str("w") == Some("1"),
+                    requests: info.get_property_val_str("q").map(|q| q == "1"),
                 }));
             }
             ServiceEvent::ServiceRemoved(_, fullname) => {
@@ -357,6 +366,7 @@ fn service_info(ad: &Advertisement, revision: u64) -> Result<ServiceInfo> {
         ("g", group.as_str()),
         ("n", instance_name(&ad.host_label)),
         ("w", if ad.waiting { "1" } else { "0" }),
+        ("q", if ad.requests { "1" } else { "0" }),
         ("r", revision.as_str()),
     ];
     // Hostname never incorporates untrusted TXT or punctuation in a label.
@@ -472,6 +482,7 @@ mod tests {
             group_id: Some("group".into()),
             port: 47820,
             waiting: false,
+            requests: false,
         };
         let txt = [("v", "1"), ("id", ad.device_id.as_str())];
         let info = ServiceInfo::new(
@@ -562,6 +573,7 @@ mod tests {
             group_id: None,
             port: 47998,
             waiting: false,
+            requests: false,
         };
         publisher.announce(&ad).unwrap();
         let mut browser = MdnsDiscovery::new(AddressPolicy::from_env()).unwrap();
@@ -604,6 +616,7 @@ mod tests {
             group_id: None,
             port: 47820,
             waiting: false,
+            requests: false,
         };
         let closed = service_info(&ad, 1).unwrap();
         assert_eq!(closed.get_property_val_str("w"), Some("0"));
@@ -622,6 +635,7 @@ mod tests {
             group_id: None,
             port: 47820,
             waiting: false,
+            requests: false,
         };
         let a = service_info_test(&ad("dev-a", "")).unwrap();
         let b = service_info_test(&ad("dev-b", "")).unwrap();

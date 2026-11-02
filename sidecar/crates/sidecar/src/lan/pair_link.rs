@@ -32,6 +32,9 @@ pub(super) struct PairStart {
     pub(super) permit: Permit,
     pub(super) deadline: Instant,
     pub(super) sas: String,
+    /// Admitted outside the pairing window: the runtime waits for the user
+    /// to accept before confirming.
+    pub(super) request: bool,
 }
 
 /// The untrusted pairing link. All access happens on the runtime thread.
@@ -49,6 +52,8 @@ pub struct PairLink {
     /// Six-digit compare value both users must confirm.
     pub sas: String,
     pub deadline: Instant,
+    /// Inbound attempt admitted as a pairing request (see `PairStart`).
+    pub request: bool,
     writer: SyncSender<Envelope>,
     messages: Mutex<Receiver<Envelope>>,
     stop: Arc<AtomicBool>,
@@ -84,6 +89,7 @@ impl PairLink {
         let stop = Arc::new(AtomicBool::new(false));
         channel.set_cancellation(stop.clone());
         let deadline = start.deadline;
+        let request = start.request;
         let (writer, writer_rx) = mpsc::sync_channel::<Envelope>(32);
         let (message_tx, messages) = mpsc::sync_channel(32);
         let reader_stop = stop.clone();
@@ -134,6 +140,7 @@ impl PairLink {
             initiator,
             sas,
             deadline,
+            request,
             writer,
             messages: Mutex::new(messages),
             stop,
@@ -212,6 +219,7 @@ mod tests {
                 permit: Permit(gate),
                 deadline: Instant::now() + Duration::from_secs(5),
                 sas,
+                request: false,
             };
             PairLink::start(channel, "dev-b".into(), None, false, start).unwrap()
         });

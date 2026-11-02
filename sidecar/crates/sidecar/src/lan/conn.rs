@@ -32,6 +32,7 @@ const PEER_NOTICE_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_CONNECTIONS: usize = 32;
 const MAX_WORKERS: usize = 32;
 const TICK: Duration = Duration::from_millis(20);
+const PAIR_DECLINE_BLOCK_MS: u64 = 120_000;
 
 #[derive(Clone, Debug)]
 pub struct Timing {
@@ -94,6 +95,9 @@ pub struct PeerStatus {
     /// Discovery hint: the peer's pairing window is open. Unauthenticated;
     /// only used to choose whom to pair with.
     pub waiting: bool,
+    /// Discovery hint (TXT `q`): whether the peer accepts pairing requests
+    /// while no pairing screen is open. `None` for peers before 0.4.2.
+    pub requests: Option<bool>,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct LocalStatus {
@@ -174,6 +178,7 @@ enum Command {
     Pair(SocketAddr),
     Reannounce,
     SetWaiting(bool),
+    SetRequests(bool),
     SetLabel(String),
     Disconnect(String),
     Shutdown,
@@ -195,6 +200,12 @@ pub struct LanHandle {
     waiting: AtomicBool,
     /// Inbound pairing source-IP cooldowns (epoch ms of last attempt).
     pair_cooldowns: Arc<Mutex<HashMap<std::net::IpAddr, u64>>>,
+    /// Outside the window, inbound pairing still reaches the SAS step as a
+    /// request; nothing is exchanged until the local user accepts it.
+    pair_requests: Arc<AtomicBool>,
+    /// Source IPs whose request the user declined (epoch ms of expiry).
+    /// Kept apart from the cooldowns, which closing the window clears.
+    pair_declined: Arc<Mutex<HashMap<std::net::IpAddr, u64>>>,
 }
 impl LanHandle {
     pub fn start(
@@ -229,6 +240,7 @@ impl LanHandle {
             group_id: hello.group_id.clone(),
             port,
             waiting: false,
+            requests: false,
         };
         discovery.announce(&ad)?;
         let status = Arc::new(Mutex::new(LanStatus {
@@ -249,6 +261,8 @@ impl LanHandle {
         // action opens the admission window.
         let pairing_window = Arc::new(AtomicBool::new(false));
         let pair_cooldowns = Arc::new(Mutex::new(HashMap::new()));
+        let pair_requests = Arc::new(AtomicBool::new(false));
+        let pair_declined = Arc::new(Mutex::new(HashMap::new()));
         let mut supervisor = Supervisor::new(
             identity,
             hello,
@@ -262,6 +276,8 @@ impl LanHandle {
         );
         supervisor.pairing_window = pairing_window.clone();
         supervisor.pair_cooldowns = pair_cooldowns.clone();
+        supervisor.pair_requests = pair_requests.clone();
+        supervisor.pair_declined = pair_declined.clone();
         let sessions = supervisor.sessions.clone();
         let join = thread::Builder::new()
             .name("lan-supervisor".into())
@@ -277,6 +293,8 @@ impl LanHandle {
             pairing_window,
             waiting: AtomicBool::new(false),
             pair_cooldowns,
+            pair_requests,
+            pair_declined,
         })
     }
     /// Open or close the inbound pairing admission window (P2-6). Outbound
@@ -298,6 +316,23 @@ impl LanHandle {
     /// and introduce it by that name from now on.
     pub fn set_label(&self, label: &str) {
         let _ = self.command(Command::SetLabel(label.to_string()));
+    }
+    /// Accept inbound pairing requests while no pairing screen is open, and
+    /// advertise that (TXT `q`) so dialers can tell an old version apart.
+    pub fn set_pair_requests(&self, enabled: bool) {
+        if self.pair_requests.swap(enabled, Ordering::AcqRel) != enabled {
+            let _ = self.command(Command::SetRequests(enabled));
+        }
+    }
+    /// The user declined a request from `ip`: refuse further requests from
+    /// it for a while so one computer cannot keep re-prompting.
+    pub fn decline_pair_requests_from(&self, ip: std::net::IpAddr) {
+        let mut declined = self.pair_declined.lock().unwrap();
+        let now = now_ms();
+        declined.retain(|_, until| *until > now);
+        if declined.len() < 64 {
+            declined.insert(ip, now + PAIR_DECLINE_BLOCK_MS);
+        }
     }
     pub fn set_waiting(&self, waiting: bool) {
         if self.waiting.swap(waiting, Ordering::AcqRel) != waiting {
@@ -556,6 +591,8 @@ struct Supervisor {
     pair_links: Vec<Arc<super::pair_link::PairLink>>,
     pairing_window: Arc<AtomicBool>,
     pair_cooldowns: Arc<Mutex<HashMap<std::net::IpAddr, u64>>>,
+    pair_requests: Arc<AtomicBool>,
+    pair_declined: Arc<Mutex<HashMap<std::net::IpAddr, u64>>>,
     identity: Arc<Identity>,
     hello: Hello,
     members: Arc<dyn MemberStore>,
@@ -599,6 +636,8 @@ impl Supervisor {
             pair_links: vec![],
             pairing_window: Arc::new(AtomicBool::new(true)),
             pair_cooldowns: Arc::new(Mutex::new(HashMap::new())),
+            pair_requests: Arc::new(AtomicBool::new(false)),
+            pair_declined: Arc::new(Mutex::new(HashMap::new())),
             identity,
             hello,
             members,
@@ -756,6 +795,7 @@ impl Supervisor {
                                 key_fp: String::new(),
                                 group_fp: String::new(),
                                 waiting: false,
+                                requests: None,
                             });
                         }
                     }
@@ -770,6 +810,12 @@ impl Supervisor {
                     }
                     Command::SetWaiting(waiting) => {
                         self.ad.waiting = waiting;
+                        if let Err(e) = self.discovery.announce(&self.ad) {
+                            self.issue(e.to_string());
+                        }
+                    }
+                    Command::SetRequests(enabled) => {
+                        self.ad.requests = enabled;
                         if let Err(e) = self.discovery.announce(&self.ad) {
                             self.issue(e.to_string());
                         }
@@ -1073,6 +1119,7 @@ impl Supervisor {
             .entry(id.clone())
             .and_modify(|p| {
                 p.waiting = peer.waiting;
+                p.requests = peer.requests;
                 if !p.online {
                     p.name = peer.name.clone();
                     p.pair_addr = Some(pair_addr);
@@ -1092,6 +1139,7 @@ impl Supervisor {
                 platform: None,
                 last_error: None,
                 waiting: peer.waiting,
+                requests: peer.requests,
             });
         self.publish();
     }
@@ -1123,6 +1171,8 @@ impl Supervisor {
         // single-flight gate for its whole 120 s window.
         let pairing_window = self.pairing_window.clone();
         let pair_cooldowns = self.pair_cooldowns.clone();
+        let pair_requests = self.pair_requests.clone();
+        let pair_declined = self.pair_declined.clone();
         let token = self.begin_attempt(candidate.clone());
         let cancellation = Arc::new(AtomicBool::new(false));
         let worker_cancellation = cancellation.clone();
@@ -1155,8 +1205,15 @@ impl Supervisor {
                     // authenticated ack with E_LAN_PAIR_WINDOW); sending hello
                     // first turned refusals into ambiguous connection
                     // failures. Outbound dialers keep sending first.
-                    let check_inbound = || -> Result<()> {
+                    // Ok(true) admits the attempt as a request: outside the
+                    // window it stops at the SAS step until the user accepts.
+                    let check_inbound = || -> Result<bool> {
                         let now = now_ms();
+                        let declined = pair_declined
+                            .lock()
+                            .unwrap()
+                            .get(&addr.ip())
+                            .is_some_and(|until| *until > now);
                         let within_cooldown = {
                             let mut cooldowns = pair_cooldowns.lock().unwrap();
                             cooldowns.retain(|_, last| now.saturating_sub(*last) < 60_000);
@@ -1169,7 +1226,8 @@ impl Supervisor {
                             }
                             blocked || global >= 5
                         };
-                        if !pairing_window.load(Ordering::Acquire) {
+                        let window = pairing_window.load(Ordering::Acquire);
+                        if !window && (declined || !pair_requests.load(Ordering::Acquire)) {
                             return Err(LanError::new(
                                 "E_LAN_PAIR_WINDOW",
                                 "pairing is not accepting connections right now",
@@ -1181,9 +1239,10 @@ impl Supervisor {
                                 "pairing attempt rate limit reached",
                             ));
                         }
-                        Ok(())
+                        Ok(!window)
                     };
-                    let mut inbound_admission_checked = false;
+                    let mut inbound_request = None;
+                    let mut inbound_permit = None;
                     let first = if outbound {
                         channel.send(&hello.envelope()?)?;
                         channel.receive(timing.hello.clone())?
@@ -1192,13 +1251,31 @@ impl Supervisor {
                         if first.t == "hello" {
                             if let Ok(remote) = Hello::parse(first.clone()) {
                                 if remote.caps.iter().any(|c| c == "pair.request.v1") {
-                                    if let Err(error) = check_inbound() {
-                                        // Deliver the real refusal code before
-                                        // closing (N4/N7).
-                                        reject(&mut channel, &error);
-                                        return Err(error);
+                                    // Deliver the real refusal code before
+                                    // closing (N4/N7). A busy gate is refused
+                                    // here too, so a second requester learns
+                                    // it at once instead of timing out.
+                                    let admitted = check_inbound().and_then(|request| {
+                                        gate.compare_exchange(
+                                            false,
+                                            true,
+                                            Ordering::AcqRel,
+                                            Ordering::Acquire,
+                                        )
+                                        .map_err(|_| {
+                                            LanError::new("E_LAN_BUSY", "another pairing is active")
+                                        })?;
+                                        inbound_permit =
+                                            Some(super::pair_link::Permit(gate.clone()));
+                                        Ok(request)
+                                    });
+                                    match admitted {
+                                        Ok(request) => inbound_request = Some(request),
+                                        Err(error) => {
+                                            reject(&mut channel, &error);
+                                            return Err(error);
+                                        }
                                     }
-                                    inbound_admission_checked = true;
                                 }
                             }
                         }
@@ -1218,6 +1295,7 @@ impl Supervisor {
                             Some("E_LAN_NOT_MEMBER") => Some("E_LAN_NOT_MEMBER"),
                             Some("E_LAN_KEY_CHANGED") => Some("E_LAN_KEY_CHANGED"),
                             Some("E_LAN_PAIR_WINDOW") => Some("E_LAN_PAIR_WINDOW"),
+                            Some("E_LAN_BUSY") => Some("E_LAN_BUSY"),
                             _ => None,
                         };
                         if let Some(static_code) = known {
@@ -1250,21 +1328,41 @@ impl Supervisor {
                         }
                         // Inbound admission was checked before our hello was
                         // sent (so the refusal reaches the dialer as an ack).
-                        if !pairing && !inbound_admission_checked {
-                            if let Err(error) = check_inbound() {
-                                reject(&mut channel, &error);
-                                return Err(error);
+                        let request = if pairing {
+                            false
+                        } else {
+                            match inbound_request {
+                                Some(request) => request,
+                                None => match check_inbound() {
+                                    Ok(request) => request,
+                                    Err(error) => {
+                                        reject(&mut channel, &error);
+                                        return Err(error);
+                                    }
+                                },
                             }
-                        }
-                        gate.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                            .map_err(|_| {
-                                LanError::new("E_LAN_BUSY", "another pairing is active")
-                            })?;
+                        };
+                        let permit = match inbound_permit.take() {
+                            Some(permit) => permit,
+                            None => {
+                                gate.compare_exchange(
+                                    false,
+                                    true,
+                                    Ordering::AcqRel,
+                                    Ordering::Acquire,
+                                )
+                                .map_err(|_| {
+                                    LanError::new("E_LAN_BUSY", "another pairing is active")
+                                })?;
+                                super::pair_link::Permit(gate)
+                            }
+                        };
                         let sas = channel.compare_code(role)?;
                         let start = super::pair_link::PairStart {
-                            permit: super::pair_link::Permit(gate),
+                            permit,
                             deadline: Instant::now() + timing.pair,
                             sas,
+                            request,
                         };
                         return Ok(Established {
                             channel,
@@ -1336,6 +1434,7 @@ impl Supervisor {
                     key_fp: String::new(),
                     group_fp: String::new(),
                     waiting: false,
+                    requests: None,
                 });
             }
             match super::pair_link::PairLink::start(
@@ -1478,6 +1577,7 @@ impl Supervisor {
             platform: None,
             last_error: None,
             waiting: false,
+            requests: None,
         });
         let peer = self.peers.get_mut(&id).unwrap();
         peer.online = true;
@@ -1666,6 +1766,7 @@ mod tests {
             key_fp: String::new(),
             group_fp: String::new(),
             waiting: false,
+            requests: None,
         }
     }
     fn wait(timeout: Duration, mut condition: impl FnMut() -> bool) {
@@ -2092,6 +2193,7 @@ mod fallback_tests {
             key_fp: String::new(),
             group_fp: String::new(),
             waiting: false,
+            requests: None,
         });
         wait(|| {
             ha.status().peers[0].initiator.as_deref() == Some("a")
@@ -2131,6 +2233,7 @@ mod discovery_regression_tests {
             group_id: None,
             port: 0,
             waiting: false,
+            requests: false,
         };
         (
             Supervisor::new(
@@ -2156,6 +2259,7 @@ mod discovery_regression_tests {
             key_fp: String::new(),
             group_fp: String::new(),
             waiting: false,
+            requests: None,
         }
     }
     #[test]
@@ -2209,6 +2313,7 @@ mod discovery_regression_tests {
                 key_fp: String::new(),
                 group_fp: String::new(),
                 waiting: false,
+                requests: None,
             });
             discovery.remove(id);
         }
@@ -2553,6 +2658,7 @@ mod identity_conflict_regressions {
             key_fp: short_hash(&supervisor.identity.public_key()),
             group_fp: String::new(),
             waiting: false,
+            requests: None,
         };
         supervisor.upsert(ad.clone());
         assert!(events.try_recv().is_err());
@@ -2581,6 +2687,7 @@ mod identity_conflict_regressions {
             key_fp: String::new(),
             group_fp: String::new(),
             waiting: false,
+            requests: None,
         };
         supervisor.upsert(ad.clone());
         for index in 0..2 {

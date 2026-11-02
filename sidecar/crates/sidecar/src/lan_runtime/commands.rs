@@ -655,6 +655,7 @@ impl Runtime {
                     self.lan_runtime.pair_local_confirmed = false;
                     self.lan_runtime.pair_peer_confirmed = false;
                     self.lan_runtime.pair_pending_session = Some(session_id.clone());
+                    self.lan_runtime.pair_pending_addr = Some(addr);
                     Ok(json!({
                         "phase": "connecting", "addr": addr.to_string(),
                         "session_id": session_id, "event_seq": 0,
@@ -871,7 +872,98 @@ impl Runtime {
                 }
                 self.respond(ResponseLine::ok(id, json!({"open": open})));
             }
+            "lan.pair.decline" => {
+                let result = (|| -> Result<Value, CoreError> {
+                    let pending = self
+                        .lan_runtime
+                        .pair
+                        .as_ref()
+                        .filter(|p| p.link.request && !p.local_confirmed)
+                        .ok_or_else(|| core_err("E_LAN_BUSY", "no pending pairing request"))?;
+                    if let Some(expected) = params.get("device_id").and_then(Value::as_str) {
+                        if expected != pending.link.device_id {
+                            return Err(core_err("E_LAN_BUSY", "no pending pairing request"));
+                        }
+                    }
+                    let Some(pair) = self.lan_runtime.pair.take() else {
+                        return Err(core_err("E_INTERNAL", "pairing vanished"));
+                    };
+                    let _ = pair
+                        .link
+                        .send("pair.abort", json!({"code": "E_LAN_PAIR_DECLINED"}));
+                    pair.link.close();
+                    if let Some(handle) = self.lan_runtime.handle.as_ref() {
+                        handle.decline_pair_requests_from(pair.link.peer_addr.ip());
+                    }
+                    Ok(json!({
+                        "phase": "cancelled", "code": "E_LAN_PAIR_DECLINED",
+                        "device_id": pair.link.device_id, "request": true,
+                    }))
+                })();
+                match result {
+                    Ok(v) => {
+                        let meta = self.pair_next_meta();
+                        self.pair_notify_with(v.clone(), &meta);
+                        let mut reply = v;
+                        if let (Some(dst), Some(meta)) = (reply.as_object_mut(), meta.as_object()) {
+                            for (k, val) in meta {
+                                dst.insert(k.clone(), val.clone());
+                            }
+                        }
+                        self.respond(ResponseLine::ok(id, reply));
+                    }
+                    Err(e) => self.respond(ResponseLine::err(id, e.code, e.message)),
+                }
+            }
+            "lan.pair.requests" => {
+                let result = (|| -> Result<Value, CoreError> {
+                    if let Some(enabled) = params.get("enabled").and_then(Value::as_bool) {
+                        let mut cfg = self
+                            .config
+                            .clone()
+                            .ok_or_else(|| core_err("E_CONFIG_INVALID", "no configuration"))?;
+                        let lan = cfg.lan.get_or_insert_with(Default::default);
+                        if lan.pair_requests != enabled {
+                            lan.pair_requests = enabled;
+                            self.lan_save(cfg)?;
+                            self.publish_config_change();
+                        }
+                        if let Some(handle) = self.lan_runtime.handle.as_ref() {
+                            handle.set_pair_requests(enabled);
+                        }
+                    }
+                    Ok(json!({"enabled": self.pair_requests_enabled()}))
+                })();
+                match result {
+                    Ok(v) => self.respond(ResponseLine::ok(id, v)),
+                    Err(e) => self.respond(ResponseLine::err(id, e.code, e.message)),
+                }
+            }
             "lan.pair.cancel" => {
+                // Leaving a pairing screen must not answer a request the
+                // user has not seen yet; it stays until accepted, declined
+                // or expired.
+                if self
+                    .lan_runtime
+                    .pair
+                    .as_ref()
+                    .is_some_and(|p| p.link.request && !p.local_confirmed)
+                {
+                    if let Some(handle) = self.lan_runtime.handle.as_ref() {
+                        handle.set_pairing_window(false);
+                    }
+                    let meta = self.pair_next_meta();
+                    let mut reply = json!({"phase": "cancelled"});
+                    if let (Some(dst), Some(meta)) = (reply.as_object_mut(), meta.as_object()) {
+                        for (k, val) in meta {
+                            dst.insert(k.clone(), val.clone());
+                        }
+                    }
+                    self.respond(ResponseLine::ok(id, reply));
+                    return;
+                }
+                self.lan_runtime.pair_pending_addr = None;
+                self.lan_runtime.pair_pending_session = None;
                 let device_id = self
                     .lan_runtime
                     .pair

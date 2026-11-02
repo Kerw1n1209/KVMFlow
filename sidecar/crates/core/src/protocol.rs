@@ -53,6 +53,8 @@ pub const REQUEST_METHODS: &[&str] = &[
     "lan.pair.resolve",
     "lan.pair.cancel",
     "lan.pair.window",
+    "lan.pair.decline",
+    "lan.pair.requests",
     "lan.unpair",
     "lan.setup.secondary",
     "lan.profile.refresh",

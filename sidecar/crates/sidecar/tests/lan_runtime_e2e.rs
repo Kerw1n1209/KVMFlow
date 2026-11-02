@@ -1710,10 +1710,18 @@ fn secondary_without_config_pairs_and_survives_restart() {
 
 /// N7: once a pairing ends (success, cancel, or secondary completion) the
 /// inbound admission window is closed, so a fresh inbound pairing attempt is
-/// refused with E_LAN_PAIR_WINDOW.
+/// refused with E_LAN_PAIR_WINDOW once pairing requests are turned off (with
+/// them on, it would wait as a request instead).
 fn expect_pairing_refused(client: &mut Client, target: &mut Client) {
+    target.request("lan.pair.requests", json!({"enabled": false}));
     let addr = mac_pair_target(target);
-    client.request("lan.pair.start", json!({"addr": addr}));
+    let started = client.request("lan.pair.start", json!({"addr": addr}));
+    let failed = wait_pair(client, "failed");
+    assert_eq!(failed["code"], "E_LAN_PAIR_WINDOW");
+    assert_eq!(
+        failed["session_id"], started["session_id"],
+        "the refusal ends the dialer's own session"
+    );
     let refused = client.wait_for(
         |v| {
             v["notification"] == "lan.sync"
@@ -1731,6 +1739,96 @@ fn expect_pairing_refused(client: &mut Client, target: &mut Client) {
         "inbound pairing must be refused after the pairing screen closed; lan={}",
         client.request("lan.status", json!({}))
     );
+}
+
+fn wait_pair(client: &mut Client, phase: &str) -> Value {
+    client
+        .wait_for(
+            |v| v["notification"] == "lan.pair" && v["data"]["phase"] == phase,
+            Duration::from_secs(20),
+        )
+        .unwrap_or_else(|| panic!("lan.pair {phase}"))["data"]
+        .clone()
+}
+
+/// Outside a pairing screen an inbound attempt stops at the SAS step as a
+/// request: leaving screens keeps it, declining tells the dialer and blocks
+/// its address for a while, and accepting runs the normal pairing.
+#[test]
+fn inbound_pairing_outside_the_window_waits_as_a_request() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut a, mut b, _a_addr, _b_addr) =
+            pair_two_runtimes(dir.path(), mac_config(), win_config());
+        assert_eq!(b.request("lan.status", json!({}))["pair_requests"], true);
+        a.request("lan.pair.start", json!({"addr": mac_pair_target(&mut b)}));
+        let dialer = wait_pair(&mut a, "await_confirm");
+        assert_eq!(dialer["request"], false, "{dialer}");
+        let request = wait_pair(&mut b, "await_confirm");
+        assert_eq!(request["request"], true, "{request}");
+        assert_eq!(request["device_id"], "dev-mac");
+        a.request("lan.pair.confirm", json!({"sas_ok": true}));
+        // Closing pairing screens does not answer the request.
+        b.request("lan.pair.cancel", json!({}));
+        let pending = b.request("lan.status", json!({}))["pair_request"].clone();
+        assert_eq!(pending["device_id"], "dev-mac", "{pending}");
+        assert_eq!(pending["sas"], request["sas"]);
+        let declined = b.request("lan.pair.decline", json!({"device_id": "dev-mac"}));
+        assert_eq!(declined["code"], "E_LAN_PAIR_DECLINED");
+        let failed = wait_pair(&mut a, "failed");
+        assert_eq!(failed["code"], "E_LAN_PAIR_DECLINED", "{failed}");
+        assert!(b.request("lan.status", json!({}))["pair_request"].is_null());
+        // The declined computer cannot re-prompt right away.
+        a.request("lan.pair.start", json!({"addr": mac_pair_target(&mut b)}));
+        let refused = a.wait_for(
+            |v| {
+                v["notification"] == "lan.sync"
+                    && v["data"]["issues"].as_array().is_some_and(|issues| {
+                        issues
+                            .iter()
+                            .any(|issue| issue["code"] == "E_LAN_PAIR_WINDOW")
+                    })
+            },
+            Duration::from_secs(20),
+        );
+        assert!(refused.is_some(), "a declined computer must be refused");
+        assert!(b.request("lan.status", json!({}))["pair_request"].is_null());
+    }
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut a, mut b, _a_addr, _b_addr) =
+            pair_two_runtimes(dir.path(), mac_config(), win_config());
+        a.request("lan.pair.start", json!({"addr": mac_pair_target(&mut b)}));
+        wait_pair(&mut a, "await_confirm");
+        assert_eq!(wait_pair(&mut b, "await_confirm")["request"], true);
+        a.request("lan.pair.confirm", json!({"sas_ok": true}));
+        b.request("lan.pair.confirm", json!({"sas_ok": true}));
+        let issues = wait_pair(&mut a, "await_resolve")["issues"].clone();
+        a.request("lan.pair.resolve", default_pair_choices(&issues));
+        wait_pair(&mut a, "committed");
+        wait_pair(&mut b, "committed");
+    }
+}
+
+/// Turning pairing requests off persists, is advertised, and refuses inbound
+/// attempts outside the window again.
+#[test]
+fn pairing_requests_setting_persists_and_refuses_when_off() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, mut b, _a_addr, _b_addr) =
+        pair_two_runtimes(dir.path(), mac_config(), win_config());
+    let off = b.request("lan.pair.requests", json!({"enabled": false}));
+    assert_eq!(off["enabled"], false);
+    assert_eq!(b.request("config.get", json!({}))["lan"]["pair_requests"], false);
+    assert_eq!(b.request("lan.status", json!({}))["pair_requests"], false);
+    assert_eq!(b.request("lan.pair.requests", json!({}))["enabled"], false);
+    expect_pairing_refused(&mut a, &mut b);
+    assert!(b
+        .drain_notifications()
+        .iter()
+        .all(|v| !(v["notification"] == "lan.pair" && v["data"]["phase"] == "await_confirm")));
 }
 
 #[test]

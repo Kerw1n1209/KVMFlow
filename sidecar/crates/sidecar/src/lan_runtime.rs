@@ -96,6 +96,9 @@ pub(crate) struct LanRuntime {
     pair_peer_confirmed: bool,
     /// Session id minted by `lan.pair.start`, claimed by the PairReady link.
     pair_pending_session: Option<String>,
+    /// Address that outbound attempt dials. A refusal from it ends the
+    /// attempt instead of leaving the dialer on "connecting".
+    pair_pending_addr: Option<SocketAddr>,
     /// Remotes whose merge is blocked until their owner's profile arrives.
     deferred: Vec<(Source, SwitchGroupSnapshot)>,
     mixed_txn: Option<commands::MixedTransaction>,
@@ -446,6 +449,7 @@ impl Runtime {
                 for addr in options.peers {
                     let _ = handle.connect_manual(addr);
                 }
+                handle.set_pair_requests(self.pair_requests_enabled());
                 self.lan_runtime.handle = Some(handle);
                 self.notify("lan.sync", json!({"status":"started"}));
             }
@@ -458,6 +462,13 @@ impl Runtime {
         if let Some(mut handle) = self.lan_runtime.handle.take() {
             handle.shutdown();
         }
+    }
+
+    pub(crate) fn pair_requests_enabled(&self) -> bool {
+        self.config
+            .as_ref()
+            .and_then(|c| c.lan.as_ref())
+            .is_none_or(|l| l.pair_requests)
     }
 
     pub(crate) fn lan_state(&self) -> Value {
@@ -492,6 +503,26 @@ impl Runtime {
             }
         }
         state["sync"] = json!(self.lan_runtime.sync_states);
+        state["pair_requests"] = json!(self.pair_requests_enabled());
+        // A reloaded window must still see the request it has not answered.
+        if let Some(pair) = self
+            .lan_runtime
+            .pair
+            .as_ref()
+            .filter(|p| p.link.request && !p.local_confirmed)
+        {
+            state["pair_request"] = json!({
+                "device_id": pair.link.device_id,
+                "peer_name": pair.link.peer_name,
+                "sas": pair.link.sas,
+                "session_id": self.lan_runtime.pair_session_id,
+                "expires_in_ms": pair
+                    .link
+                    .deadline
+                    .saturating_duration_since(std::time::Instant::now())
+                    .as_millis() as u64,
+            });
+        }
         state["setup"] = json!({
             "secondary": self.lan_runtime.secondary,
             "trigger_verified": self.lan_runtime.trigger_verified,
@@ -618,6 +649,9 @@ impl Runtime {
                 }
                 _ => {}
             }
+        }
+        if let Some(handle) = self.lan_runtime.handle.as_ref() {
+            handle.set_pair_requests(self.pair_requests_enabled());
         }
         self.publish_lan_members();
         self.lan_broadcast_snapshot("change");
@@ -930,6 +964,15 @@ impl Runtime {
                             json!({"code":code}),
                         );
                         continue;
+                    }
+                    if self.lan_runtime.pair.is_none()
+                        && self.lan_runtime.pair_pending_addr == Some(addr)
+                    {
+                        self.lan_runtime.pair_pending_addr = None;
+                        self.lan_runtime.pair_pending_session = None;
+                        self.pair_emit(json!({
+                            "phase": "failed", "code": code, "message": lan_hint(&code),
+                        }));
                     }
                     self.lan_issue(&code, lan_hint(&code));
                 }
@@ -1868,12 +1911,12 @@ impl Runtime {
                 let frames = evidence.accept_remote_event(id, body, &local_id, now);
                 let summary = evidence.summary();
                 self.lan_runtime.test = Some(evidence);
+                // These frames are this host's own evidence for the sender's
+                // press (e.g. an arrival seen before the press id was known),
+                // so the sender is the one that must receive them.
                 for frame in frames {
                     for peer in self.lan_runtime.online.clone() {
-                        if peer != id {
-                            let _ =
-                                self.lan_send(&peer, Envelope::new("test.event", frame.clone()));
-                        }
+                        let _ = self.lan_send(&peer, Envelope::new("test.event", frame.clone()));
                     }
                 }
                 self.notify("lan.test", summary);

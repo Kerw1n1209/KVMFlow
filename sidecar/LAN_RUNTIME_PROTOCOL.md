@@ -46,6 +46,22 @@ authenticated `hello` (new peers) or its owner profile (older peers that
 predate the field). The key is omitted when the platform is unknown — never
 guess it from the name or address.
 
+`peers[].waiting` is true while that computer's pairing window is open (it is
+on a pairing screen). `peers[].requests` comes from the mDNS TXT key `q`
+(`"1"`/`"0"`): whether that computer takes pairing requests while its window
+is closed. The key is omitted for peers that predate requests (0.4.1 and
+older); the UI then treats a closed window as "needs an update". Both are
+untrusted hints for the UI only; admission is always decided by the target.
+
+`pair_requests` (bool) is this computer's own setting (see
+`lan.pair.requests`). `pair_request` is present only while an inbound
+request is unanswered, so a reloaded UI can show it again:
+
+```json
+"pair_request": {"device_id":"dev-XYZ987HIJ...","peer_name":"游戏 PC","sas":"123 456",
+                 "session_id":"5d0c…","expires_in_ms":93000}
+```
+
 ### lan.discover.start / lan.discover.stop
 
 Re-announces mDNS and resets dial backoff. There is no persistent browse
@@ -141,10 +157,44 @@ frame (the responder checks admission before sending its hello), so the
 dialer surfaces the real code. Even when open, attempts are rate-limited to
 one per source IP per 30 s and five per 60 s globally.
 
+While the window is closed and `lan.pair.requests` is on, an inbound attempt
+is admitted as a **pairing request** instead of being refused (see
+`lan.pair.decline`). Opening the window does not answer a pending request;
+the UI accepts it with `lan.pair.confirm`. When this computer's `lan.pair.start`
+dial is refused (`E_LAN_PAIR_WINDOW`, `E_LAN_BUSY`, …) before a pairing
+session exists, the dialer gets `{"phase":"failed","code":…}` carrying the
+start reply's `session_id`, so it can leave its connecting screen.
+
 ### lan.pair.cancel
 
 Cancels this end and aborts the peer. No state is left behind on either
-machine.
+machine. An unanswered pairing request is not this end's attempt: cancel
+only closes the window and leaves the request pending.
+
+### lan.pair.decline
+
+```json
+{"v":1,"id":17,"method":"lan.pair.decline","params":{"device_id":"dev-XYZ987HIJ..."}}
+→ {"phase":"cancelled","code":"E_LAN_PAIR_DECLINED","request":true, …correlation fields…}
+```
+
+Declines the unanswered pairing request (`device_id` optional; when given it
+must match). The dialer's session fails with `E_LAN_PAIR_DECLINED`, and further
+requests from the same source IP are refused with `E_LAN_PAIR_WINDOW` for
+120 s (at most 64 addresses are remembered). The matching `lan.pair`
+notification is emitted as well. Errors: `E_LAN_BUSY` when no request is
+pending (or it belongs to another `device_id`).
+
+### lan.pair.requests
+
+```json
+{"v":1,"id":18,"method":"lan.pair.requests","params":{"enabled":false}}
+→ {"enabled": false}
+```
+
+Reads (no `enabled`) or sets `lan.pair_requests` in the config (default
+true). It is saved like any other config change and re-advertised over mDNS
+(`q`). Turning it off does not end a request that is already pending.
 
 ### lan.unpair
 
@@ -246,6 +296,9 @@ startup one-sided reconciliation) and every `lan.pair.*` RPC reply carries:
 - `peer_name` (string, optional): the peer's host name as authenticated by
   the Noise channel (the `name` field of its hello). Prefer it over an mDNS
   label; it is absent when the peer omits the name.
+- `request` (bool): true on the responder when the attempt arrived as a
+  pairing request (window closed). It stays true for the whole session,
+  including after the user accepts.
 
 The UI should ignore an event whose `session_id` belongs to a retired session
 or whose `event_seq` is not greater than the last accepted one.
@@ -308,7 +361,13 @@ Security invariants:
   `lan.setup.secondary` (the waiting secondary) or `lan.pair.window
   {open:true}` — and closes when a session fails, is cancelled or
   commits. While closed, inbound pairing dials are refused
-  (`E_LAN_PAIR_WINDOW`) before the SAS transcript. Even when open, at
+  (`E_LAN_PAIR_WINDOW`) before the SAS transcript, unless pairing
+  requests are on: then the attempt is admitted as a request and stops at
+  `await_confirm` until the user accepts (`lan.pair.confirm`) or declines
+  (`lan.pair.decline`). Group data is still exchanged only after both
+  confirmations. One attempt at a time: a second dial while one is pending
+  is refused with `E_LAN_BUSY`. A request that nobody answers fails with
+  `E_LAN_PAIR_TIMEOUT` at the 120 s flow deadline. Even when open, at
   most one attempt per source IP per 30 s and at most 5 inbound attempts
   per 60 s globally. Outbound dials are always allowed.
 
