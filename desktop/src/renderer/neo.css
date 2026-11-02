@@ -65,28 +65,29 @@ main {
   background: url("assets/brand-mark.svg") center/contain no-repeat;
   box-shadow: none;
 }
-.nav-list { gap: 6px; padding: 16px 12px; }
+.nav-list { gap: 8px; padding: 16px 12px; }
 /* macOS draws the window buttons over the top of the sidebar. */
 .platform-darwin .nav { padding-top: 28px; }
 .platform-darwin .nav .brand { min-height: 60px; padding-top: 12px; padding-bottom: 14px; }
 .nav .nav-item {
-  min-height: 40px;
   padding: 8px 12px;
-  border: 2px solid transparent;
-  border-radius: var(--radius);
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 500;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 .nav .nav-item::before { display: none; }
-.nav .nav-item:hover { border-color: var(--ink); background: var(--surface); color: var(--ink); }
-.nav .nav-item.active {
+.nav .nav-item.active,
+.nav .nav-item.active:hover:not(:disabled),
+.nav .nav-item.active:active:not(:disabled) {
   border-color: var(--ink);
   background: var(--main);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
   color: var(--ink);
   font-weight: 700;
+  transform: none;
+  cursor: default;
 }
+.nav .nav-item.active:hover::after { display: none; }
 .nav svg { width: 17px; height: 17px; stroke-width: 2; }
 .nav-bottom {
   gap: 8px;
@@ -151,42 +152,118 @@ main { padding: 32px 40px 48px; }
 #settings-page .response-copy strong { font-size: 14px; font-weight: 700; }
 
 /* ---- controls ---- */
+/* neobrutalism.dev Button: at rest the face sits on a hard shadow; on hover it
+ * slides onto the shadow. Colors never change. The invisible ::after keeps the
+ * pointer over the moved button, so hovering an edge cannot flicker. */
 button {
-  min-height: 38px;
-  padding: 7px 16px;
+  position: relative;
+  min-height: 40px;
+  padding: 8px 16px;
   border: var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
   color: var(--ink);
-  font-weight: 700;
-  transition: transform .08s ease, box-shadow .08s ease;
+  font-size: 14px;
+  font-weight: 500;
+  transition: transform .15s cubic-bezier(.4, 0, .2, 1), box-shadow .15s cubic-bezier(.4, 0, .2, 1);
 }
-button:hover:not(:disabled) { border-color: var(--ink); background: var(--main); color: var(--ink); }
-button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: none; }
-button:disabled { opacity: .4; box-shadow: none; }
+button:hover:not(:disabled),
+button:active:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--surface);
+  box-shadow: none;
+  color: var(--ink);
+  transform: translate(4px, 4px);
+}
+button:hover:not(:disabled)::after { content: ""; position: absolute; inset: -6px 0 0 -6px; }
+button:disabled { opacity: .5; pointer-events: none; }
+.primary { box-shadow: var(--shadow); }
 .primary,
-.primary:hover:not(:disabled) { border-color: var(--ink); background: var(--ink); color: var(--surface); box-shadow: var(--shadow-sm); }
-.primary:hover:not(:disabled) { background: #26261f; }
+.primary:hover:not(:disabled),
+.primary:active:not(:disabled) { background: var(--main); color: var(--ink); }
 .danger-button,
-.danger-button:hover:not(:disabled) { border-color: var(--ink); color: var(--danger); }
-.danger-button:hover:not(:disabled) { background: #fdecec; }
+.danger-button:hover:not(:disabled),
+.danger-button:active:not(:disabled),
+#settings-page .danger-button:hover:not(:disabled) { color: var(--danger); }
+
+/* Reverse variant for navigation and rows: flat at rest, lifted on hover. */
+.nav .nav-item:hover:not(:disabled),
+.nav .nav-item:active:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transform: translate(-4px, -4px);
+}
+.nav .nav-item:hover:not(:disabled)::after { inset: 0 -6px -6px 0; }
+.choice,
+.pair-peer,
+.v2-peer,
+.pair-option,
+.feedback-kind label,
+#settings-page .computer-row {
+  position: relative;
+  box-shadow: none;
+  transition: transform .15s cubic-bezier(.4, 0, .2, 1), box-shadow .15s cubic-bezier(.4, 0, .2, 1);
+}
+.choice:hover:not(.selected),
+.pair-peer:hover:not(:disabled, .selected),
+.v2-peer:hover:not(:disabled, .selected),
+.pair-option:hover:not(.selected),
+.feedback-kind label:hover:not(:has(input:checked)),
+#settings-page .computer-row:hover:not(.selected) {
+  border-color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transform: translate(-4px, -4px);
+}
+/* Behind the row's own controls, which stay clickable. */
+.choice:hover:not(.selected)::after,
+.pair-peer:hover:not(:disabled, .selected)::after,
+.v2-peer:hover:not(:disabled, .selected)::after,
+.pair-option:hover:not(.selected)::after,
+.feedback-kind label:hover:not(:has(input:checked))::after,
+#settings-page .computer-row:hover:not(.selected)::after { content: ""; position: absolute; inset: 0 -6px -6px 0; z-index: -1; }
+.pair-peer.selected:hover:not(:disabled),
+.v2-peer.selected:hover:not(:disabled) { background: var(--main); box-shadow: var(--shadow); transform: none; }
+.pair-peer.selected:hover::after,
+.v2-peer.selected:hover::after { display: none; }
+.pair-peer:disabled { box-shadow: none; opacity: .5; }
+.pair-peer:last-child { border-bottom: var(--border); }
+#pairing-dialog .pair-peer-list, .pair-peer-list { gap: 8px; max-height: 260px; padding: 6px 10px 10px 6px; border: 0; }
+
+/* Text buttons are links: no face, no shadow, no movement. */
 .link,
 .settings-text-button,
 #settings-page .settings-text-button,
 .dismiss-notice,
+.feedback-links button,
 #settings-page .computer-select,
-.nav .nav-item { box-shadow: none; }
+.link:hover:not(:disabled),
+.settings-text-button:hover:not(:disabled),
+#settings-page .settings-text-button:hover:not(:disabled),
+.dismiss-notice:hover:not(:disabled),
+.feedback-links button:hover:not(:disabled),
+#settings-page .computer-select:hover:not(:disabled),
 .link:active:not(:disabled),
+.settings-text-button:active:not(:disabled),
 #settings-page .settings-text-button:active:not(:disabled),
 .dismiss-notice:active:not(:disabled),
-#settings-page .computer-select:active:not(:disabled),
-.nav .nav-item:active:not(:disabled) { transform: none; }
-.nav .nav-item.active:active { box-shadow: var(--shadow-sm); }
-.link { border-color: transparent; background: transparent; text-decoration: underline; text-underline-offset: 3px; }
-.link:hover:not(:disabled) { border-color: transparent; background: transparent; }
+.feedback-links button:active:not(:disabled),
+#settings-page .computer-select:active:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.link:hover:not(:disabled)::after,
+.settings-text-button:hover:not(:disabled)::after,
+.dismiss-notice:hover:not(:disabled)::after,
+.feedback-links button:hover:not(:disabled)::after,
+#settings-page .computer-select:hover:not(:disabled)::after { display: none; }
+.link { text-decoration: underline; text-underline-offset: 3px; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
-#settings-page select:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+#settings-page select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 input, select, textarea,
 #settings-page input, #settings-page select,
@@ -207,7 +284,7 @@ select,
   background-position: right 10px center;
   background-size: 14px 14px;
   background-repeat: no-repeat;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
 }
 #settings-page select:hover { border-color: var(--ink); }
 
@@ -342,9 +419,7 @@ select,
 
 /* ---- settings: computer list ---- */
 #settings-page .computer-row { margin-bottom: 10px; border: 2px solid transparent; border-radius: var(--radius); }
-#settings-page .computer-row:hover { border-color: var(--ink); }
-#settings-page .computer-row.selected { border-color: var(--ink); background: var(--main); box-shadow: var(--shadow-sm); }
-#settings-page .computer-select:hover:not(:disabled) { background: transparent; }
+#settings-page .computer-row.selected { border-color: var(--ink); background: var(--main); box-shadow: var(--shadow); }
 
 /* ---- setup wizard ---- */
 .steps { gap: 10px; border: 0; margin-bottom: 20px; }
@@ -362,7 +437,6 @@ select,
 .wizard, .wizard.pairing-v2 { min-height: 0; padding: 28px; }
 .wizard-head h1, .pairing-v2 .wizard-head h1 { font-size: 24px; font-weight: 700; }
 .pairing-v2 .v2-space { height: 48px; }
-.pairing-v2 button:active:not(:disabled) { transform: translate(2px, 2px); }
 .pairing-v2-page .step { font-weight: 500; }
 .choice, .value-row, .pair-card, .pair-option, .pair-peer, .v2-peer, .pair-monitor, .pair-test {
   border: var(--border);
@@ -372,7 +446,7 @@ select,
 .choice.selected, .pair-card.selected, .pair-option.selected, .pair-peer.selected, .v2-peer.selected {
   border: var(--border);
   background: var(--main);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
 }
 .choice.selected { padding: 20px; }
 .choice.selected .radio { border-color: var(--ink); }
@@ -405,7 +479,7 @@ dialog::backdrop,
 .sas-code { border: var(--border); border-radius: var(--radius); background: var(--main); box-shadow: var(--shadow-sm); }
 .feedback-kind label { border: var(--border); border-radius: var(--radius); }
 .feedback-field input, .feedback-field textarea, .pair-ip-form input, .v2-ip-row input { border: var(--border); border-radius: var(--radius); }
-.feedback-kind label:has(input:checked) { background: var(--main); box-shadow: var(--shadow-sm); }
+.feedback-kind label:has(input:checked) { background: var(--main); box-shadow: var(--shadow); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 

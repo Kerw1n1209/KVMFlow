@@ -282,7 +282,6 @@
 .feedback-links button { min-height: 0; padding: 0; border: 0; background: transparent; color: var(--sub); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
 .feedback-links button:hover { color: var(--ink); }
 #compatibility-dialog .confirmation-actions { gap: 10px; margin-top: 18px; flex-wrap: wrap; }
-#compatibility-dialog button:active { transform: translateY(1px); }
 #feedback-status { font-size: 13px; margin: 0 0 12px; overflow-wrap: anywhere; }
 #feedback-status:empty { display: none; }
 #feedback-id { margin-top: 16px; overflow-wrap: anywhere; }
@@ -314,7 +313,6 @@
 .pairing-v2 .wizard-footer { margin-top: 24px; padding-top: 14px; gap: 12px; }
 .pairing-v2 .wizard-footer > :first-child:not(:last-child) { margin-right: auto; }
 .pairing-v2 .wizard-footer .link { padding: 4px 0; min-height: 25px; }
-.pairing-v2 button:active { transform: translateY(1px); }
 .pairing-v2 .v2-space { height: 100px; margin-top: 24px; }
 .v2-peer { width: 100%; text-align: left; }
 .v2-peer.selected { border-color: var(--line-strong); }
