@@ -1423,6 +1423,23 @@ fn one_sided_pin_undone_when_peer_rejects_us() {
     // real deployment re-resolves its peers — so B2's E_LAN_NOT_MEMBER
     // refusal matches the record and the one-sided undo runs.
     drop(b);
+    // Any frame the old B already sent would confirm the record below, so A
+    // must have finished with that connection before the record is rewritten.
+    let deadline = std::time::Instant::now() + Duration::from_secs(25);
+    while a.request("state.get", json!({}))["lan"]["peers"]
+        .as_array()
+        .is_some_and(|peers| {
+            peers
+                .iter()
+                .any(|p| p["device_id"] == "dev-win" && p["online"] == json!(true))
+        })
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "A never saw the old B go offline"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
     let b_path = dir.path().join("b/config.json");
     let mut b_cfg: Value = serde_json::from_slice(&std::fs::read(&b_path).unwrap()).unwrap();
     b_cfg["switch_group"]["sync"]["members"]
