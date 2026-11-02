@@ -175,13 +175,6 @@ input, select { font-weight: 400; }
   --settings-control-height: 44px;
   padding-bottom: 48px;
 }
-.shell.settings-active main {
-  background: var(--surface);
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
-}
-.shell.settings-active main::-webkit-scrollbar { display: block; width: 6px; height: 6px; }
-.shell.settings-active main::-webkit-scrollbar-thumb { border-radius: 3px; background: var(--line); }
 #settings-page > .header { background: var(--surface); }
 #settings-page > .header {
   min-height: 106px;

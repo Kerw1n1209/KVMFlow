@@ -25,7 +25,7 @@
 }
 
 body { font-weight: 500; }
-h1, h2, h3, .brand, strong, .nav-item.active, .step.active,
+h1, h2, h3, .brand, strong, .step.active,
 #settings-page .settings-editor-heading h3 { font-weight: 700; }
 input, select { font-weight: 500; }
 
@@ -37,22 +37,24 @@ main {
     linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
   background-size: 48px 48px;
 }
-.shell.settings-active main { background-color: var(--bg); }
 .page > section > .header,
 #settings-page > .header { background: transparent; }
 
+/* neobrutalism.dev Sidebar: header, group and footer split by rules. Menu buttons
+ * are flat; hover and the active page fill with main and gain a 2px outline. */
+@media (min-width: 851px) { .shell { grid-template-columns: 16rem minmax(0, 1fr); } }
 .nav {
   padding: 0;
   border-right: var(--border);
   background: var(--surface);
 }
 .nav .brand {
-  gap: 10px;
-  min-height: 68px;
+  gap: 8px;
+  min-height: 0;
   margin: 0;
-  padding: 18px 16px;
+  padding: 16px;
   border-bottom: var(--border);
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0;
 }
@@ -65,37 +67,54 @@ main {
   background: url("assets/brand-mark.svg") center/contain no-repeat;
   box-shadow: none;
 }
-.nav-list { gap: 8px; padding: 16px 12px; }
+/* 8px, not the source's 4px: two 2px outlines would otherwise touch. */
+.nav-list { gap: 8px; padding: 8px; }
 /* macOS draws the window buttons over the top of the sidebar. */
 .platform-darwin .nav { padding-top: 28px; }
-.platform-darwin .nav .brand { min-height: 60px; padding-top: 12px; padding-bottom: 14px; }
-.nav .nav-item {
-  padding: 8px 12px;
-  border-color: transparent;
+.platform-darwin .nav .brand { padding-top: 8px; }
+.nav .nav-item,
+.nav .nav-item:hover:not(:disabled),
+.nav .nav-item:active:not(:disabled) {
+  gap: 8px;
+  height: 32px;
+  min-height: 32px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--radius);
+  outline: 2px solid transparent;
+  outline-offset: 0;
   background: transparent;
   box-shadow: none;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  transform: none;
+  transition: none;
 }
 .nav .nav-item::before { display: none; }
+.nav .nav-item:hover:not(:disabled)::after { display: none; }
+.nav .nav-item:hover:not(:disabled),
+.nav .nav-item:focus-visible,
 .nav .nav-item.active,
-.nav .nav-item.active:hover:not(:disabled),
-.nav .nav-item.active:active:not(:disabled) {
-  border-color: var(--ink);
+.nav .nav-item.active:hover:not(:disabled) {
+  outline: 2px solid var(--ink);
+  outline-offset: 0;
   background: var(--main);
-  box-shadow: var(--shadow);
-  color: var(--ink);
-  font-weight: 700;
-  transform: none;
-  cursor: default;
 }
-.nav .nav-item.active:hover::after { display: none; }
-.nav svg { width: 17px; height: 17px; stroke-width: 2; }
+.nav svg { width: 16px; height: 16px; stroke-width: 2; }
 .nav-bottom {
   gap: 8px;
   padding: 14px 16px;
   border-top: var(--border);
 }
-.nav .nav-state { color: var(--ink); font-size: 12px; font-weight: 700; }
+.nav .nav-state { color: var(--ink); font-size: 14px; font-weight: 500; }
 .dot { border: 0; background: var(--ink); }
+
+/* The site's scrollbar, on every page. */
+main { overflow-y: scroll; scrollbar-width: auto; scrollbar-color: auto; }
+main::-webkit-scrollbar { display: block; width: 16px; height: 16px; }
+main::-webkit-scrollbar-track { border-left: var(--border); background: var(--surface); }
+main::-webkit-scrollbar-thumb { background: var(--ink); }
 
 main { padding: 32px 40px 48px; }
 /* Headers scroll with the page; a sticky one would cover the grid and cards. */
@@ -187,50 +206,43 @@ button:disabled { opacity: .5; pointer-events: none; }
 .danger-button:active:not(:disabled),
 #settings-page .danger-button:hover:not(:disabled) { color: var(--danger); }
 
-/* Reverse variant for navigation and rows: flat at rest, lifted on hover. */
-.nav .nav-item:hover:not(:disabled),
-.nav .nav-item:active:not(:disabled) {
-  border-color: var(--ink);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  transform: translate(-4px, -4px);
-}
-.nav .nav-item:hover:not(:disabled)::after { inset: 0 -6px -6px 0; }
+/* neobrutalism.dev Item and Field: selectable rows stay flat and fill with main. */
 .choice,
 .pair-peer,
 .v2-peer,
 .pair-option,
 .feedback-kind label,
 #settings-page .computer-row {
-  position: relative;
-  box-shadow: none;
-  transition: transform .15s cubic-bezier(.4, 0, .2, 1), box-shadow .15s cubic-bezier(.4, 0, .2, 1);
-}
-.choice:hover:not(.selected),
-.pair-peer:hover:not(:disabled, .selected),
-.v2-peer:hover:not(:disabled, .selected),
-.pair-option:hover:not(.selected),
-.feedback-kind label:hover:not(:has(input:checked)),
-#settings-page .computer-row:hover:not(.selected) {
-  border-color: var(--ink);
+  border: var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow);
-  transform: translate(-4px, -4px);
+  box-shadow: none;
+  transform: none;
+  transition: background-color .1s;
 }
-/* Behind the row's own controls, which stay clickable. */
-.choice:hover:not(.selected)::after,
-.pair-peer:hover:not(:disabled, .selected)::after,
-.v2-peer:hover:not(:disabled, .selected)::after,
-.pair-option:hover:not(.selected)::after,
-.feedback-kind label:hover:not(:has(input:checked))::after,
-#settings-page .computer-row:hover:not(.selected)::after { content: ""; position: absolute; inset: 0 -6px -6px 0; z-index: -1; }
+.choice:hover,
+.choice.selected,
+.pair-peer:hover:not(:disabled),
+.pair-peer.selected,
 .pair-peer.selected:hover:not(:disabled),
-.v2-peer.selected:hover:not(:disabled) { background: var(--main); box-shadow: var(--shadow); transform: none; }
-.pair-peer.selected:hover::after,
-.v2-peer.selected:hover::after { display: none; }
+.v2-peer:hover:not(:disabled),
+.v2-peer.selected,
+.v2-peer.selected:hover:not(:disabled),
+.pair-option:hover,
+.pair-option.selected,
+.feedback-kind label:hover,
+.feedback-kind label:has(input:checked),
+#settings-page .computer-row:hover,
+#settings-page .computer-row.selected {
+  border: var(--border);
+  background: var(--main);
+  box-shadow: none;
+  transform: none;
+}
+.pair-peer:hover:not(:disabled)::after,
+.v2-peer:hover:not(:disabled)::after { display: none; }
 .pair-peer:disabled { box-shadow: none; opacity: .5; }
 .pair-peer:last-child { border-bottom: var(--border); }
-#pairing-dialog .pair-peer-list, .pair-peer-list { gap: 8px; max-height: 260px; padding: 6px 10px 10px 6px; border: 0; }
+#pairing-dialog .pair-peer-list, .pair-peer-list { gap: 8px; max-height: 260px; padding: 0; border: 0; }
 
 /* Text buttons are links: no face, no shadow, no movement. */
 .link,
@@ -284,15 +296,79 @@ select,
   background-position: right 10px center;
   background-size: 14px 14px;
   background-repeat: no-repeat;
-  box-shadow: var(--shadow);
 }
-#settings-page select:hover { border-color: var(--ink); }
+
+/* neobrutalism.dev Select: select.js builds these over the hidden native element. */
+.neo-select { position: relative; width: 100%; min-width: 0; }
+.response-row .neo-select { width: 168px; flex: 0 0 auto; }
+.neo-select select,
+#settings-page .neo-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.neo-select-trigger,
+.neo-select-trigger:hover:not(:disabled),
+.neo-select-trigger:active:not(:disabled) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: var(--border);
+  background: var(--main);
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  transform: none;
+  transition: none;
+}
+.neo-select-trigger:hover:not(:disabled)::after { display: none; }
+.neo-select-value { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.neo-select svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.neo-select-list {
+  position: fixed;
+  z-index: 50;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px;
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+}
+.neo-select-list[hidden] { display: none; }
+.neo-select-list [role="option"] {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 6px 32px 6px 8px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.neo-select-list [role="option"][data-highlighted] { border-color: var(--ink); background: var(--main); }
+.neo-select-list [role="option"] svg { position: absolute; right: 8px; }
 
 .toggle-track,
 .toggle-control .toggle-track {
-  width: 44px;
+  width: 48px;
   height: 24px;
-  flex: 0 0 44px;
+  flex: 0 0 48px;
   border: var(--border);
   border-radius: 999px;
   background: var(--surface);
@@ -300,29 +376,54 @@ select,
 .toggle-track::after,
 .toggle-control .toggle-track::after {
   top: 2px;
-  left: 2px;
+  left: 4px;
   width: 16px;
   height: 16px;
   border: var(--border);
-  background: var(--main);
+  background: var(--surface);
 }
-.toggle-control input:checked + .toggle-track { border-color: var(--ink); background: var(--ink); }
+.toggle-control input:checked + .toggle-track { border-color: var(--ink); background: var(--main); }
 .toggle-control input:checked + .toggle-track::after { border-color: var(--ink); background: var(--surface); transform: translateX(20px); }
+
+/* neobrutalism.dev Checkbox and RadioGroup. */
+input[type="checkbox"]:not(.toggle-control input),
+input[type="radio"],
+.radio {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  place-content: center;
+  border: var(--border);
+  background: var(--surface);
+  box-shadow: none;
+}
+input[type="checkbox"]:not(.toggle-control input) { border-radius: 0; }
+input[type="checkbox"]:not(.toggle-control input):checked {
+  background: var(--main) url("assets/check.svg") center/12px no-repeat;
+}
+input[type="radio"], .radio { border-radius: 50%; }
+input[type="radio"]:checked::before,
+.choice.selected .radio::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
 .toggle-label { color: var(--ink); font-weight: 700; }
 
 .settings-tag,
 #settings-page .settings-tag,
 #mixed-status .settings-tag {
-  padding: 1px 7px;
+  padding: 2px 10px;
   border: var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--bg);
   color: var(--ink);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
 }
-#settings-page .computer-row.selected .settings-tag { background: var(--surface); }
 
 /* ---- status: switch board and desktop map ---- */
 .setup-prompt { margin: 0 0 24px; }
@@ -374,7 +475,7 @@ select,
   border: var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
 }
 .last-switch {
   display: flex;
@@ -418,8 +519,7 @@ select,
 #mixed-page:has(#mixed-settings:not([hidden])) .mixed-empty { display: none; }
 
 /* ---- settings: computer list ---- */
-#settings-page .computer-row { margin-bottom: 10px; border: 2px solid transparent; border-radius: var(--radius); }
-#settings-page .computer-row.selected { border-color: var(--ink); background: var(--main); box-shadow: var(--shadow); }
+#settings-page .computer-row { margin-bottom: 10px; border-radius: var(--radius); }
 
 /* ---- setup wizard ---- */
 .steps { gap: 10px; border: 0; margin-bottom: 20px; }
@@ -432,7 +532,7 @@ select,
   font-size: 13px;
 }
 .step.done { background: var(--bg); color: var(--ink); }
-.step.active { background: var(--ink); color: var(--surface); box-shadow: var(--shadow-sm); }
+.step.active { background: var(--main); color: var(--ink); }
 .step.active::after, .pairing-v2-page .step.active:after { display: none; }
 .wizard, .wizard.pairing-v2 { min-height: 0; padding: 28px; }
 .wizard-head h1, .pairing-v2 .wizard-head h1 { font-size: 24px; font-weight: 700; }
@@ -441,13 +541,9 @@ select,
 .choice, .value-row, .pair-card, .pair-option, .pair-peer, .v2-peer, .pair-monitor, .pair-test {
   border: var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
 }
-.choice.selected, .pair-card.selected, .pair-option.selected, .pair-peer.selected, .v2-peer.selected {
-  border: var(--border);
-  background: var(--main);
-  box-shadow: var(--shadow);
-}
+.value-row, .pair-card, .pair-monitor, .pair-test { background: var(--surface); }
+.pair-card.selected { border: var(--border); background: var(--main); }
 .choice.selected { padding: 20px; }
 .choice.selected .radio { border-color: var(--ink); }
 .local-tip, .callout { border: 2px solid var(--line-soft); border-radius: var(--radius); background: var(--bg); }
@@ -469,17 +565,16 @@ dialog,
   border: var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: 6px 6px 0 0 var(--ink);
+  box-shadow: var(--shadow);
   color: var(--ink);
 }
 dialog::backdrop,
 #local-input-confirmation::backdrop,
 #pairing-dialog::backdrop,
-#compatibility-dialog::backdrop { background: rgba(0, 0, 0, .3); }
+#compatibility-dialog::backdrop { background: rgba(0, 0, 0, .8); }
 .sas-code { border: var(--border); border-radius: var(--radius); background: var(--main); box-shadow: var(--shadow-sm); }
 .feedback-kind label { border: var(--border); border-radius: var(--radius); }
 .feedback-field input, .feedback-field textarea, .pair-ip-form input, .v2-ip-row input { border: var(--border); border-radius: var(--radius); }
-.feedback-kind label:has(input:checked) { background: var(--main); box-shadow: var(--shadow); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
