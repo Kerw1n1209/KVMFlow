@@ -53,8 +53,28 @@ Change the interface language under **Settings → Language**: follow the system
 
 ### Install notes
 
-- **macOS**: if macOS says it can’t verify the developer, open **System Settings → Privacy & Security** and click **Open Anyway**. Allow **Local Network** access the first time you use LAN pairing.
-- **Windows**: if SmartScreen appears, click **More info → Run anyway**. LAN pairing uses TCP port 47820; on a **Public** network, Windows Firewall may block the connection.
+KVMFlow isn’t code-signed yet, so the system blocks it the first time you open it. Make sure the package came from [GitHub Releases](https://github.com/Kerw1n1209/KVMFlow/releases), then allow it as shown below. Don’t turn off system security protection.
+
+**macOS** (either one, after dragging KVMFlow into Applications):
+
+- Open KVMFlow once and click **Done** in the warning. Then open **System Settings → Privacy & Security**, click **Open Anyway** under **Security**, and confirm with your password.
+- Run this command in Terminal, then open KVMFlow. It only removes the quarantine flag from KVMFlow.
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/KVMFlow.app
+  ```
+
+**Windows**:
+
+- If your browser blocks the download, keep the file. In Edge, click **… → Keep → Show more → Keep anyway**.
+- If **Windows protected your PC** appears, click **More info → Run anyway**.
+- If there’s no **Run anyway** button, right-click the installer, choose **Properties**, tick **Unblock** on the **General** tab, click **OK** and run it again.
+- If Windows 11 says **Smart App Control** blocked it, this installer can’t be allowed on its own. It only installs with Smart App Control turned off in **Windows Security → App & browser control**. Whether to do that is your call.
+
+**Other notes**:
+
+- macOS asks for **Local Network** access the first time you use LAN pairing.
+- LAN pairing uses TCP port 47820; on a **Public** network, Windows Firewall may block the connection.
 - **Beta builds**: turn on **Receive beta updates** in **Settings** to get beta versions through in-app updates.
 
 ## Screenshots
