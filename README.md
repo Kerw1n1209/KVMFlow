@@ -19,10 +19,9 @@ so you can move between computers without separately reaching for each monitor�
 
 <table>
 <tr>
-<td align="center" width="25%"><h3>1 button</h3>keyboard, mouse, and displays</td>
-<td align="center" width="25%"><h3>Mixed mode</h3>keep each monitor on one computer</td>
-<td align="center" width="25%"><h3>LAN pairing</h3>two computers, one shared setup</td>
-<td align="center" width="25%"><h3>Local</h3>no cloud, no input forwarding</td>
+<td align="center" width="33%"><h3>1 button</h3>keyboard, mouse, and displays</td>
+<td align="center" width="33%"><h3>LAN pairing</h3>two computers, one shared setup</td>
+<td align="center" width="33%"><h3>Local</h3>no cloud, no input forwarding</td>
 </tr>
 </table>
 
@@ -36,7 +35,6 @@ KVMFlow is for a desk where multiple computers share a keyboard, mouse, and one 
 - **Record each monitor’s inputs.** Map the raw DDC/CI input values to the connected computers.
 - **Work locally.** USB detection and input switching run on each computer. Automatic update checks use the update service, and feedback is sent only when you choose to send it.
 - **Stay in control.** Run from the tray, launch at login, pause automatic switching, and export diagnostics.
-- **Mixed mode (beta).** Assign each monitor to one computer. The USB switch then moves only the keyboard and mouse while the pictures stay put; turning mixed mode off asks the other computer to switch its screens back.
 - **LAN pairing (beta).** Both computers find each other on the local network, pair automatically and share one configuration.
 
 You need monitors that support DDC/CI input switching. KVMFlow does not transmit keyboard or mouse input over the network; the LAN link only syncs configuration and coordinates switching.
@@ -53,12 +51,6 @@ You need monitors that support DDC/CI input switching. KVMFlow does not transmit
 
 Change the interface language under **Settings → Language**: follow the system, 简体中文, or English. The preference also applies to the tray, notifications, and native confirmation dialogs.
 
-### Mixed mode
-
-Open **Mixed**, turn mixed mode on, and assign each monitor to a computer. It takes effect right away: the USB switch moves only the keyboard and mouse, and each monitor stays on its computer. On macOS, monitors that belong to the other computer are temporarily detached so the cursor can’t wander onto a screen you can’t see. You can also toggle mixed mode from the tray. When you turn it off, KVMFlow asks the other computer over the LAN to switch its screens back, so both computers need to be online.
-
-Display detach on Windows hasn’t been verified on real hardware yet and is off by default.
-
 ### Install notes
 
 - **macOS**: if macOS says it can’t verify the developer, open **System Settings → Privacy & Security** and click **Open Anyway**. Allow **Local Network** access the first time you use LAN pairing.
@@ -67,12 +59,12 @@ Display detach on Windows hasn’t been verified on real hardware yet and is off
 
 ## Screenshots
 
-KVMFlow 0.4.0 with example device data. Input values are examples, not presets for your monitors.
+KVMFlow 0.4.1 with example device data. Input values are examples, not presets for your monitors.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/v0.4.0/en/status.png" alt="KVMFlow status page"></td>
-<td width="50%"><img src="docs/screenshots/v0.4.0/en/mixed.png" alt="KVMFlow mixed mode page"></td>
+<td width="50%"><img src="docs/screenshots/v0.4.1/en/status.png" alt="KVMFlow status page"></td>
+<td width="50%"><img src="docs/screenshots/v0.4.1/en/settings.png" alt="KVMFlow settings page"></td>
 </tr>
 </table>
 
