@@ -28,6 +28,9 @@ const target = argument('--target', `${process.platform}-${process.arch}`);
 const cache = path.resolve(argument('--cache', process.env.KVMFLOW_DESKFLOW_CACHE || path.join(root, 'desktop/resources/sidecar/.deskflow-cache')));
 const destination = path.resolve(argument('--dest', path.join(root, 'desktop/resources/sidecar/deskflow')));
 
+// Git Bash puts GNU tar first on PATH; it cannot read a zip or a drive-letter path.
+const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
+
 const digest = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 function download(name, url, expected) {
@@ -55,9 +58,23 @@ function findFile(directory, name) {
   return null;
 }
 
+function alreadyPrepared() {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(destination, 'manifest.json'), 'utf8'));
+    return manifest.version === version && manifest.target === target
+      && digest(path.join(destination, 'runtime.tar.gz')) === manifest.runtimeSha256;
+  } catch {
+    return false;
+  }
+}
+
 function main() {
   const asset = assets[target];
-  if (!asset) throw new Error(`Deskflow is packaged for ${Object.keys(assets).join(', ')}; not ${target}`);
+  if (!asset) {
+    console.warn(`Deskflow is packaged for ${Object.keys(assets).join(', ')}; ${target} builds without keyboard and mouse sharing`);
+    return;
+  }
+  if (alreadyPrepared()) return;
   fs.mkdirSync(cache, { recursive: true });
   const archive = download(asset.name, `https://github.com/deskflow/deskflow/releases/download/v${version}/${asset.name}`, asset.sha256);
   const source = download(`deskflow-${version}-source.tar.gz`, `https://codeload.github.com/deskflow/deskflow/tar.gz/${revision}`, sourceSha256);
@@ -78,7 +95,7 @@ function main() {
       fs.mkdirSync(runtimeDir);
       fs.cpSync(path.join(content, app), path.join(runtimeDir, 'Deskflow.app'), { recursive: true, verbatimSymlinks: true });
     } else {
-      execFileSync('tar', ['-xf', archive, '-C', content]);
+      execFileSync(tar, ['-xf', archive, '-C', content]);
       const top = fs.readdirSync(content).find((name) => name.startsWith('deskflow-'));
       runtimeDir = path.join(content, top);
     }
@@ -90,10 +107,10 @@ function main() {
     fs.mkdirSync(path.join(destination, 'licenses'), { recursive: true });
     const runtimeArchive = path.join(destination, 'runtime.tar.gz');
     // BSD tar otherwise adds AppleDouble ._* entries, which break the bundle seal on extraction.
-    execFileSync('tar', ['-czf', runtimeArchive, '-C', runtimeDir, '.'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
+    execFileSync(tar, ['-czf', runtimeArchive, '-C', runtimeDir, '.'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
 
     fs.copyFileSync(source, path.join(destination, `deskflow-${version}-source.tar.gz`));
-    execFileSync('tar', ['-xzf', source, '-C', staging]);
+    execFileSync(tar, ['-xzf', source, '-C', staging]);
     const sourceDir = path.join(staging, `deskflow-${revision}`);
     fs.copyFileSync(path.join(sourceDir, 'LICENSE'), path.join(destination, 'licenses/DESKFLOW-LICENSE'));
     if (fs.existsSync(path.join(sourceDir, 'LICENSES'))) fs.cpSync(path.join(sourceDir, 'LICENSES'), path.join(destination, 'licenses'), { recursive: true });

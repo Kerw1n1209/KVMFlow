@@ -48,7 +48,7 @@ async function client(t, options = {}) {
   win.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   win.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new win.Event('close')); };
   win.kvmflow = {
-    ready: Promise.resolve(), info: Promise.resolve({ platform: 'windows', version: options.version || '0.2.0', computerName, initialPage: options.initialPage || (config ? 'status' : 'wizard') }),
+    ready: Promise.resolve(), info: Promise.resolve({ platform: options.platform || 'windows', version: options.version || '0.2.0', computerName, initialPage: options.initialPage || (config ? 'status' : 'wizard') }),
     clientReady: async () => {},
     request: async (method, params) => {
       requests.push({ method, params });
@@ -88,6 +88,8 @@ async function client(t, options = {}) {
   vm.runInContext(read('src/renderer/redact.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/compat-report.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/compatibility.js'), dom.getInternalVMContext());
+  vm.runInContext(read('src/renderer/km-hotkey.js'), dom.getInternalVMContext());
+  vm.runInContext(read('src/renderer/km.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/mixed-view.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/mixed.js'), dom.getInternalVMContext());
   vm.runInContext(read('src/renderer/lan-pairing-view.js'), dom.getInternalVMContext());

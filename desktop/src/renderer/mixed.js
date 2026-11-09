@@ -25,7 +25,7 @@
   const dismissed = () => { try { return new Set(JSON.parse(localStorage.getItem(dismissedKey()) || '[]')); } catch { return new Set(); } };
 
   const clock = () => new Date().toLocaleTimeString(window.KVMFlowI18n.locale, { hour: '2-digit', minute: '2-digit' });
-  const context = () => ({ mixed, config, lan, computers: model.computers });
+  const context = () => ({ mixed, config, lan, computers: model.computers, km: window.KVMFlowKm?.status() || null, selfPlatform: window.KVMFlowKm?.platformName() || '' });
   const recordEvent = (text) => { lastEvent = { time: clock(), message: window.KVMFlowI18n.describe(text) }; };
 
   // ---- status page -------------------------------------------------------
@@ -47,7 +47,7 @@
     const lan = computer.lan ? `<p class="desk-lan ${computer.lan}"><span class="lan-dot" aria-hidden="true"></span>${t(computer.lan === 'connected' ? 'mixed.lan.connected' : 'mixed.lan.disconnected')}</p>` : '';
     return `<div class="desk-computer${computer.holder ? ' holder' : ''}" data-computer="${esc(computer.id)}">
       <div class="desk-computer-head"><strong>${esc(computer.name)}</strong>${computer.local ? `<span class="settings-tag">${t('this.computer')}</span>` : ''}</div>
-      <p class="hint">${t('port.value', { p0: computer.port })}</p>${lan}
+      ${computer.detail ? `<p class="hint">${esc(computer.detail)}</p>` : ''}${lan}
       ${computer.holder ? `<span class="holder-tag">${t(computer.inferred ? 'mixed.keyboard.here.inferred' : 'mixed.keyboard.here')}</span>` : ''}</div>`;
   }
 
@@ -72,6 +72,7 @@
     byId('next-switch').textContent = next ? t('mixed.next.prefix', { p0: next }) : '';
     const dismissedKeys = dismissed();
     const banners = View.banners(ctx).filter(entry => !entry.dismissible || !dismissedKeys.has(entry.key));
+    window.KVMFlowKm?.render();
     html('status-banners', banners.map(entry => `<div class="status-banner" role="status"><span>${esc(entry.text)}</span>${entry.dismissible ? `<button type="button" class="dismiss-notice" data-mixed-dismiss="${esc(entry.key)}" aria-label="${t('mixed.dismiss')}">×</button>` : ''}</div>`).join(''));
   }
 

@@ -34,6 +34,13 @@
     return `<svg viewBox="0 0 216 132" aria-hidden="true" focusable="false"><rect width="216" height="132" fill="${b}"/><rect width="58" height="132" fill="${s}"/><rect x="57" width="2" height="132" fill="${i}"/><rect x="10" y="12" width="14" height="14" rx="3" fill="${i}"/><rect x="29" y="16" width="20" height="5" fill="${i}"/><rect x="8" y="38" width="42" height="14" rx="2" fill="${m}" stroke="${i}" stroke-width="1.5"/><rect x="13" y="59" width="30" height="4" fill="${i}" opacity=".45"/><rect x="13" y="73" width="26" height="4" fill="${i}" opacity=".45"/><rect x="81" y="26" width="118" height="84" rx="3" fill="${i}"/><rect x="77" y="22" width="118" height="84" rx="3" fill="${s}" stroke="${i}" stroke-width="2"/><rect x="88" y="34" width="44" height="30" rx="2" fill="${i}"/><rect x="140" y="34" width="44" height="30" rx="2" fill="${m}" stroke="${i}" stroke-width="2"/><rect x="88" y="76" width="56" height="5" fill="${i}"/><rect x="88" y="87" width="38" height="4" fill="${i}" opacity=".45"/></svg>`;
   }
 
+  // Mode cards draw in the current ink, so they follow the theme.
+  const computers = '<rect x="72" y="88" width="34" height="22" fill="var(--main)"/><path d="M66 112h46"/><rect x="134" y="88" width="34" height="22" fill="var(--surface)"/><path d="M128 112h46"/>';
+  const ART = {
+    hotkey: `<svg class="ob-art" viewBox="0 0 240 124" aria-hidden="true" focusable="false"><rect x="14" y="18" width="42" height="26" rx="4"/><text x="35" y="35">Ctrl</text><rect x="62" y="18" width="26" height="26" rx="4"/><text x="75" y="35">K</text><path d="M98 31h14M107 26l5 5-5 5"/><rect x="122" y="10" width="66" height="42" rx="2" fill="var(--surface)"/><path d="M155 52v14M89 80V66h62v14"/>${computers}<path d="M115 99h12M123 95l4 4-4 4"/></svg>`,
+    switch: `<svg class="ob-art" viewBox="0 0 240 124" aria-hidden="true" focusable="false"><rect x="86" y="10" width="68" height="28" rx="4"/><text x="108" y="29">USB</text><circle class="ob-art-fill" cx="139" cy="24" r="5"/><path d="M120 38v18M89 80V56h62v24"/>${computers}<path d="M115 99h12M123 95l4 4-4 4"/></svg>`,
+  };
+
   const delay = seconds => `style="--d:${seconds}s"`;
   const head = (title, lead = '') => `<h1 class="ob-rise">${title}</h1>${lead ? `<p class="ob-lead ob-rise" ${delay(0.04)}>${lead}</p>` : ''}`;
   const mid = (inner, issues = '') => `<div class="ob-mid"><div class="ob-issues" data-region="issues">${issues}</div>${inner}</div>`;
@@ -65,7 +72,16 @@
       + foot(button('ob-theme', esc(t('v2.start')), { arrow: true, stamp: 1.95 })),
 
     theme: ({ preference, issues }) => mid(`${head(esc(t('ob.theme.title')), esc(t('ob.theme.copy')))}<div class="ob-themes" role="radiogroup" aria-label="${esc(t('appearance.title'))}">${[['system', 'appearance.system'], ['light', 'appearance.light'], ['dark', 'appearance.dark']].map(([name, label], i) => `<button type="button" class="ob-tc ob-stamp${preference === name ? ' on' : ''}" ${delay(0.06 + i * 0.05)} role="radio" aria-checked="${preference === name}" data-ob-theme="${name}"><span class="ob-pv">${name === 'system' ? preview('light') + preview('dark') : preview(name)}</span><span class="ob-lb">${esc(t(label))}${box(preference === name)}</span></button>`).join('')}</div>`, issues)
-      + foot(back('ob-welcome') + button('start', esc(t('v2.next')), { arrow: true, stamp: 0.2 })),
+      + foot(back('ob-welcome') + button('ob-mode', esc(t('v2.next')), { arrow: true, stamp: 0.2 })),
+
+    mode: ({ kind, issues }) => mid(`${head(esc(t('ob.mode.title')), esc(t('ob.mode.copy')))}<div class="ob-themes" role="radiogroup" aria-label="${esc(t('ob.mode.title'))}">${['hotkey', 'switch'].map((name, i) => `<button type="button" class="ob-tc ob-kind ob-stamp${kind === name ? ' on' : ''}" ${delay(0.06 + i * 0.05)} role="radio" aria-checked="${kind === name}" data-pair-action="ob-kind" data-kind="${name}"><span class="ob-pv">${ART[name]}</span><span class="ob-lb"><span class="ob-grow"><b>${esc(t(`ob.mode.${name}`))}</b><small>${esc(t(`ob.mode.${name}.copy`))}</small></span>${box(kind === name)}</span></button>`).join('')}</div>`, issues)
+      + foot(back('ob-theme') + button('mode-next', esc(t('v2.next')), { arrow: true, stamp: 0.2 })),
+
+    perms: ({ rows, canNext, issues }) => mid(`${head(esc(t('ob.perms.title')))}<div class="ob-list">${rows.map((row, i) => `<div class="ob-card ob-row ob-stamp" ${delay(0.06 + i * 0.08)}><div class="ob-grow"><b>${esc(t(row.title))}</b><small>${esc(t(row.copy))}</small></div>${row.granted ? `<span class="ob-tag">${esc(t('km.perm.granted'))}</span>` : `<button type="button" class="ob-btn alt sm" data-km-permission="${row.id}">${esc(t('km.perm.allow'))}</button>`}</div>`).join('')}</div>`, issues)
+      + foot(back('ob-mode') + button('perms-next', esc(t('v2.next')), { arrow: true, disabled: !canNext })),
+
+    hotkey: ({ keys, recording, taken, busy, issues }) => mid(`${head(esc(t('ob.hotkey.title')))}<div class="ob-keyfield ob-card ob-stamp" ${delay(0.06)} role="status">${recording ? `<span class="ob-keywait">${esc(t(taken ? 'km.hotkey.taken' : 'km.hotkey.recording'))}</span>` : keys.map(key => `<kbd>${esc(key)}</kbd>`).join('')}</div>${button('hotkey-change', esc(t('km.hotkey.change')), { alt: true, small: true, disabled: recording || busy })}`, issues)
+      + foot(button('hotkey-next', esc(t('v2.next')), { arrow: true, disabled: recording || busy })),
 
     local: ({ reading, rows, busy, canNext, issues }) => {
       let list;
@@ -78,10 +94,10 @@
         + foot(back('ob-back-theme') + (empty ? button('read-retry', esc(t('detect.again')), { disabled: busy }) : button('local-next', esc(t('v2.next')), { arrow: true, disabled: !canNext })) + (retry ? ghost('read-retry', esc(t('detect.again')), 'r', busy) : ''));
     },
 
-    connect: ({ rows, selfIp, ipOpen, ipError, manual, busy, offline, issues }) => {
+    connect: ({ rows, selfIp, ipOpen, ipError, manual, busy, offline, hotkey, issues }) => {
       const devices = rows.length ? rows.map(row => `<div class="ob-row ob-stamp">${icon.laptop}<div class="ob-grow"><b>${esc(row.name)}</b>${row.detail ? `<small>${esc(row.detail)}</small>` : ''}</div>${button('v2-connect', esc(t('ob.pair')), { alt: true, small: true, disabled: busy, attrs: `data-v2-peer="${esc(row.deviceId)}"` })}</div>`).join('')
         : `<div class="ob-empty">${esc(t(offline ? 'lan.list.empty.offline' : 'ob.searching'))}</div>`;
-      const steps = ['v2.wait.usb', 'v2.wait.display', 'v2.wait.open'].map((id, i) => `<li><i>${i + 1}</i><span>${esc(t(id))}</span></li>`).join('');
+      const steps = [hotkey ? 'km.wait.usb' : 'v2.wait.usb', 'v2.wait.display', 'v2.wait.open'].map((id, i) => `<li><i>${i + 1}</i><span>${esc(t(id))}</span></li>`).join('');
       return mid(`${head(esc(t('v2.connect.title')))}<div class="ob-cols">
 <div class="ob-card ob-near ob-stamp" ${delay(0.05)}><div class="ob-ch" data-region="near-head"><span>${esc(t('ob.nearby'))}</span>${offline ? '' : scan}</div><div class="ob-devs" data-region="devices" aria-live="polite">${devices}</div>
 <div class="ob-ipwrap${ipOpen ? ' open' : ''}"><button type="button" class="ob-iptog" data-ob-ip aria-expanded="${ipOpen}" aria-controls="ob-ipbody"><span>${esc(t('v2.ip.connect'))}</span>${icon.chevron}</button>
@@ -112,13 +128,13 @@
         + foot(ok ? '' : back('v2-cancel') + (failed ? button('v2-retry', esc(t('retry')), { disabled: busy }) : '') + skip);
     },
 
-    test: ({ peer, peerPlatform, selfPlatform, state, hint, failedRows = [], failedNames, busy, issues }) => {
+    test: ({ peer, peerPlatform, selfPlatform, state, hint, keys, failedRows = [], failedNames, busy, issues }) => {
       if (state === 'error') {
         return mid(`${head(esc(t('v2.test.error')), esc(t('v2.ddc')))}${monitorRows(failedRows.map(row => ({ ...row, copy: '' })))}`, issues)
           + foot(ghost('feedback', esc(t('v2.feedback')), 'l') + button('test-retry', esc(t('retry')), { disabled: busy }));
       }
       const ok = state === 'ok';
-      return mid(`${head(esc(t('v2.test.title')), esc(t('v2.test.copy', { p0: peer })))}${link({ selfPlatform, peer, peerPlatform, selfOn: !ok, peerOn: ok, cable: ok ? 'ok' : 'run' })}${status(ok, esc(t(ok ? 'ob.switched' : 'v2.test.wait')))}${hint && !ok ? `<p class="ob-note">${esc(t('v2.test.hint', { p0: peer }))}</p>` : ''}`, issues)
+      return mid(`${head(esc(t('v2.test.title')), esc(keys ? t('km.test.copy', { p0: keys, p1: peer }) : t('v2.test.copy', { p0: peer })))}${link({ selfPlatform, peer, peerPlatform, selfOn: !ok, peerOn: ok, cable: ok ? 'ok' : 'run' })}${status(ok, esc(t(ok ? 'ob.switched' : 'v2.test.wait')))}${hint && !ok && !keys ? `<p class="ob-note">${esc(t('v2.test.hint', { p0: peer }))}</p>` : ''}`, issues)
         + foot(ok ? '' : ghost('v2-skip', esc(t('v2.skip')), 'r', busy));
     },
 
@@ -152,8 +168,8 @@
 <p class="hint">${esc(t('add.self.copy'))}</p><label class="add-manual"><input type="checkbox" data-ob-manual ${manual ? 'checked' : ''}><span>${esc(t('ob.manual'))}</span></label></aside></div>`;
   }
 
-  // Page indicator: theme, this computer, connect (and pair), test.
-  const STEPS = { theme: 0, local: 1, connect: 2, pair: 2, error: 2, test: 3, done: 4 };
+  // Page indicator: theme, mode and this computer, connect (and pair), test.
+  const STEPS = { theme: 0, mode: 1, perms: 1, local: 1, connect: 2, pair: 2, hotkey: 2, error: 2, test: 3, done: 4 };
   function top({ page, locale, exit, dots: showDots = true }) {
     const step = showDots ? STEPS[page] : null;
     const dots = step == null ? '' : [0, 1, 2, 3].map(i => `<i class="${i <= step ? 'on' : ''}"></i>`).join('');

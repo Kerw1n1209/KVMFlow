@@ -51,12 +51,15 @@ function log(title, copy) {
 
 // Setup was skipped: this computer is saved, but nothing is paired with it yet.
 const unpaired = () => model.computers.length === 1;
+// A USB switch or a configured shortcut can each drive switching; turning
+// sharing off for a while does not make setup incomplete.
+const switchReady = () => model.usbConfirmed || Boolean(window.KVMFlowKm?.status()?.configured);
 
 function navState() {
   const state = window.__kvmflowRuntimeState;
   const label = window.KVMFlowPairing?.navStatus() || (state === 'error' ? t("nav.unavailable")
     : unpaired() ? t("nav.unpaired")
-    : !model.usbConfirmed ? t("nav.setup.required")
+    : !switchReady() ? t("nav.setup.required")
     : state === 'learning' ? t("nav.identifying")
     : state === 'pushing' ? t("nav.sending")
     : state === 'disabled' ? t("nav.paused") : t("nav.waiting"));
@@ -64,7 +67,7 @@ function navState() {
 }
 
 function renderStatus() {
-  const ready = model.usbConfirmed && model.computers.length > 1;
+  const ready = switchReady() && model.computers.length > 1;
   $('#topology').hidden = ready;
   $('#topology').innerHTML = ready ? '' : `<div class="topology-head"><h2>${t(unpaired() ? "status.unpaired" : "setup.incomplete")}</h2><button class="primary" data-action="beginSetup">${t(unpaired() ? "nav.add" : "start.setup")}</button></div>`;
   window.KVMFlowMixed?.render();

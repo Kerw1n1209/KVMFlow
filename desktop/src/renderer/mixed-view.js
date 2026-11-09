@@ -220,20 +220,24 @@
 
   // Computers by port order, with the optional LAN line.
   function statusComputers(ctx) {
-    const holder = ctx.mixed?.keyboard_holder_device_id;
-    const inferred = ctx.mixed?.holder_confidence === 'inferred';
+    const km = ctx.km?.enabled ? ctx.km : null;
+    const localId = ctx.computers.find(computer => computer.local)?.id;
+    const holder = km ? (km.input_here ? localId : km.peer_device_id) : ctx.mixed?.keyboard_holder_device_id;
+    const inferred = !km && ctx.mixed?.holder_confidence === 'inferred';
     const peers = Array.isArray(ctx.lan?.peers) ? ctx.lan.peers : null;
     return [...ctx.computers].sort(byPort).map((computer) => {
       const peer = peers?.find((item) => item.device_id === computer.id);
       return {
-        id: computer.id, name: computer.name, local: computer.local, port: computer.port,
+        id: computer.id, name: computer.name, local: computer.local,
+        detail: !km ? t('port.value', { p0: computer.port }) : computer.local ? ctx.selfPlatform : '',
         holder: computer.id === holder, inferred: computer.id === holder && inferred,
-        lan: computer.local || typeof peer?.online !== 'boolean' ? null : peer.online ? 'connected' : 'disconnected',
+        lan: computer.local ? null : km ? (km.peer_online ? 'connected' : 'disconnected') : typeof peer?.online !== 'boolean' ? null : peer.online ? 'connected' : 'disconnected',
       };
     });
   }
 
   function nextSwitch(ctx) {
+    if (ctx.km?.enabled) return null;
     const queue = [...ctx.computers].sort(byPort);
     if (queue.length < 2) return null;
     const holder = ctx.mixed?.keyboard_holder_device_id;
@@ -258,7 +262,7 @@
     const out = [];
     const push = (key, text, dismissible = false) => { if (!out.some(entry => entry.key === key)) out.push({key,text,dismissible}); };
     const peers = sync(ctx);
-    if (peers?.offline.length) {
+    if (peers?.offline.length && !ctx.km?.enabled) {
       const offlineIds = new Set(peers.offline.map(peer => peer.device_id));
       const stuck = externalScreens(ctx).filter(screen => mixed.enabled && offlineIds.has(screen.assigned) && screen.destination?.connected === false);
       push('offline', stuck.length ? t('mixed.banner.offline.stuck', {p0:peers.names,p1:joinScreens(stuck)}) : peers.text);

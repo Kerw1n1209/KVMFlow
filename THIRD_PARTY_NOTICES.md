@@ -33,6 +33,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Deskflow
+
+局域网键鼠共享使用 [deskflow/deskflow](https://github.com/deskflow/deskflow) 官方发布的
+`deskflow-core` v1.27.0，提交 `081f6478e654a112168879e67a41ce7d7e4ae3af`，未作修改，
+作为独立进程运行。Deskflow 适用 GPL-2.0 及其附加例外；与其运行库的许可文本一起，
+对应完整源码随应用分发，位于安装包资源目录 `deskflow/`
+（`deskflow-1.27.0-source.tar.gz` 与 `licenses/`）。
+
 ## 界面字体
 
 桌面界面随应用打包两份按需子集化的可变字体，均为 SIL Open Font License 1.1，

@@ -495,7 +495,7 @@ test('a switch press before the connect page is learned once and kept', async t 
 test('a switch identified before the first profile save is kept and saved with it', async t => {
   const list = deferred();
   const c = await setup(t, { config: null, state: state([]), request: async method => method === 'display.list' ? list.promise : undefined });
-  click(c, 'start'); await tick();
+  await c.start();
   assert.equal(c.win.KVMFlowPairing.activeMode(), 'detect');
   assert.match(body(c), /读取中/);
   await emit(c, 'wizard.candidates', candidates);

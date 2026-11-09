@@ -1,0 +1,26 @@
+@font-face {
+  font-family: "DM Sans";
+  src: url("assets/fonts/DMSans-Variable.woff2") format("woff2");
+  font-weight: 100 1000;
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("assets/fonts/NotoSansSC-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+}
+:root { --ink: #000; --surface: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #f2f2ee; --surface: #232320; }
+}
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  color: var(--surface);
+  font: 700 16px "DM Sans", "Noto Sans SC", sans-serif;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}

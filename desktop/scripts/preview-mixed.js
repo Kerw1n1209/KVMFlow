@@ -9,16 +9,20 @@ const bridge=`${fixture}
 (() => {
   const query=new URLSearchParams(location.search), sample=scenario(query.get('scenario')||'normal');
   const handlers=new Map();
+  // ?km=on|away|offline|paused previews shortcut mode; omitted means not set up.
+  const kmMode=query.get('km');
+  const kmDevices=sample.config?.switch_group?.devices||[];
+  const kmStatus=()=>{const self=sample.state?.lan?.self?.device_id||kmDevices[0]?.device_id;const peer=kmDevices.find(d=>d.device_id!==self)?.device_id||null;return{enabled:Boolean(kmMode),configured:Boolean(kmMode),server_device_id:self,hotkey:'Control+Alt+k',home_hotkey:'Control+Alt+Escape',swap_command_control:true,invert_scroll:false,keep_awake:false,peer_platform:'windows',clipboard:true,role:'server',input_here:kmMode!=='away',peer_device_id:peer,peer_online:kmMode!=='offline',running:kmMode==='on'||kmMode==='away',error:kmMode==='paused'?'E_KM_PERMISSION':null,permissions:{accessibility:kmMode!=='paused',input_monitoring:true}};};
   let runtimeSequence=0;
   const snapshot=data=>{const copy=structuredClone(data);copy.runtime_seq=++runtimeSequence;if(copy.mixed)copy.mixed.runtime_seq=copy.runtime_seq;return copy;};
   const emit=(kind,data)=>{if(['state','mixed.changed','mixed.pending_remote'].includes(kind))data=snapshot(data);for(const cb of handlers.get('runtime-notification')||[])cb({payload:{kind,data}});};
   window.__preview={...sample,emit};
   window.__TAURI__={event:{listen:async(kind,cb)=>{if(!handlers.has(kind))handlers.set(kind,new Set());handlers.get(kind).add(cb);return()=>handlers.get(kind).delete(cb);}},core:{invoke:async(command,args={})=>{
-    if(command==='host_info')return{version:'0.3.0',platform:'preview',computerName:'MacBook Pro',languagePreference:query.get('lang')||'zh-CN',initialPage:query.get('page')==='settings'?'settings#mixed':'status'};
+    if(command==='host_info')return{version:'0.3.0',platform:query.get('platform')||'preview',computerName:'MacBook Pro',languagePreference:query.get('lang')||'zh-CN',initialPage:query.get('page')==='settings'?'settings#mixed':'status'};
     if(command==='runtime_request'){
       const {method,params}=args;
       if(method==='config.get')return sample.config;
-      if(method==='state.get')return snapshot(sample.state);
+      if(method==='km.get'||method==='km.configure'||method==='km.permissions.request')return kmStatus();if(method==='state.get')return snapshot(sample.state);
       if(method==='mixed.set') {if(sample.state.mixed.enabled===params.enabled)return snapshot({saved:false,applied:false,mixed:sample.state.mixed});sample.state.mixed.enabled=params.enabled;sample.state.mixed.revision++;sample.state.mixed.transition={phase:'idle',outcome:'ok'};emit('mixed.changed',{mixed:sample.state.mixed});return snapshot({saved:true,mixed:sample.state.mixed});}
       if(method==='mixed.assign'){sample.state.mixed.assignment=params.assignment;sample.state.mixed.revision++;return snapshot({saved:true,mixed:sample.state.mixed});}
       if(method==='display.list')return{displays:[]};

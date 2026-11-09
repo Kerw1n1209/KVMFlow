@@ -4,8 +4,8 @@
   "version": "0.4.2",
   "identifier": "net.kvmflow.desktop",
   "build": {
-    "beforeDevCommand": "node scripts/prepare-tauri.js",
-    "beforeBuildCommand": "node scripts/prepare-tauri.js",
+    "beforeDevCommand": "node scripts/prepare-tauri.js && node scripts/prepare-deskflow.js",
+    "beforeBuildCommand": "node scripts/prepare-tauri.js && node scripts/prepare-deskflow.js",
     "frontendDist": "../src/renderer"
   },
   "app": {
@@ -33,7 +33,8 @@
     "icon": ["../src/renderer/assets/appIcon.png", "../build/icon.icns", "../build/icon.ico"],
     "resources": {
       "../../LICENSE": "LICENSE",
-      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../resources/sidecar/deskflow": "deskflow"
     },
     "macOS": { "minimumSystemVersion": "11.0" },
     "windows": {

@@ -32,6 +32,3 @@ for size in [16, 24, 32, 48, 64, 128, 256, 512, 1024] {
         try write(icon, size: size, name: "\(size).png")
     }
 }
-
-// The menu bar uses the same white square, not a black/tinted template variant.
-try write(icon, size: 44, name: "trayTemplate.png")

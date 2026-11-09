@@ -21,9 +21,13 @@ async function setup(t, options = {}) {
   c.pending = delay => timers.has(delay);
   c.fire = async delay => { const timer = timers.get(delay); assert.ok(timer, `timer ${delay}`); nativeClear(timer.id); timers.delete(delay); await timer.fn(); await tick(); };
   c.win.navigate('guide');
-  // Welcome → appearance; `start` on the appearance page reads this computer.
+  // Welcome → appearance; choosing the USB switch mode reads this computer.
   click(c, 'ob-theme');
-  c.start = async () => { click(c, 'start'); await tick(); };
+  c.start = async () => {
+    click(c, 'ob-mode'); await tick();
+    click(c, 'ob-kind', '[data-kind="switch"]'); await tick();
+    click(c, 'mode-next'); await tick();
+  };
   c.next = async () => { click(c, 'local-next'); await tick(); };
   c.connect = async () => { await c.start(); await c.next(); };
   c.pair = async (id = 'dev-peer') => { click(c, 'v2-connect', `[data-v2-peer="${id}"]`); await tick(); };

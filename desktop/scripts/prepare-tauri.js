@@ -31,3 +31,11 @@ if (process.platform === 'darwin') {
   if (path.resolve(source) !== destination) fs.copyFileSync(source, destination);
   fs.chmodSync(destination, 0o755);
 }
+
+// Tauri needs the resource directory to exist; prepare-deskflow.js fills it for
+// dev and release builds, while Rust tests use a stand-in engine.
+const deskflow = path.join(root, 'desktop/resources/sidecar/deskflow');
+if (!fs.existsSync(path.join(deskflow, 'manifest.json'))) {
+  fs.mkdirSync(deskflow, { recursive: true });
+  fs.writeFileSync(path.join(deskflow, '.placeholder'), '');
+}

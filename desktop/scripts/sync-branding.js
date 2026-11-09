@@ -66,7 +66,6 @@ function syncBranding({ nativeIcons = true } = {}) {
       offset += images[i].length;
     });
     fs.writeFileSync(path.join(desktop, 'build/icon.ico'), Buffer.concat([header, ...images]));
-    copy(path.join(temporary, 'trayTemplate.png'), path.join(desktop, 'src/renderer/assets/trayTemplate.png'));
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }

@@ -24,6 +24,7 @@ const bridge = `
   const snapshot = data => { const copy = structuredClone(data); copy.runtime_seq = ++runtimeSequence; return copy; };
   const emit = (kind, data) => { for (const cb of handlers.get('runtime-notification') || []) cb({ payload: { kind, data } }); };
   let pairSeq = 0;
+  window.__previewKm = { enabled: false, configured: false, server_device_id: null, hotkey: 'Control+Alt+k', home_hotkey: 'Control+Alt+Escape', swap_command_control: true, invert_scroll: false, keep_awake: false, peer_platform: null, clipboard: true, role: null, input_here: true, peer_device_id: null, peer_online: false, running: false, error: null, permissions: { accessibility: query.get('perms') !== 'none', input_monitoring: false } };
   const pairEvent = data => ({ session_id: 'preview-session', event_seq: ++pairSeq, ...data });
 
   const peer = { waiting: true, device_id: 'dev-game', name: 'DESKTOP-GAME', platform: 'windows', online: false, addr: null, pair_addr: '192.168.1.23:47820',
@@ -85,6 +86,10 @@ const bridge = `
       if (method === 'config.get') return noConfig ? null : structuredClone(config);
       if (method === 'config.set') { if (window.__previewPairing.failSave) throw { code:'E_CONFIG_IO',message:'synthetic save failure' }; noConfig = false; Object.assign(config,structuredClone(params.config)); return {}; }
       if (method === 'lan.discover.start') return structuredClone(state.lan);
+      if (method === 'km.get' || method === 'km.configure' || method === 'km.permissions.request') {
+        Object.assign(window.__previewKm, method === 'km.configure' ? params : {});
+        return structuredClone(window.__previewKm);
+      }
       if (method === 'state.get') return snapshot(state);
       if (method === 'lan.pair.window') return { open: params.open };
       if (method === 'lan.pair.decline') return { phase: 'cancelled', code: 'E_LAN_PAIR_DECLINED', request: true, session_id: 'preview-request', event_seq: 9 };
@@ -176,7 +181,14 @@ const bridge = `
       if (scenarioName === 'v2-welcome') return;
       press('[data-pair-action="ob-theme"]'); await until('theme');
       if (scenarioName === 'v2-theme') return;
-      press('[data-pair-action="start"]'); await until('local');
+      press('[data-pair-action="ob-mode"]'); await until('mode');
+      if (scenarioName === 'v2-mode') return;
+      const shortcut = scenarioName === 'v2-perms' || scenarioName.startsWith('v2-hotkey');
+      press('[data-kind="' + (shortcut ? 'hotkey' : 'switch') + '"]'); await settle();
+      if (scenarioName !== 'v2-perms') { window.__previewKm.permissions = { accessibility: true, input_monitoring: true }; await window.KVMFlowKm.refresh(); }
+      press('[data-pair-action="mode-next"]');
+      if (scenarioName === 'v2-perms') { await until('perms'); return; }
+      await until('local');
       if (['v2-local', 'v2-local-e4'].includes(scenarioName)) return;
       if (scenarioName === 'v2-local-empty') {
         while (document.querySelector('[data-pair-action="read-skip"]')) { press('[data-pair-action="read-skip"]'); await settle(250); }
@@ -204,8 +216,13 @@ const bridge = `
       await until('confirm');
       emit('lan.profile', profileReport(0));
       if (scenarioName === 'v2-paired') { await settle(); return; }
+      if (shortcut) {
+        await until('hotkey'); await settle();
+        if (scenarioName === 'v2-hotkey') return;
+        press('[data-pair-action="hotkey-next"]');
+      }
       await until('try'); await settle();
-      if (scenarioName === 'v2-try') return;
+      if (scenarioName === 'v2-try' || scenarioName === 'v2-hotkey-try') return;
       const report = commanded => ({ test_id: 'preview-test', press_id: 'preview-press', reporting_device_id: 'dev-mac', target_device_id: peer.device_id,
         per_monitor: [{ edid_id: 'DEL-A0F1-A', commanded }, { edid_id: 'DEL-A0F1-B', commanded }] });
       if (scenarioName === 'v2-try-hint') { emit('switch.report', report(true)); await until('try-hint'); return; }

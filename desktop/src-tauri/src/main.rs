@@ -3,6 +3,7 @@
 mod compatibility;
 mod feedback;
 mod host_name;
+mod km_toast;
 mod locale;
 // Only the leftover shutdown and the tray's current-computer line run until
 // mixed mode comes back; the rest of this module waits for its tray entries.
@@ -44,6 +45,9 @@ struct Host {
     tray_config: Mutex<Value>,
     mixed_closing: AtomicBool,
     pause: CheckMenuItem<tauri::Wry>,
+    km_share: CheckMenuItem<tauri::Wry>,
+    km_home: MenuItem<tauri::Wry>,
+    km: Mutex<Value>,
     ready: AtomicBool,
     wants_visible: AtomicBool,
     exit_pending: AtomicBool,
@@ -110,6 +114,7 @@ fn refresh_tray(app: &AppHandle) {
         };
         let data = host.last_state.lock().unwrap().value().clone();
         let config = host.tray_config.lock().unwrap().clone();
+        let km = host.km.lock().unwrap().clone();
         let mixed = &data["mixed"];
         let translate = |key: &str| tr(&handle, key);
         let enabled = data["enabled"]
@@ -131,6 +136,9 @@ fn refresh_tray(app: &AppHandle) {
         let _ = host.status.set_text(&text);
         let _ = host.pause.set_checked(!enabled);
         let _ = host.pause.set_text(tr(&handle, "native.pause"));
+        let _ = host.km_share.set_checked(km["enabled"] == true);
+        let _ = host.km_share.set_text(tr(&handle, "km.share"));
+        let _ = host.km_home.set_text(tr(&handle, "km.settings.home_hotkey"));
         let _ = host.settings.set_text(tr(&handle, "native.open"));
         let _ = host.diagnostics.set_text(tr(&handle, "native.diagnostics"));
         let _ = host.feedback.set_text(tr(&handle, "native.feedback"));
@@ -141,9 +149,15 @@ fn refresh_tray(app: &AppHandle) {
                 let menu = Menu::new(&handle)?;
                 menu.append(&host.status)?;
                 menu.append(&PredefinedMenuItem::separator(&handle)?)?;
+                if km_can_give_back(&km) {
+                    menu.append(&host.km_home)?;
+                }
                 menu.append(&host.settings)?;
                 menu.append(&host.diagnostics)?;
                 menu.append(&host.feedback)?;
+                if km["configured"] == true {
+                    menu.append(&host.km_share)?;
+                }
                 menu.append(&host.pause)?;
                 menu.append(&PredefinedMenuItem::separator(&handle)?)?;
                 menu.append(&host.quit)?;
@@ -153,6 +167,49 @@ fn refresh_tray(app: &AppHandle) {
             if let Err(error) = result {
                 eprintln!("Unable to refresh tray: {error}");
             }
+        }
+    });
+}
+
+/// Only the computer currently borrowing the keyboard and mouse can offer
+/// this: on the other one, the pointer is not there to click it.
+fn km_can_give_back(km: &Value) -> bool {
+    km["role"] == "client" && km["input_here"] == true && km["running"] == true
+}
+
+fn update_km(app: &AppHandle, data: Value) {
+    let Some(host) = app.try_state::<Host>() else {
+        return;
+    };
+    if data["enabled"] == true {
+        km_toast::prepare(app);
+    }
+    let previous = std::mem::replace(&mut *host.km.lock().unwrap(), data.clone());
+    if km_toast::arrived(&previous, &data) {
+        let name = data["local_name"]
+            .as_str()
+            .filter(|name| !name.trim().is_empty())
+            .map(str::to_owned)
+            .or_else(host_name::computer_name)
+            .unwrap_or_default();
+        km_toast::show(app, &tr(app, "km.toast").replace("{p0}", &name));
+    }
+    refresh_tray(app);
+}
+
+fn km_menu_request(app: &AppHandle, method: &'static str, params: Value) {
+    if app.state::<updates::Updates>().installing.load(Ordering::Acquire) {
+        refresh_tray(app);
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let (runtime, generation) = app.state::<Host>().runtime.snapshot();
+        let result = tauri::async_runtime::spawn_blocking(move || runtime.request(method, params)).await;
+        match result {
+            Ok(Ok(data)) if app.state::<Host>().runtime.is_current(generation) => update_km(&app, data),
+            // Checkbox menus toggle before their callback.
+            _ => refresh_tray(&app),
         }
     });
 }
@@ -211,6 +268,9 @@ fn forward_notification(app: &AppHandle, generation: u64, kind: &str, data: Valu
     let data = notification["data"].clone();
     if matches!(kind, "state" | "mixed.changed") {
         update_runtime_status(app, generation, data.clone());
+    }
+    if kind == "km.changed" {
+        update_km(app, data.clone());
     }
     if kind == "runtime.error" {
         if let Some(host) = app.try_state::<Host>() {
@@ -535,12 +595,28 @@ async fn reset_config(app: AppHandle) -> Result<bool, String> {
     .map_err(|error| error.to_string())?
 }
 
+/// The Deskflow engine bundled with the app, or the prepared copy in dev.
+fn km_resources(app: &AppHandle) -> Option<std::path::PathBuf> {
+    let bundled = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|dir| dir.join("deskflow"));
+    let dev =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../resources/sidecar/deskflow");
+    bundled
+        .into_iter()
+        .chain([dev])
+        .find(|dir| dir.join("manifest.json").is_file())
+}
+
 fn start_runtime(
     app: &AppHandle,
     data_dir: &std::path::Path,
     generation: u64,
 ) -> Result<Arc<RuntimeHandle>, String> {
-    let options = RuntimeOptions::new(data_dir.join("config.json"), data_dir.join("logs"));
+    let mut options = RuntimeOptions::new(data_dir.join("config.json"), data_dir.join("logs"));
+    options.km_resources = km_resources(app);
     #[cfg(target_os = "macos")]
     let options = {
         let mut options = options;
@@ -594,6 +670,8 @@ fn main() {
             let diagnostics = MenuItem::with_id(app, "diagnostics", tr(app.app_handle(), "native.diagnostics"), true, None::<&str>)?;
             let feedback = MenuItem::with_id(app, "feedback", tr(app.app_handle(), "native.feedback"), true, None::<&str>)?;
             let pause = CheckMenuItem::with_id(app, "pause", tr(app.app_handle(), "native.pause"), true, false, None::<&str>)?;
+            let km_share = CheckMenuItem::with_id(app, "km-share", tr(app.app_handle(), "km.share"), true, false, None::<&str>)?;
+            let km_home = MenuItem::with_id(app, "km-home", tr(app.app_handle(), "km.settings.home_hotkey"), true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", tr(app.app_handle(), "native.quit"), true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&status, &settings, &diagnostics, &feedback, &pause, &quit])?;
             let generation = recovery::INITIAL_GENERATION;
@@ -601,7 +679,7 @@ fn main() {
             let restart_handle = handle.clone();
             let restart_dir = data_dir.clone();
             let slot = recovery::RuntimeSlot::new(runtime.clone(), move |generation| start_runtime(&restart_handle, &restart_dir, generation));
-            app.manage(Host { runtime: slot, pairing_gate: Arc::new(Mutex::new(())), pairing_closing: AtomicBool::new(false), data_dir, page: Mutex::new(page.into()), status, settings, diagnostics, feedback, quit, pause, last_state: Mutex::new(runtime_state::Snapshot::default()),
+            app.manage(Host { runtime: slot, pairing_gate: Arc::new(Mutex::new(())), pairing_closing: AtomicBool::new(false), data_dir, page: Mutex::new(page.into()), status, settings, diagnostics, feedback, quit, pause, km_share, km_home, km: Mutex::new(json!({})), last_state: Mutex::new(runtime_state::Snapshot::default()),
                 tray_config: Mutex::new(json!({})), mixed_closing: AtomicBool::new(false),
                 ready: AtomicBool::new(false), wants_visible: AtomicBool::new(!hidden),
                 exit_pending: AtomicBool::new(false), exit_ready: AtomicBool::new(false) });
@@ -610,7 +688,7 @@ fn main() {
             } else {
                 app.default_window_icon().unwrap().clone()
             };
-            TrayIconBuilder::with_id("kvmflow").icon(icon).icon_as_template(false)
+            TrayIconBuilder::with_id("kvmflow").icon(icon).icon_as_template(cfg!(target_os = "macos"))
                 .menu(&menu).tooltip("KVMFlow")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => open_client(app, "status"),
@@ -644,6 +722,11 @@ fn main() {
                             }
                         });
                     }
+                    "km-share" => {
+                        let enabled = app.state::<Host>().km.lock().unwrap()["enabled"] != true;
+                        km_menu_request(app, "km.configure", json!({ "enabled": enabled }));
+                    }
+                    "km-home" => km_menu_request(app, "km.release", json!({})),
                     "quit" => {
                         if !app.state::<updates::Updates>().installing.load(Ordering::Acquire) {
                             app.exit(0);
@@ -655,6 +738,10 @@ fn main() {
                 let config_runtime = runtime.clone();
                 if let Ok(Ok(config)) = tauri::async_runtime::spawn_blocking(move || config_runtime.request("config.get", json!({}))).await {
                     *handle.state::<Host>().tray_config.lock().unwrap() = config;
+                }
+                let km_runtime = runtime.clone();
+                if let Ok(Ok(km)) = tauri::async_runtime::spawn_blocking(move || km_runtime.request("km.get", json!({}))).await {
+                    update_km(&handle, km);
                 }
                 let result = tauri::async_runtime::spawn_blocking(move || runtime.request("state.get", json!({}))).await;
                 match result {
@@ -794,6 +881,16 @@ mod pairing_lifecycle_tests {
             &json!({"open": false})
         ));
         assert!(!opens_pairing_window("lan.pair.cancel", &json!({})));
+    }
+
+    #[test]
+    fn only_the_computer_borrowing_input_can_give_it_back() {
+        let km = |role: &str, here: bool, running: bool| json!({ "role": role, "input_here": here, "running": running });
+        assert!(km_can_give_back(&km("client", true, true)));
+        assert!(!km_can_give_back(&km("client", false, true)));
+        assert!(!km_can_give_back(&km("client", true, false)));
+        assert!(!km_can_give_back(&km("server", true, true)));
+        assert!(!km_can_give_back(&json!({})));
     }
 
     #[test]

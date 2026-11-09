@@ -390,6 +390,14 @@
   // Which entry started the flow: first-run setup, or the "add a computer"
   // page. Pairing pages are shared; going back returns to where it began.
   let entry = 'setup', addState = 'idle', addRefreshing = false, addDial = null;
+  // Setup's choice of switching method. Until the user picks one, an existing
+  // USB switch keeps its mode. Adding a computer follows what is in use.
+  let flowKind = null, hotkeyDraft = window.KVMFlowHotkey.DEFAULT, stopHotkeyRecording = null, hotkeyTaken = false;
+  const Km = window.KVMFlowKm;
+  const defaultKind = () => (Km.status()?.enabled || !window.KVMFlowPairingConfig.hasTrigger() ? 'hotkey' : 'switch');
+  const currentKind = () => (entry === 'setup' && flowKind) || defaultKind();
+  const hotkeyFlow = () => currentKind() === 'hotkey';
+  Km.onChange(() => { if (mode === 'perms') renderWizard(); });
   let appInfo = null;
   window.kvmflow?.info?.then?.(info => { appInfo = info; if (mode === 'welcome') renderWizard(); }, () => {});
   const PLATFORM_NAMES = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
@@ -453,9 +461,18 @@
     switch (page) {
       case 'welcome': return { version: appInfo?.version || '' };
       case 'theme': return { preference: window.KVMFlowTheme?.preference || 'system', issues };
+      case 'mode': return { kind: currentKind(), issues };
+      case 'perms': {
+        const granted = Km.status()?.permissions || {};
+        return { issues, canNext: Boolean(granted.accessibility && granted.input_monitoring), rows: [
+          { id: 'accessibility', title: 'km.perm.accessibility', copy: 'km.perm.accessibility.copy', granted: granted.accessibility },
+          { id: 'input_monitoring', title: 'km.perm.input', copy: 'km.perm.input.copy', granted: granted.input_monitoring },
+        ] };
+      }
+      case 'hotkey': return { keys: Km.keys(hotkeyDraft), recording: Boolean(stopHotkeyRecording), taken: hotkeyTaken, busy, issues };
       case 'local': return { reading: mode === 'detect', rows: detected, busy, issues,
         canNext: !busy && mode === 'local' && detected.length > 0 && detected.every(row => row.ready) };
-      case 'connect': return { busy, issues, ipOpen, ipError, manual: manualSas, offline: lan?.enabled === false,
+      case 'connect': return { busy, issues, ipOpen, ipError, manual: manualSas, offline: lan?.enabled === false, hotkey: hotkeyFlow(),
         selfIp: hostOf(lan?.self?.addr), rows: connectRows() };
       case 'pair': {
         const base = { ...pairPeer(), selfPlatform: selfPlatform(), busy, skippable: entry !== 'add', issues };
@@ -473,7 +490,7 @@
         return { ...base, state: sas ? 'sas' : 'run', sas: note?.sas, waitingAccept: !sas && waitingAccept() };
       }
       case 'test': {
-        const base = { ...pairPeer(), selfPlatform: selfPlatform(), busy, issues };
+        const base = { ...pairPeer(), selfPlatform: selfPlatform(), busy, issues, keys: hotkeyFlow() ? Km.keys(Km.status()?.hotkey || hotkeyDraft).join(' + ') : '' };
         if (mode !== 'test-error') return { ...base, state: mode === 'try-ok' ? 'ok' : 'wait', hint: mode === 'try-hint' };
         const failedRows = (model.displays || []).map((name, i) => {
           const failed = failedMonitors.some(row => row.fingerprint === window.__kvmflowDisplayFingerprints?.[i]);
@@ -675,6 +692,7 @@
   function clearTimers() {
     clearTimeout(followTimer); clearInterval(profileTimer); clearTimeout(advanceTimer);
     followTimer = profileTimer = advanceTimer = null;
+    stopHotkeyRecording?.(); stopHotkeyRecording = null;
   }
   // Paired: the initiator moves on to the switch test once the other
   // computer's monitors are known; the waiting computer is done.
@@ -733,7 +751,7 @@
     try {
       // Users press the USB switch as soon as they leave this computer, often
       // before they reach the connect page: watch from here.
-      switchLearned = false; void startCapture();
+      switchLearned = false; if (!hotkeyFlow()) void startCapture();
       detected = await window.KVMFlowPairingConfig.detectLocal([...skipped]);
     } catch {
       detected = [];
@@ -756,7 +774,7 @@
       await openPairingWindow();
       if (token !== flowGeneration) return;
       if (requestError) throw new Error(requestError);
-      if (!switchLearned) await startCapture();
+      if (!switchLearned && !hotkeyFlow()) await startCapture();
       if (token !== flowGeneration) return;
       busy = false; renderWizard();
       if (incoming) await acceptIncoming();
@@ -881,6 +899,33 @@
       await window.KVMFlowPairingConfig.confirmTopology(current.deviceId);
       await window.KVMFlowPairingConfig.refresh();
       if (session !== current || mode !== 'confirm') return;
+      if (hotkeyFlow()) {
+        clearInterval(profileTimer);
+        hotkeyDraft = Km.status()?.hotkey || hotkeyDraft;
+        mode = 'hotkey';
+        return;
+      }
+      await beginTestRun();
+    } catch (error) { if (session === current) failFlow(error); }
+    finally { if (session === current) { busy = false; renderWizard(); } }
+  }
+  const permissionsGranted = () => {
+    const granted = Km.status()?.permissions;
+    return Boolean(granted?.accessibility && granted?.input_monitoring);
+  };
+  // System Settings has no callback for a grant; poll while the page shows.
+  function watchPermissions() {
+    const timer = setInterval(() => {
+      if (mode !== 'perms') { clearInterval(timer); return; }
+      void Km.refresh();
+    }, 1500);
+  }
+  async function finishHotkey() {
+    if (mode !== 'hotkey' || busy || stopHotkeyRecording) return;
+    const current = session; busy = true; renderWizard();
+    try {
+      await Km.configure({ enabled: true, server_device_id: model.localId, hotkey: hotkeyDraft });
+      if (session !== current || mode !== 'hotkey') return;
       await beginTestRun();
     } catch (error) { if (session === current) failFlow(error); }
     finally { if (session === current) { busy = false; renderWizard(); } }
@@ -889,7 +934,7 @@
     clearInterval(profileTimer); mode = 'try';
     // The sidecar cannot test without a trigger: identify the switch from
     // this press first; startTestRun follows once it is saved.
-    if (!window.KVMFlowPairingConfig.hasTrigger()) { await startCapture(); renderWizard(); return; }
+    if (!hotkeyFlow() && !window.KVMFlowPairingConfig.hasTrigger()) { await startCapture(); renderWizard(); return; }
     await startTestRun();
   }
   async function startTestRun() {
@@ -1037,8 +1082,32 @@
     switch (action) {
       case 'ob-theme': mode = 'theme'; renderWizard(); return;
       case 'ob-welcome': mode = 'welcome'; renderWizard(); return;
-      case 'start': skipped = new Set(); detected = []; await detectLocal(); return;
-      case 'ob-back-theme': if (entry === 'add') { backToAdd(); return; } await cleanupFlow(); mode = 'theme'; renderWizard(); return;
+      case 'ob-mode': mode = 'mode'; renderWizard(); return;
+      case 'ob-kind': flowKind = control?.dataset.kind || flowKind; renderWizard(); return;
+      case 'mode-next':
+        if (hotkeyFlow() && Km.needsPermissions()) {
+          await Km.refresh();
+          if (!permissionsGranted()) { mode = 'perms'; watchPermissions(); renderWizard(); return; }
+        }
+        skipped = new Set(); detected = []; await detectLocal(); return;
+      case 'perms-next':
+        if (mode !== 'perms' || !permissionsGranted()) return;
+        skipped = new Set(); detected = []; await detectLocal(); return;
+      case 'hotkey-change':
+        if (mode !== 'hotkey' || stopHotkeyRecording) return;
+        hotkeyTaken = false;
+        stopHotkeyRecording = window.KVMFlowHotkey.record(hotkey => {
+          stopHotkeyRecording = null;
+          if (hotkey) hotkeyDraft = hotkey;
+          renderWizard();
+        }, {
+          isTaken: hotkey => hotkey === (Km.status()?.home_hotkey || window.KVMFlowHotkey.HOME),
+          onTaken: () => { hotkeyTaken = true; renderWizard(); },
+        });
+        renderWizard();
+        return;
+      case 'hotkey-next': await finishHotkey(); return;
+      case 'ob-back-theme': if (entry === 'add') { backToAdd(); return; } await cleanupFlow(); mode = 'mode'; renderWizard(); return;
       case 'read-retry': await detectLocal(); return;
       case 'read-skip': {
         const fingerprint = control?.dataset.fp;
