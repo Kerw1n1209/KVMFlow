@@ -1,7 +1,7 @@
 {
   "name": "kvmflow-desktop",
   "productName": "KVMFlow",
-  "version": "0.4.2",
+  "version": "0.4.3-beta.1",
   "description": "KVMFlow - USB switch triggered monitor input switching",
   "author": "KVMFlow Project",
   "private": true,

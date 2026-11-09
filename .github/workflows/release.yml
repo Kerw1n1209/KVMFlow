@@ -58,6 +58,34 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # One certificate for every build, so macOS keeps the app's privacy grants
+      # across updates. It is self-signed, and codesign only uses trusted ones.
+      - name: Import the macOS signing certificate
+        if: matrix.platform == 'mac'
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/macos-signing"
+          mkdir "$work"
+          echo "$MACOS_SIGNING_P12" | base64 --decode > "$work/signing.p12"
+          /usr/bin/openssl pkcs12 -in "$work/signing.p12" -passin env:MACOS_SIGNING_PASSWORD -nokeys -out "$work/cert.pem"
+          identity="$(/usr/bin/openssl x509 -in "$work/cert.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :)"
+          keychain="$work/signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$work/signing.p12" -k "$keychain" -P "$MACOS_SIGNING_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          sudo security authorizationdb write com.apple.trust-settings.admin allow
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$work/cert.pem"
+          cp /bin/sleep "$work/probe"
+          codesign --force -s "$identity" "$work/probe"
+          rm "$work/signing.p12"
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
