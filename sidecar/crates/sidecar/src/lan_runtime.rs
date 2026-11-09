@@ -23,6 +23,7 @@ use std::{
 };
 
 mod commands;
+pub(crate) mod km_sharing;
 mod pairing;
 mod setup;
 mod test_evidence;
@@ -68,6 +69,7 @@ pub(crate) struct LanRuntime {
     issues: Vec<Value>,
     sync_states: BTreeMap<String, Value>,
     online: BTreeSet<String>,
+    pub(crate) km: km_sharing::KmState,
     /// Last discovered-peer count written to the event log, so diagnostics
     /// show whether discovery ever saw another computer.
     discovered: Option<usize>,
@@ -109,8 +111,8 @@ pub(crate) struct LanRuntime {
     reset_cooldown: Option<u64>,
     /// Per-peer resync serve cooldowns (epoch ms), receiver side (P3).
     resync_cooldowns: std::collections::BTreeMap<String, u64>,
-    /// Platform learned from a peer's owner profile, used when its hello
-    /// predates the `platform` field.
+    /// Platform a peer last reported, by hello or owner profile; the profile
+    /// covers a hello that predates the `platform` field.
     peer_platforms: BTreeMap<String, String>,
     /// Last connection identity per peer, so a REPLACED session (not just a
     /// fresh online transition) also triggers catchup + profile exchange.
@@ -731,6 +733,7 @@ impl Runtime {
                             json!({"count": peers.len(), "online": peers.iter().filter(|p| p.online).count()}),
                         );
                     }
+                    self.km_note_peers(&peers);
                     let online: BTreeSet<_> = peers
                         .iter()
                         .filter(|p| p.online)
@@ -1039,6 +1042,18 @@ impl Runtime {
             }
             "setup.trigger" => {
                 self.lan_receive_trigger(&source, &message.body);
+                return;
+            }
+            "km.hello" => {
+                self.km_receive_hello(&source, &message.body);
+                return;
+            }
+            "km.switch" => {
+                self.km_receive_switch(&source, &message.body);
+                return;
+            }
+            "km.switch.ack" => {
+                self.km_receive_switch_ack(&source, &message.body);
                 return;
             }
             "test.begin" | "test.end" | "test.event" => {

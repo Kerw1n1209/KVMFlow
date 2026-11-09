@@ -1088,6 +1088,7 @@ impl Runtime {
                             MultiDeviceConfig {
                                 lan: None,
                                 setup_secondary: true,
+                                km: None,
                                 schema_version: kvmflow_core::config::MULTI_DEVICE_SCHEMA_VERSION,
                                 local_device: kvmflow_core::config::LocalDeviceProfile {
                                     device_id,

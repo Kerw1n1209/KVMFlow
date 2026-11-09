@@ -396,6 +396,9 @@ impl Runtime {
                 let c = self.last_candidates.clone().unwrap_or(Value::Null);
                 self.respond(ResponseLine::ok(id, c));
             }
+            "km.get" | "km.configure" | "km.permissions.request" | "km.release" => {
+                self.handle_km_request(id, &req.method, &req.params);
+            }
             "mixed.set" | "mixed.assign" => {
                 self.handle_mixed_request(id, &req.method, &req.params);
                 // A local mixed edit is a section change: broadcast the new

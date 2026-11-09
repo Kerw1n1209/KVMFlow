@@ -4,6 +4,7 @@
 mod backends;
 mod config_store;
 mod detach;
+pub mod km;
 pub mod lan;
 pub mod lan_runtime;
 mod layouts;
@@ -58,6 +59,7 @@ enum Msg {
     /// `ResumeDisplays` (used before an installer may end the process).
     ReleaseDisplays(Sender<Result<(), String>>),
     ResumeDisplays(Option<bool>, Sender<Result<(), String>>),
+    Km(km::engine::Event),
     Shutdown,
 }
 
@@ -318,6 +320,7 @@ pub fn run_stdio() {
         config_path,
         log_dir,
         topology: None,
+        km_resources: None,
         ddc_binary: {
             #[cfg(target_os = "macos")]
             {
@@ -371,6 +374,8 @@ pub struct RuntimeOptions {
     pub config_path: PathBuf,
     pub log_dir: PathBuf,
     pub ddc_binary: Option<String>,
+    /// Directory holding the bundled keyboard and mouse engine.
+    pub km_resources: Option<PathBuf>,
     pub topology: Option<Box<dyn topology::DisplayTopology>>,
 }
 
@@ -385,6 +390,7 @@ impl RuntimeOptions {
             config_path,
             log_dir,
             ddc_binary: None,
+            km_resources: None,
             topology: None,
         }
     }
@@ -652,6 +658,7 @@ fn run_runtime(
     abandoned: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let RuntimeOptions {
+        km_resources,
         mut backend,
         lan,
         scenario,
@@ -781,6 +788,8 @@ fn run_runtime(
             "pid": std::process::id(),
         }),
     );
+    rt.lan_runtime.km.resources = km_resources;
+    rt.lan_runtime.km.wake = Some(tx.clone());
     rt.emit_event(
         kinds::SIDECAR_READY,
         Level::Info,
@@ -798,6 +807,7 @@ fn run_runtime(
 
     while !stopped.load(Ordering::Acquire) {
         rt.poll_lan();
+        rt.poll_km();
         rt.publish_config_change();
         // Idle tick path: drain with timeout so time-based tracker windows advance.
         let msg = match rx.recv_timeout(Duration::from_millis(500)) {
@@ -862,6 +872,7 @@ fn run_runtime(
             Msg::ResumeDisplays(enabled, reply) => {
                 let _ = reply.send(rt.resume_displays(enabled));
             }
+            Msg::Km(event) => rt.handle_km_event(event),
             Msg::Shutdown => break,
         }
         // Busy request traffic can starve the idle tick, so the watch is also
@@ -879,6 +890,7 @@ fn run_runtime(
     } else {
         rt.restore_displays("shutdown")
     };
+    rt.stop_km();
     rt.stop_lan();
     rt.emit_event(kinds::SIDECAR_SHUTDOWN, Level::Info, json!({}));
     stopped.store(true, Ordering::Release);

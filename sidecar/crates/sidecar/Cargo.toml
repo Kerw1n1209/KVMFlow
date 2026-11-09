@@ -18,6 +18,8 @@ zeroize = "1"
 subtle = "2.6"
 socket2 = { version = "0.6", features = ["all"] }
 if-addrs = "0.15"
+rcgen = "0.14"
+pem = "4"
 
 [features]
 # Windows display detach (SetDisplayConfig) is not verified on hardware yet.

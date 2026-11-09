@@ -35,6 +35,9 @@ pub struct MultiDeviceConfig {
     /// pending-input polling and trigger adoption survive a restart.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub setup_secondary: bool,
+    /// LAN keyboard and mouse sharing; absent until the user sets it up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub km: Option<KmConfig>,
     pub schema_version: u32,
     pub local_device: LocalDeviceProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,6 +48,36 @@ pub struct MultiDeviceConfig {
     pub trigger: TriggerConfig,
     #[serde(default)]
     pub advanced: AdvancedConfig,
+}
+
+/// Replicated between the two computers; the higher revision wins.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KmConfig {
+    pub enabled: bool,
+    pub revision: u64,
+    /// The computer the keyboard and mouse are plugged into.
+    pub server_device_id: String,
+    /// An engine keystroke such as `Control+Alt+k`.
+    pub hotkey: String,
+    pub clipboard: bool,
+    /// Brings input back to the computer it is plugged into, from anywhere.
+    #[serde(default = "default_km_home_hotkey")]
+    pub home_hotkey: String,
+    /// Between a Mac and a PC, Command acts as Ctrl on the other side.
+    #[serde(default = "default_km_swap_command_control")]
+    pub swap_command_control: bool,
+    #[serde(default)]
+    pub invert_scroll: bool,
+    #[serde(default)]
+    pub keep_awake: bool,
+}
+
+fn default_km_home_hotkey() -> String {
+    "Control+Alt+Escape".into()
+}
+
+fn default_km_swap_command_control() -> bool {
+    true
 }
 
 fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
@@ -253,6 +286,7 @@ impl MultiDeviceConfig {
         Self {
             lan: None,
             setup_secondary: false,
+            km: None,
             schema_version: MULTI_DEVICE_SCHEMA_VERSION,
             local_device: LocalDeviceProfile {
                 device_id: LEGACY_LOCAL_DEVICE_ID.into(),
@@ -404,7 +438,12 @@ impl MultiDeviceConfig {
                 g.devices.len() >= 2
                     && g.sync.get("ports_confirmed").and_then(Value::as_bool) != Some(false)
             })
-            && self.has_valid_trigger()
+            && (self.has_valid_trigger() || self.km_enabled())
+    }
+
+    /// Whether a LAN shortcut, rather than a USB switch, moves the input.
+    pub fn km_enabled(&self) -> bool {
+        self.km.as_ref().is_some_and(|km| km.enabled)
     }
 
     /// Resolve a group fingerprint in the local owner's profile before DDC IO.

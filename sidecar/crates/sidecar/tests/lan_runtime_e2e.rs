@@ -1033,6 +1033,132 @@ fn try_switch_start_and_stop_share_the_test_id_and_aggregate_shape() {
     assert!(stopped["events"].is_array());
 }
 
+/// A shortcut switch reaches both computers: the server's engine reports it,
+/// the client hears it over the LAN link, and each side runs its usual path.
+#[cfg(unix)]
+#[test]
+fn shortcut_switch_moves_input_on_both_computers() {
+    use std::os::unix::fs::PermissionsExt;
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let engine = dir.path().join("fake-engine");
+    std::fs::write(
+        &engine,
+        "#!/bin/sh\nif [ \"$1\" = server ]; then sleep 1\n\
+         echo '[t] INFO: switch from \"kf-dev-mac\" to \"kf-dev-win\" at 1,2'\nsleep 1\n\
+         echo '[t] INFO: switch from \"kf-dev-win\" to \"kf-dev-mac\" at 3,4'\nfi\nexec sleep 60\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&engine, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::env::set_var("KVMFLOW_KM_ENGINE", &engine);
+    let (mut a, mut b, _a_addr, _b_addr) =
+        pair_two_runtimes(dir.path(), mac_config(), win_config());
+    std::env::remove_var("KVMFLOW_KM_ENGINE");
+    complete_pairing(&mut a, &mut b);
+    wait_mutually_online(&mut a, &mut b);
+
+    let mut confirmed = a.request("config.get", json!({}));
+    confirmed["switch_group"]["sync"]["ports_confirmed"] = json!(true);
+    a.request("config.set", json!({"config": confirmed}));
+    let status = a.request("km.configure", json!({"enabled": true, "hotkey": "Control+Alt+j"}));
+    assert_eq!(status["role"], json!("server"));
+
+    let changed = |here: bool| {
+        move |v: &Value| {
+            v["notification"] == "km.changed"
+                && v["data"]["running"] == json!(true)
+                && v["data"]["input_here"] == json!(here)
+        }
+    };
+    let window = Duration::from_secs(20);
+    assert!(a.wait_for(changed(false), window).is_some(), "server never left");
+    assert!(b.wait_for(changed(true), window).is_some(), "client never arrived");
+    assert!(a.wait_for(changed(true), window).is_some(), "server never returned");
+    assert!(b.wait_for(changed(false), window).is_some(), "client never left");
+
+    let adopted = b.request("config.get", json!({}));
+    assert_eq!(adopted["km"]["hotkey"], json!("Control+Alt+j"));
+    assert_eq!(adopted["km"]["server_device_id"], json!(status["server_device_id"]));
+}
+
+#[cfg(unix)]
+fn fake_km_engine(dir: &std::path::Path, script: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let engine = dir.join("fake-engine");
+    std::fs::write(&engine, script).unwrap();
+    std::fs::set_permissions(&engine, std::fs::Permissions::from_mode(0o755)).unwrap();
+    engine
+}
+
+#[cfg(unix)]
+fn start_km(dir: &std::path::Path, script: &str) -> (Client, Client) {
+    let engine = fake_km_engine(dir, script);
+    std::env::set_var("KVMFLOW_KM_ENGINE", &engine);
+    let (mut a, mut b, _a_addr, _b_addr) = pair_two_runtimes(dir, mac_config(), win_config());
+    std::env::remove_var("KVMFLOW_KM_ENGINE");
+    complete_pairing(&mut a, &mut b);
+    wait_mutually_online(&mut a, &mut b);
+    let mut confirmed = a.request("config.get", json!({}));
+    confirmed["switch_group"]["sync"]["ports_confirmed"] = json!(true);
+    a.request("config.set", json!({"config": confirmed}));
+    a.request("km.configure", json!({"enabled": true}));
+    (a, b)
+}
+
+#[cfg(unix)]
+fn input_here(here: bool) -> impl Fn(&Value) -> bool {
+    move |v: &Value| {
+        v["notification"] == "km.changed"
+            && v["data"]["running"] == json!(true)
+            && v["data"]["input_here"] == json!(here)
+    }
+}
+
+/// The client's engine fails its first start, so it cannot act on the first
+/// switch frame. Only a repeat can reach it.
+#[cfg(unix)]
+#[test]
+fn a_switch_the_client_missed_is_repeated() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let flag = dir.path().join("client-started");
+    let script = format!(
+        "#!/bin/sh\nif [ \"$1\" = server ]; then sleep 1\n\
+         echo '[t] INFO: switch from \"kf-dev-mac\" to \"kf-dev-win\" at 1,2'\n\
+         elif [ ! -e '{0}' ]; then touch '{0}'; exit 1; fi\nexec sleep 60\n",
+        flag.display()
+    );
+    let (mut a, mut b) = start_km(dir.path(), &script);
+    let window = Duration::from_secs(20);
+    assert!(a.wait_for(input_here(false), window).is_some(), "server never left");
+    assert!(b.wait_for(input_here(true), window).is_some(), "client never arrived");
+}
+
+/// Giving input back ends the client's session, the server's engine reports
+/// the jump home, and the client reconnects.
+#[cfg(unix)]
+#[test]
+fn the_client_can_give_input_back() {
+    let _serial = SERIALIZE.lock().unwrap_or_else(|p| p.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (dir.path().join("first"), dir.path().join("second"));
+    let script = format!(
+        "#!/bin/sh\nif [ \"$1\" = server ]; then sleep 1\n\
+         echo '[t] INFO: switch from \"kf-dev-mac\" to \"kf-dev-win\" at 1,2'\n\
+         until [ -e '{1}' ]; do sleep 0.1; done\n\
+         echo '[t] INFO: jump from \"kf-dev-win\" to \"kf-dev-mac\" at 3,4'\n\
+         elif [ -e '{0}' ]; then touch '{1}'; else touch '{0}'; fi\nexec sleep 60\n",
+        first.display(),
+        second.display()
+    );
+    let (mut a, mut b) = start_km(dir.path(), &script);
+    let window = Duration::from_secs(20);
+    assert!(b.wait_for(input_here(true), window).is_some(), "client never arrived");
+    let released = b.request("km.release", json!({}));
+    assert_eq!(released["input_here"], json!(false));
+    assert!(a.wait_for(input_here(true), window).is_some(), "server never returned");
+}
+
 /// Rejecting a guessed monitor alias is a wire-level answer, not a cancel:
 /// the display stays unmatched, the plan reports a blocking issue and the
 /// commit pins keys without merging configuration.

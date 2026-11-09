@@ -77,6 +77,9 @@ impl Runtime {
     /// a quiet bus must still advance them (KVM-1: the group leaves once and
     /// the bus stays silent while T_absent elapses).
     pub(crate) fn pump_tracker(&mut self) {
+        if self.km_sharing_enabled() {
+            return;
+        }
         let Some(tracker) = self.tracker.as_mut() else {
             return;
         };
