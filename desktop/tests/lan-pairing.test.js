@@ -39,7 +39,7 @@ test('pairing runs the full phase machine: connect, SAS, mismatch paths', async 
   subscriptions.get('lan.pair')({ phase: 'await_resolve', device_id: 'dev-peer', initiator: true, sas: '482 913', local_confirmed: true, peer_confirmed: true,
     issues: [{ severity: 'blocking', detail: { kind: 'input_pending', device_id: 'dev-peer', fingerprint: 'DEL-1' } }], proposed_snapshot: {} });
   await tick();
-  assert.match(text(win, '#pairing-body'), /1 台副机的显示器未读到输入值/);
+  assert.match(text(win, '#pairing-body'), /另一台电脑还有 1 台显示器未读到输入值/);
   // ready_to_commit on the initiator renders as 提交中 until committed
   subscriptions.get('lan.pair')({ phase: 'ready_to_commit', device_id: 'dev-peer', initiator: true, local_confirmed: true, peer_confirmed: true, issues: [], proposed_snapshot: {} });
   await tick();

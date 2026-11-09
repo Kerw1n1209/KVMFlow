@@ -18,7 +18,7 @@ test('first run opens full screen on welcome, then appearance, then this compute
     assert.match(body(c), /选择外观.*跟随系统.*浅色.*深色/s);
     await c.start();
     assert.equal(c.win.KVMFlowPairing.activeMode(), 'local');
-    assert.match(body(c), /检查这台电脑.*请确认键盘和鼠标已连接到 USB 切换器。.*显示器 1.*可切换/s);
+    assert.match(body(c), /检查这台电脑.*键盘和鼠标要接在 USB 切换器上。.*显示器 1.*可切换/s);
     assert.doesNotMatch(body(c), /主机|副机|配对码|手动填写|输入值/);
     assert.equal(action(c, 'local-next').disabled, false);
     c.win.navigate('settings');
@@ -58,7 +58,7 @@ test('Next saves observed displays, then waits on the connect page until the use
   assert.equal(saved.local_device.monitors[0].local_input, 15);
   assert.ok(c.requests.indexOf(calls(c, 'config.set')[0]) < c.requests.indexOf(calls(c, 'lan.setup.secondary')[0]));
   assert.equal(calls(c, 'lan.pair.window').at(-1).params.open, true);
-  assert.match(body(c), /连接另一台电脑.*附近的电脑.*GAME.*192\.168\.1\.23.*配对/s);
+  assert.match(body(c), /和另一台电脑配对.*附近的电脑.*GAME.*192\.168\.1\.23.*配对/s);
   assert.equal(calls(c, 'lan.pair.start').length, 0, 'nobody dials without a click');
   await emit(c, 'lan.peers', { peers: [peer()] });
   assert.equal(calls(c, 'lan.pair.start').length, 0);
@@ -72,7 +72,7 @@ test('Next saves observed displays, then waits on the connect page until the use
 test('the connect page lists only waiting computers and opens A2 with USB capture at once', async t => {
   const c = await setup(t, { state: state([peer({ waiting: undefined }), peer({ device_id: 'offline', online: false, addr: null })]) }); await c.connect();
   assert.equal(c.win.document.querySelectorAll('[data-v2-peer]').length, 0);
-  assert.match(body(c), /正在搜索….*另一台电脑还没打开？.*按 USB 切换器.*切换显示器输入.*在另一台电脑上打开 KVMFlow.*192\.168\.1\.22/s);
+  assert.match(body(c), /正在搜索….*另一台电脑还没打开？.*按 USB 切换器.*把显示器切到那台电脑.*打开那台电脑上的 KVMFlow.*192\.168\.1\.22/s);
   assert.equal(calls(c, 'lan.setup.secondary').length, 1);
   assert.equal(calls(c, 'wizard.begin').length, 1);
   await emit(c, 'wizard.candidates', { disappeared: [{ vid_pid: '2345:6789', product: 'Keyboard' }] });
@@ -206,8 +206,8 @@ test('skipping every display leaves an empty list that cannot continue', async t
   click(c, 'read-skip', '[data-fp="display-b"]'); await tick();
   await new Promise(resolve => setTimeout(resolve, 150));
   assert.match(body(c), /没有可切换的显示器/);
-  assert.match(body(c), /请把显示器直连电脑，不要经过扩展坞/);
-  assert.equal(action(c, 'local-next').disabled, true);
+  assert.match(body(c), /显示器要直连电脑，不要经过扩展坞/);
+  assert.equal(action(c, 'local-next'), null);
   assert.equal(action(c, 'read-retry').disabled, false);
   click(c, 'read-retry'); await tick();
   assert.match(body(c), /没有可切换的显示器/, 'skipped displays stay skipped');
@@ -298,7 +298,7 @@ test('waiting computer completes A3 and shows E3 only for a peer test targeting 
   const report = { test_id: 'remote', press_id: 'p', reporting_device_id: 'dev-peer', target_device_id: 'host-win', per_monitor: [{ edid_id: 'display-b', commanded: false }] };
   await emit(c, 'switch.report', { ...report, reporting_device_id: 'foreign' }); assert.equal(c.win.KVMFlowPairing.activeMode(), 'done');
   await emit(c, 'lan.test', { test_id: 'remote', events: [{ device_id: 'dev-peer', kind: 'switch.report', body: report }] });
-  assert.match(body(c), /显示器未切换.*未响应切换指令。请在显示器菜单中开启 DDC\/CI。/s);
+  assert.match(body(c), /显示器未切换.*请在显示器菜单里打开 DDC\/CI。/s);
   click(c, 'test-retry'); await tick(); assert.equal(c.win.KVMFlowPairing.activeMode(), 'try');
   assert.equal(calls(c, 'lan.test.start').length, 1);
 });
@@ -339,7 +339,7 @@ test('names are escaped on the connect and pair pages', async t => {
   const c = await setup(t, { state: state([peer({ name: payload })]) }); await c.connect();
   assert.equal(c.win.document.querySelectorAll('.ob-devs b button').length, 0);
   assert.match(body(c), /<button/);
-  c.win.KVMFlowI18n.setPreference('en'); await tick(); assert.match(body(c), /Connect another computer/);
+  c.win.KVMFlowI18n.setPreference('en'); await tick(); assert.match(body(c), /Pair with another computer/);
   await c.pair();
   assert.equal(c.win.document.querySelectorAll('.ob-pc b button, h1 button').length, 0);
   assert.equal(calls(c, 'lan.pair.start').length, 1);
@@ -394,16 +394,16 @@ test('leaving during connect cleanup never opens a new window', async t => {
 test('no detected monitors stays on an actionable empty list with the required explanation', async t => {
   const c = await setup(t, { displays: [] }); await c.start();
   assert.match(body(c), /没有可切换的显示器/);
-  assert.match(body(c), /请把显示器直连电脑/);
+  assert.match(body(c), /显示器要直连电脑/);
   assert.equal(action(c, 'read-retry').disabled, false);
-  assert.equal(action(c, 'local-next').disabled, true);
+  assert.equal(action(c, 'local-next'), null);
   assert.equal(calls(c, 'lan.pair.start').length, 0);
 });
 
 test('runtime state refresh cannot replace the sidebar pairing lifecycle', async t => {
   const c = await setup(t, { state: state([]) }); await waiting(c);
   await emit(c, 'state', { ...state([]), runtime_seq: 999 });
-  assert.equal(c.win.document.querySelector('#nav-state').textContent, '等待另一台电脑');
+  assert.equal(c.win.document.querySelector('#app-state').textContent, '等待另一台电脑');
 });
 
 test('trigger_adopted before B3 refreshes config and avoids redundant USB capture', async t => {
@@ -545,8 +545,8 @@ test('after skipping pairing the app reads as unpaired, not as unfinished setup'
   click(c, 'ob-exit', '.ob-ghost'); await tick(); await tick();
   const status = $(c, '#status-page').textContent;
   assert.match(status, /还没有配对其他电脑.*添加电脑/s);
-  assert.doesNotMatch(status, /尚未完成初始化|开始初始化|等待 USB Switch/);
-  assert.equal($(c, '#nav-state').textContent, '未配对');
+  assert.doesNotMatch(status, /尚未完成设置|开始设置|等待 USB 切换器/);
+  assert.equal($(c, '#app-state').textContent, '未配对');
   $(c, '[data-action="beginSetup"]').click(); await tick();
   assert.ok(!$(c, '#add-page').classList.contains('hidden'));
 });
@@ -568,5 +568,5 @@ test('a failed pairing in setup can be skipped too', async t => {
   assert.ok($(c, '[data-pair-action="v2-retry"]'));
   click(c, 'ob-exit', '.ob-ghost'); await tick(); await tick();
   assert.equal(c.win.KVMFlowPairing.activeMode(), null);
-  assert.equal($(c, '#nav-state').textContent, '未配对');
+  assert.equal($(c, '#app-state').textContent, '未配对');
 });

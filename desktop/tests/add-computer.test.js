@@ -27,7 +27,7 @@ test('the add page makes this computer findable and lists waiting computers', as
   assert.equal(calls(c, 'lan.pair.window').at(-1).params.open, true);
   assert.equal(calls(c, 'wizard.begin').length, 0, 'no USB capture outside setup');
   assert.equal(c.win.document.querySelectorAll('#add-content [data-v2-peer]').length, 1);
-  assert.match(page(c), /附近的电脑.*GAME.*Windows · 192\.168\.1\.23.*连接.*按 IP 地址连接.*这台电脑.*192\.168\.1\.22.*手动核对配对码/s);
+  assert.match(page(c), /附近的电脑.*GAME.*Windows 192\.168\.1\.23.*配对.*按 IP 地址配对.*这台电脑.*192\.168\.1\.22.*配对时核对数字/s);
   await emit(c, 'lan.peers', { peers: [] });
   assert.match(page(c), /正在搜索….*点「添加电脑」/s);
 });

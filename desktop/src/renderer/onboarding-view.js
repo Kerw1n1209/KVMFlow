@@ -28,7 +28,7 @@
   }
 
   // Theme previews always show their own palette, whatever the current theme.
-  const PALETTES = { light: ['#ededea', '#fff', '#000', '#d6d6d2'], dark: ['#161614', '#232320', '#f2f2ee', '#4a4a45'] };
+  const PALETTES = { light: ['#ededea', '#fff', '#000', '#d6d6d2'], dark: ['#161614', '#232320', '#f2f2ee', '#3c3c37'] };
   function preview(name) {
     const [b, s, i, m] = PALETTES[name];
     return `<svg viewBox="0 0 216 132" aria-hidden="true" focusable="false"><rect width="216" height="132" fill="${b}"/><rect width="58" height="132" fill="${s}"/><rect x="57" width="2" height="132" fill="${i}"/><rect x="10" y="12" width="14" height="14" rx="3" fill="${i}"/><rect x="29" y="16" width="20" height="5" fill="${i}"/><rect x="8" y="38" width="42" height="14" rx="2" fill="${m}" stroke="${i}" stroke-width="1.5"/><rect x="13" y="59" width="30" height="4" fill="${i}" opacity=".45"/><rect x="13" y="73" width="26" height="4" fill="${i}" opacity=".45"/><rect x="81" y="26" width="118" height="84" rx="3" fill="${i}"/><rect x="77" y="22" width="118" height="84" rx="3" fill="${s}" stroke="${i}" stroke-width="2"/><rect x="88" y="34" width="44" height="30" rx="2" fill="${i}"/><rect x="140" y="34" width="44" height="30" rx="2" fill="${m}" stroke="${i}" stroke-width="2"/><rect x="88" y="76" width="56" height="5" fill="${i}"/><rect x="88" y="87" width="38" height="4" fill="${i}" opacity=".45"/></svg>`;
@@ -70,21 +70,22 @@
     local: ({ reading, rows, busy, canNext, issues }) => {
       let list;
       if (reading) list = `<div class="ob-card ob-row ob-wait ob-stamp" ${delay(0.06)}>${scan}<span>${esc(t('ob.local.reading'))}</span></div>`;
-      else if (!rows.length) list = `<div class="ob-card ob-row ob-stamp" ${delay(0.06)}>${icon.monitor}<div class="ob-grow"><div class="ob-namel"><b>${esc(t('ob.local.empty'))}</b>${help()}</div></div></div>`;
+      else if (!rows.length) list = `<div class="ob-card ob-row ob-stamp" ${delay(0.06)}>${icon.monitor}<div class="ob-grow"><b>${esc(t('ob.local.empty'))}</b><small>${esc(t('ob.direct.hint'))}</small></div></div>`;
       else list = rows.map((row, i) => `<div class="ob-card ob-row ob-stamp" ${delay(0.06 + i * 0.08)} data-ob-row="${esc(row.fingerprint)}">${icon.monitor}<div class="ob-grow"><div class="ob-namel"><b>${esc(row.name)}</b>${row.ready ? '' : help()}</div>${row.ready ? '' : `<small>${esc(t('v2.ddc'))}</small>`}</div>${row.ready ? `<span class="ob-tag">${esc(t('ob.monitor.ready'))}</span>` : `${button('read-skip', esc(t('v2.read.skip')), { alt: true, small: true, disabled: busy, attrs: `data-fp="${esc(row.fingerprint)}"` })}<span class="ob-tag bad">${esc(t('v2.read.tag'))}</span>`}</div>`).join('');
-      const retry = !reading && (!rows.length || rows.some(row => !row.ready));
+      const empty = !reading && !rows.length;
+      const retry = !reading && rows.some(row => !row.ready);
       return mid(`${head(esc(t('ob.local.title')), esc(t('v2.start.copy')))}<div class="ob-list">${list}</div>`, issues)
-        + foot(back('ob-back-theme') + button('local-next', esc(t('v2.next')), { arrow: true, disabled: !canNext }) + (retry ? ghost('read-retry', esc(t('detect.again')), 'r', busy) : ''));
+        + foot(back('ob-back-theme') + (empty ? button('read-retry', esc(t('detect.again')), { disabled: busy }) : button('local-next', esc(t('v2.next')), { arrow: true, disabled: !canNext })) + (retry ? ghost('read-retry', esc(t('detect.again')), 'r', busy) : ''));
     },
 
     connect: ({ rows, selfIp, ipOpen, ipError, manual, busy, offline, issues }) => {
-      const devices = rows.length ? rows.map(row => `<div class="ob-row ob-stamp">${icon.laptop}<div class="ob-grow"><b>${esc(row.name)}</b>${row.detail ? `<small>${esc(row.detail)}</small>` : ''}</div>${button('v2-connect', esc(t('ob.pair')), { small: true, disabled: busy, attrs: `data-v2-peer="${esc(row.deviceId)}"` })}</div>`).join('')
+      const devices = rows.length ? rows.map(row => `<div class="ob-row ob-stamp">${icon.laptop}<div class="ob-grow"><b>${esc(row.name)}</b>${row.detail ? `<small>${esc(row.detail)}</small>` : ''}</div>${button('v2-connect', esc(t('ob.pair')), { alt: true, small: true, disabled: busy, attrs: `data-v2-peer="${esc(row.deviceId)}"` })}</div>`).join('')
         : `<div class="ob-empty">${esc(t(offline ? 'lan.list.empty.offline' : 'ob.searching'))}</div>`;
       const steps = ['v2.wait.usb', 'v2.wait.display', 'v2.wait.open'].map((id, i) => `<li><i>${i + 1}</i><span>${esc(t(id))}</span></li>`).join('');
       return mid(`${head(esc(t('v2.connect.title')))}<div class="ob-cols">
 <div class="ob-card ob-near ob-stamp" ${delay(0.05)}><div class="ob-ch" data-region="near-head"><span>${esc(t('ob.nearby'))}</span>${offline ? '' : scan}</div><div class="ob-devs" data-region="devices" aria-live="polite">${devices}</div>
 <div class="ob-ipwrap${ipOpen ? ' open' : ''}"><button type="button" class="ob-iptog" data-ob-ip aria-expanded="${ipOpen}" aria-controls="ob-ipbody"><span>${esc(t('v2.ip.connect'))}</span>${icon.chevron}</button>
-<div class="ob-ipbody" id="ob-ipbody" ${ipOpen ? '' : 'inert'}><div><form class="ob-ipform v2-ip-form" novalidate><input id="ob-ip-addr" name="addr" aria-label="${esc(t('lan.ip.address'))}" aria-describedby="ob-iperr" placeholder="192.168.1.23" autocomplete="off" spellcheck="false" maxlength="21"><button type="submit" class="ob-btn alt" ${busy ? 'disabled' : ''}>${esc(t('lan.connect'))}</button></form><div class="ob-iperr" id="ob-iperr" data-region="ip-error" role="alert">${ipError ? esc(t(ipError)) : ''}</div></div></div></div></div>
+<div class="ob-ipbody" id="ob-ipbody" ${ipOpen ? '' : 'inert'}><div><form class="ob-ipform v2-ip-form" novalidate><input id="ob-ip-addr" name="addr" aria-label="${esc(t('lan.ip.address'))}" aria-describedby="ob-iperr" placeholder="192.168.1.23" autocomplete="off" spellcheck="false" maxlength="21"><button type="submit" class="ob-btn alt" ${busy ? 'disabled' : ''}>${esc(t('ob.pair'))}</button></form><div class="ob-iperr" id="ob-iperr" data-region="ip-error" role="alert">${ipError ? esc(t(ipError)) : ''}</div></div></div></div></div>
 <div class="ob-side ob-stamp" ${delay(0.11)}><h3>${esc(t('ob.notyet'))}</h3><ol>${steps}</ol><div class="ob-ip"><small>${esc(t('v2.local.ip'))}</small><code data-region="self-ip">${esc(selfIp || '—')}</code></div></div></div>`, issues)
         + foot(`<label class="ob-chk"><input type="checkbox" data-ob-manual ${manual ? 'checked' : ''}><span>${esc(t('ob.manual'))}</span></label>${ghost('ob-exit', esc(t('v2.skip')), 'r')}`);
     },
@@ -113,7 +114,7 @@
 
     test: ({ peer, peerPlatform, selfPlatform, state, hint, failedRows = [], failedNames, busy, issues }) => {
       if (state === 'error') {
-        return mid(`${head(esc(t('v2.test.error')), esc(t('v2.test.error.copy', { p0: failedNames })))}${monitorRows(failedRows)}`, issues)
+        return mid(`${head(esc(t('v2.test.error')), esc(t('v2.ddc')))}${monitorRows(failedRows.map(row => ({ ...row, copy: '' })))}`, issues)
           + foot(ghost('feedback', esc(t('v2.feedback')), 'l') + button('test-retry', esc(t('retry')), { disabled: busy }));
       }
       const ok = state === 'ok';
@@ -121,8 +122,8 @@
         + foot(ok ? '' : ghost('v2-skip', esc(t('v2.skip')), 'r', busy));
     },
 
-    done: ({ issues }) => mid(`${mark(96)}<h1 class="ob-rise ob-done-title" ${delay(1.3)}>${esc(t('v2.done.title'))}</h1>`, issues)
-      + foot(button('v2-finish', esc(t('v2.done')), { stamp: 1.45 })),
+    done: ({ issues }) => mid(`<div class="ob-static">${mark(96)}</div><h1 class="ob-rise ob-done-title">${esc(t('v2.done.title'))}</h1>`, issues)
+      + foot(button('v2-finish', esc(t('v2.done')))),
 
     error: ({ title, copy, busy, skippable = false, issues }) => mid(head(title, copy), issues)
       + foot(ghost('feedback', esc(t('v2.feedback')), 'l') + button('v2-retry', esc(t('retry')), { disabled: busy }) + (skippable ? ghost('ob-exit', esc(t('v2.skip')), 'r') : '')),
@@ -140,13 +141,13 @@
 <div class="add-state-actions"><button type="button" class="secondary" data-pair-action="feedback">${esc(t('v2.feedback'))}</button><button type="button" class="primary" data-pair-action="add-retry" ${busy ? 'disabled' : ''}>${esc(t('retry'))}</button></div></section>`;
     }
     const loading = state !== 'ready';
-    const devices = rows.length ? rows.map(row => `<div class="add-row">${icon.laptop}<div class="add-copy"><strong>${esc(row.name)}</strong>${row.detail ? `<span class="hint">${esc(row.detail)}</span>` : ''}</div><button type="button" class="primary" data-pair-action="v2-connect" data-v2-peer="${esc(row.deviceId)}" ${busy ? 'disabled' : ''}>${esc(t('lan.connect'))}</button></div>`).join('')
+    const devices = rows.length ? rows.map(row => `<div class="add-row">${icon.laptop}<div class="add-copy"><strong>${esc(row.name)}</strong>${row.detail ? `<span class="hint">${esc(row.detail)}</span>` : ''}</div><button type="button" class="secondary" data-pair-action="v2-connect" data-v2-peer="${esc(row.deviceId)}" ${busy ? 'disabled' : ''}>${esc(t('ob.pair'))}</button></div>`).join('')
       : `<div class="add-empty">${offline ? '' : scan}<div class="add-copy"><strong>${esc(t(offline ? 'lan.list.empty.offline' : loading ? 'add.loading' : 'ob.searching'))}</strong>${offline ? '' : `<span class="hint">${esc(t('add.empty.hint'))}</span>`}</div></div>`;
     return `<div data-region="issues">${issues}</div><div class="add-grid">
 <section class="panel add-near" aria-labelledby="add-near-title"><div class="add-head"><h2 id="add-near-title">${esc(t('ob.nearby'))}<span class="add-count" data-region="add-count">${rows.length || ''}</span></h2>
 <button type="button" class="secondary add-refresh${refreshing ? ' spin' : ''}" data-pair-action="add-refresh" aria-label="${esc(t('add.refresh'))}" title="${esc(t('add.refresh'))}" ${loading || offline ? 'disabled' : ''}>${icon.refresh}</button></div>
 <div class="add-list" data-region="devices" aria-live="polite">${devices}</div>
-<form class="add-ip v2-ip-form" novalidate><label for="add-ip-addr">${esc(t('v2.ip.connect'))}</label><div class="add-ip-row"><input id="add-ip-addr" name="addr" aria-describedby="add-iperr" placeholder="192.168.1.23" autocomplete="off" spellcheck="false" maxlength="21"><button type="submit" class="secondary" ${busy || loading ? 'disabled' : ''}>${esc(t('lan.connect'))}</button></div><p class="add-iperr" id="add-iperr" data-region="ip-error" role="alert">${ipError ? esc(t(ipError)) : ''}</p></form></section>
+<form class="add-ip v2-ip-form" novalidate><label for="add-ip-addr">${esc(t('v2.ip.connect'))}</label><div class="add-ip-row"><input id="add-ip-addr" name="addr" aria-describedby="add-iperr" placeholder="192.168.1.23" autocomplete="off" spellcheck="false" maxlength="21"><button type="submit" class="secondary" ${busy || loading ? 'disabled' : ''}>${esc(t('ob.pair'))}</button></div><p class="add-iperr" id="add-iperr" data-region="ip-error" role="alert">${ipError ? esc(t(ipError)) : ''}</p></form></section>
 <aside class="panel add-self" aria-labelledby="add-self-title"><h2 id="add-self-title">${esc(t('add.self'))}</h2><dl><dt>${esc(t('add.self.name'))}</dt><dd>${esc(selfName || '—')}</dd><dt>${esc(t('v2.local.ip'))}</dt><dd><code data-region="self-ip">${esc(selfIp || '—')}</code></dd></dl>
 <p class="hint">${esc(t('add.self.copy'))}</p><label class="add-manual"><input type="checkbox" data-ob-manual ${manual ? 'checked' : ''}><span>${esc(t('ob.manual'))}</span></label></aside></div>`;
   }

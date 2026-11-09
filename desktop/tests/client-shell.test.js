@@ -226,7 +226,7 @@ test('computer names save before hardware setup and survive reopening without ar
   reopened.win.navigate('settings');
   assert.equal(reopened.win.document.querySelector('#edit-name').value, '另一个系统名称');
   assert.equal(reopened.win.document.querySelectorAll('.computer-row').length, 2);
-  assert.match(reopened.win.document.querySelector('#nav-state').textContent, /需要初始化/);
+  assert.match(reopened.win.document.querySelector('#app-state').textContent, /需要设置/);
 });
 
 test('a saved draft with only the local computer reopens safely', async t => {
@@ -293,7 +293,7 @@ test('failed timing saves restore just the timing control and retain the compute
   assert.equal(select.value, '0');
   assert.equal(select.disabled, false);
   assert.equal(win.document.querySelector('#edit-name').value, '尚未保存的名称');
-  assert.match(win.document.querySelector('#event-list').textContent, /切换响应未保存/);
+  assert.match(win.document.querySelector('#event-list').textContent, /切换时机未保存/);
 });
 
 test('overlapping timing and group saves preserve both changes', async t => {
@@ -349,7 +349,7 @@ test('dynamic names and diagnostics are text rather than executable markup', asy
 test('role-free setup and dynamically rendered actions work without inline JavaScript', async t => {
   const c = await require('./pairing-v2-helper').setup(t);
   await c.connect();
-  assert.match(c.win.document.querySelector('#guide-content').textContent, /连接另一台电脑/);
+  assert.match(c.win.document.querySelector('#guide-content').textContent, /和另一台电脑配对/);
   assert.equal(c.win.document.querySelectorAll('[onclick]').length, 0);
 });
 
@@ -432,13 +432,12 @@ test('diagnostics use the native save bridge once with UI and backend evidence',
 test('paused and failed backend states stay visible and do not claim picture success', async t => {
   const { win, subscriptions } = await client(t);
   subscriptions.get('state')({ state: 'armed', enabled: false });
-  assert.match(win.document.querySelector('#nav-state').textContent, /已暂停/);
-  assert.equal(win.document.querySelector('#nav-state').title, win.document.querySelector('#nav-state').textContent);
+  assert.match(win.document.querySelector('#app-state').textContent, /已暂停/);
   subscriptions.get('switch.report')({ per_monitor: [{ commanded: true }] });
   assert.equal(win.document.querySelector('#last-title').textContent, '最近一次切换');
-  assert.match(win.document.querySelector('#last-copy').textContent, /已向.*发送显示器切换命令/);
+  assert.match(win.document.querySelector('#last-copy').textContent, /已向.*发送显示器切换指令/);
   subscriptions.get('runtime.error')({ message: '请重启' });
-  assert.equal(win.document.querySelector('#nav-state').textContent, '后台不可用');
+  assert.equal(win.document.querySelector('#app-state').textContent, '后台不可用');
 });
 
 test('settings USB calibration ignores a peripheral departure and requires the physical hub', async t => {
@@ -457,13 +456,12 @@ test('English renders dynamic status, setup, timing and local-input confirmation
   const doc = c.win.document;
   assert.equal(doc.documentElement.lang, 'en');
   assert.equal(doc.querySelector('[data-computer="host-win"] strong').textContent, '工作电脑');
-  assert.equal(doc.querySelector('#nav-state').textContent, 'Waiting for USB');
-  assert.equal(doc.querySelector('#nav-state').title, 'Waiting for USB');
+  assert.equal(doc.querySelector('#app-state').textContent, 'Waiting for USB switch');
   c.win.navigate('guide');
   assert.match(doc.querySelector('#guide-content').textContent, /One keyboard and mouse\. Two computers\./);
   c.win.navigate('settings');
   assert.equal(doc.querySelector('#local-input-origin').textContent, 'Read automatically');
-  assert.equal(doc.querySelector('label[for="timing-absent"]').textContent, 'Departure delay');
+  assert.equal(doc.querySelector('label[for="timing-absent"]').textContent, 'Wait before switching');
   const input = doc.querySelector('#edit-0');
   input.value = '15';
   input.dispatchEvent(new c.win.Event('change', { bubbles: true }));
@@ -527,7 +525,7 @@ test('generated computer names and new diagnostic events follow language without
   assert.equal(c.win.hasUnsavedComputerEditor(), false);
   c.win.log(c.win.KVMFlowI18n.t('switch.timing.saved'), c.win.KVMFlowI18n.t('settings.saved.on.this.computer'));
   c.win.KVMFlowI18n.setPreference('zh-CN');
-  assert.match(doc.querySelector('#event-list').textContent, /切换响应已保存/);
+  assert.match(doc.querySelector('#event-list').textContent, /切换时机已保存/);
   assert.equal(doc.querySelector('#edit-name').value, '本机');
 });
 
@@ -644,18 +642,15 @@ test('a config migrated from v1 opens with both computers and keeps its device i
   assert.equal(JSON.stringify(saved.switch_group.devices.map(device => device.device_id).sort()), '["legacy-local","legacy-remote"]');
 });
 
-test('sidebar status uses short fixed labels and keeps the full title in both languages', async t => {
+test('the status page shows fixed state labels in both languages', async t => {
   const cases = [
-    ['zh-CN', ['等待 USB Switch', '正在识别', '正在发送指令', '已暂停', '后台不可用']],
-    ['en', ['Waiting for USB', 'Identifying', 'Switching', 'Paused', 'Unavailable']],
+    ['zh-CN', ['等待 USB 切换器', '正在识别', '正在发送指令', '已暂停', '后台不可用']],
+    ['en', ['Waiting for USB switch', 'Identifying', 'Switching', 'Paused', 'Unavailable']],
   ];
   for (const [language, labels] of cases) {
     const { win, subscriptions } = await client(t, { language, config: automaticConfig() });
-    const nav = win.document.querySelector('#nav-state');
-    const check = expected => {
-      assert.equal(nav.textContent, expected);
-      assert.equal(nav.title, expected);
-    };
+    const nav = win.document.querySelector('#app-state');
+    const check = expected => assert.equal(nav.textContent, expected);
     check(labels[0]);
     subscriptions.get('state')({ state: 'learning', enabled: true });
     check(labels[1]);

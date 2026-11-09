@@ -1,5 +1,5 @@
 /* Neo: grayscale neobrutalism, the last layer over the shell and paper styles.
- * Flat white surfaces, 2px black borders, 5px corners and hard offset shadows.
+ * Flat pages: 2px borders, 5px corners, four type sizes (26/16/14/12). Only dialogs cast a shadow.
  * Figma: KVMFlow-App, section "迭代 4 · 新野兽派 · 黑白灰". */
 :root {
   --bg: #ededea;
@@ -10,18 +10,19 @@
   --main: #d6d6d2;
   --ink: #000;
   --sub: #55554f;
-  --muted: #7a7a73;
+  --muted: #66665f;
   --line: #c9c9c4;
   --line-strong: #000;
   --line-soft: #c9c9c4;
   --accent: #000;
   --accent-dark: #000;
   --accent-soft: #d6d6d2;
-  --danger: #e5484d;
+  --danger: #a5302a;
   --radius: 5px;
   --border: 2px solid var(--ink);
-  --shadow: 4px 4px 0 0 var(--ink);
-  --shadow-sm: 2px 2px 0 0 var(--ink);
+  --shadow: none;
+  --shadow-sm: none;
+  --shadow-dialog: 4px 4px 0 0 var(--ink);
   color-scheme: light;
 }
 /* Dark palette (theme.js sets data-theme). Same structure, inverted ink. */
@@ -29,9 +30,9 @@
   --bg: #161614;
   --grid: #20201d;
   --surface: #232320;
-  --surface-muted: #4a4a45;
+  --surface-muted: #3c3c37;
   --surface-raised: #232320;
-  --main: #4a4a45;
+  --main: #3c3c37;
   --ink: #f2f2ee;
   --sub: #a8a8a0;
   --muted: #8a8a82;
@@ -40,10 +41,10 @@
   --line-soft: #3d3d39;
   --accent: #f2f2ee;
   --accent-dark: #f2f2ee;
-  --accent-soft: #4a4a45;
+  --accent-soft: #3c3c37;
   --good: #f2f2ee;
   --warn: #a8a8a0;
-  --danger: #ff7b86;
+  --danger: #f08a7a;
   color-scheme: dark;
 }
 :root[data-theme="dark"] .nav .brand-mark { background-image: url("assets/brand-mark-dark.svg"); }
@@ -65,9 +66,9 @@ main {
 .page > section > .header,
 #settings-page > .header { background: transparent; }
 
-/* neobrutalism.dev Sidebar: header, group and footer split by rules. Menu buttons
- * are flat; hover and the active page fill with main and gain a 2px outline. */
-@media (min-width: 851px) { .shell { grid-template-columns: 16rem minmax(0, 1fr); } }
+/* Menu buttons are flat; hover and the active page fill with main. Only keyboard
+ * focus draws an outline. */
+@media (min-width: 851px) { .shell { grid-template-columns: 200px minmax(0, 1fr); } }
 .nav {
   padding: 0;
   border-right: var(--border);
@@ -78,7 +79,7 @@ main {
   min-height: 0;
   margin: 0;
   padding: 16px;
-  border-bottom: var(--border);
+  border-bottom: 0;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0;
@@ -92,7 +93,6 @@ main {
   background: url("assets/brand-mark.svg") center/contain no-repeat;
   box-shadow: none;
 }
-/* 8px, not the source's 4px: two 2px outlines would otherwise touch. */
 .nav-list { gap: 8px; padding: 8px; }
 /* macOS draws the window buttons over the top of the sidebar. */
 .platform-darwin .nav { padding-top: 28px; }
@@ -119,20 +119,26 @@ main {
 .nav .nav-item::before { display: none; }
 .nav .nav-item:hover:not(:disabled)::after { display: none; }
 .nav .nav-item:hover:not(:disabled),
-.nav .nav-item:focus-visible,
 .nav .nav-item.active,
 .nav .nav-item.active:hover:not(:disabled) {
+  background: var(--main);
+}
+.nav .nav-item:focus-visible,
+.nav .nav-item:focus-visible:hover:not(:disabled) {
   outline: 2px solid var(--ink);
   outline-offset: 0;
   background: var(--main);
 }
 .nav svg { width: 16px; height: 16px; stroke-width: 2; }
 .nav-bottom {
+  display: flex;
+  flex-direction: row;
+  margin-top: auto;
   gap: 8px;
-  padding: 14px 16px;
-  border-top: var(--border);
+  padding: 8px;
+  border-top: 0;
 }
-.nav .nav-state { color: var(--ink); font-size: 14px; font-weight: 500; }
+.nav .nav-bottom .nav-item { flex: 0 0 32px; width: 32px; justify-content: center; }
 /* Pairing requests: a sidebar group between the menu and the footer. */
 .nav-requests { margin-top: auto; padding: 12px 8px; border-top: var(--border); }
 .nav-requests:not([hidden]) ~ .nav-bottom { margin-top: 0; }
@@ -149,17 +155,16 @@ main {
 .nav-request-copy { display: grid; gap: 2px; }
 .nav-request-copy strong { overflow-wrap: anywhere; font-size: 14px; }
 .nav-request-copy span { color: var(--sub); font-size: 12px; line-height: 1.4; }
-.nav-request-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-.nav-request-actions button { height: 32px; min-height: 32px; padding: 4px 8px; font-size: 13px; white-space: nowrap; }
+.nav-request-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px; margin-top: 10px; }
+.nav-request-actions button { height: 32px; min-height: 32px; padding: 4px 8px; font-size: 14px; white-space: nowrap; }
 @keyframes nav-request-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (prefers-reduced-motion: reduce) { .nav-request { animation: none; } }
 .dot { border: 0; background: var(--ink); }
 
-/* The site's scrollbar, on every page. */
 main { overflow-y: scroll; scrollbar-width: auto; scrollbar-color: auto; }
-main::-webkit-scrollbar { display: block; width: 16px; height: 16px; }
-main::-webkit-scrollbar-track { border-left: var(--border); background: var(--surface); }
-main::-webkit-scrollbar-thumb { background: var(--ink); }
+main::-webkit-scrollbar { display: block; width: 8px; height: 8px; }
+main::-webkit-scrollbar-track { background: transparent; }
+main::-webkit-scrollbar-thumb { border-radius: var(--radius); background: var(--line); }
 
 main { padding: 32px 40px 48px; }
 /* Headers scroll with the page; a sticky one would cover the grid and cards. */
@@ -171,8 +176,8 @@ main { padding: 32px 40px 48px; }
   padding: 0;
   border: 0;
 }
-.header h1 { font-size: 30px; line-height: 1.25; letter-spacing: -.01em; }
-.header .sub { margin-top: 6px; color: var(--sub); font-size: 13px; }
+.header h1 { font-size: 26px; line-height: 34px; letter-spacing: 0; }
+.header .sub { margin-top: 6px; color: var(--sub); font-size: 14px; }
 .sub, .hint { color: var(--sub); }
 
 /* ---- surfaces ---- */
@@ -192,8 +197,8 @@ main { padding: 32px 40px 48px; }
   box-shadow: var(--shadow);
 }
 .panel-title { margin-bottom: 16px; }
-.panel h2, #settings-page h2 { font-size: 17px; line-height: 24px; }
-#settings-page h3 { font-size: 15px; line-height: 22px; }
+.panel h2, #settings-page h2 { font-size: 16px; line-height: 24px; }
+#settings-page h3 { font-size: 14px; line-height: 20px; }
 #settings-page { padding-bottom: 24px; }
 #settings-page .settings-section { padding: 20px 24px; }
 #settings-page .settings-section:last-child { border-bottom: var(--border); }
@@ -217,9 +222,7 @@ main { padding: 32px 40px 48px; }
 #settings-page .response-copy strong { font-size: 14px; font-weight: 700; }
 
 /* ---- controls ---- */
-/* neobrutalism.dev Button: at rest the face sits on a hard shadow; on hover it
- * slides onto the shadow. Colors never change. The invisible ::after keeps the
- * pointer over the moved button, so hovering an edge cannot flicker. */
+/* Buttons are flat. Hover only changes the fill; the page's one strong fill is .primary. */
 button {
   position: relative;
   min-height: 40px;
@@ -231,22 +234,20 @@ button {
   color: var(--ink);
   font-size: 14px;
   font-weight: 500;
-  transition: transform .15s cubic-bezier(.4, 0, .2, 1), box-shadow .15s cubic-bezier(.4, 0, .2, 1);
+  transition: background .12s ease;
 }
 button:hover:not(:disabled),
 button:active:not(:disabled) {
   border-color: var(--ink);
-  background: var(--surface);
+  background: var(--main);
   box-shadow: none;
   color: var(--ink);
-  transform: translate(4px, 4px);
+  transform: none;
 }
-button:hover:not(:disabled)::after { content: ""; position: absolute; inset: -6px 0 0 -6px; }
 button:disabled { opacity: .5; pointer-events: none; }
-.primary { box-shadow: var(--shadow); }
-.primary,
+.primary { background: var(--ink); color: var(--surface); }
 .primary:hover:not(:disabled),
-.primary:active:not(:disabled) { background: var(--main); color: var(--ink); }
+.primary:active:not(:disabled) { background: var(--sub); color: var(--surface); }
 .danger-button,
 .danger-button:hover:not(:disabled),
 .danger-button:active:not(:disabled),
@@ -480,12 +481,12 @@ input[type="radio"]:checked::before,
 .port-card { border: var(--border); border-radius: var(--radius); background: var(--surface); }
 .port-card.current { background: var(--main); box-shadow: var(--shadow); }
 .port-card::before { border-color: var(--ink); }
-.port-state, .port-card .port-state, .port-card.next .port-state { border: 0; border-radius: 3px; background: var(--bg); }
+.port-state, .port-card .port-state, .port-card.next .port-state { border: 0; border-radius: var(--radius); background: var(--bg); }
 .port-card.current .port-state { background: var(--ink); color: var(--surface); }
 .switch-summary { border-color: var(--line-soft); }
 
-.desktop-map { padding: 32px 24px 24px; }
-.screen-row { border-bottom: 2px dashed var(--line-soft); }
+.desktop-map { padding: 8px 0 24px; border: 0; background: transparent; }
+.screen-row { border-bottom: 0; }
 .desk-screen {
   border: var(--border);
   border-radius: var(--radius);
@@ -514,7 +515,6 @@ input[type="radio"]:checked::before,
   color: var(--surface);
   font-size: 12px;
   font-weight: 700;
-  transform: rotate(-4deg);
 }
 .lan-dot { background: var(--ink); }
 .next-switch { color: var(--sub); }
@@ -532,9 +532,9 @@ input[type="radio"]:checked::before,
   margin: 0;
   padding: 0;
   border: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
-.last-switch .sub { font-size: 13px; }
+.last-switch .sub { font-size: 14px; }
 
 /* ---- mixed page ---- */
 /* The header carries the switch; the mode bar is its one-line status. */
@@ -542,14 +542,14 @@ input[type="radio"]:checked::before,
 #mixed-page .mode-bar { display: block; margin: 6px 0 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 #mixed-page .mode-bar[hidden] { display: none; }
 #mixed-page .mode-title { display: none; }
-#mixed-page .mode-copy .hint { margin: 0; color: var(--sub); font-size: 13px; }
-#mixed-page .mode-blocked { margin-top: 4px; color: var(--ink); font-size: 13px; }
+#mixed-page .mode-copy .hint { margin: 0; color: var(--sub); font-size: 14px; }
+#mixed-page .mode-blocked { margin-top: 4px; color: var(--ink); font-size: 14px; }
 .mixed-switch { flex: none; padding-top: 6px; }
 #mixed-page:has(#mixed-settings[hidden]) .mixed-switch { display: none; }
 .mixed-switch .toggle-control { gap: 10px; }
 #mixed-settings { margin-bottom: 24px; }
 #mixed-settings[hidden] { display: none; }
-#mixed-settings h3 { font-size: 17px; line-height: 24px; }
+#mixed-settings h3 { font-size: 16px; line-height: 24px; }
 .assign-screen {
   border: var(--border);
   border-radius: var(--radius);
@@ -561,12 +561,14 @@ input[type="radio"]:checked::before,
 .assign-cell.absent .assign-screen { border-style: dashed; box-shadow: none; }
 .assign-cell.unavailable .assign-screen { background: var(--bg); box-shadow: none; }
 .mixed-note { border: 2px solid var(--line-soft); border-radius: var(--radius); background: var(--bg); }
-.mixed-empty { margin: 0; padding: 16px 20px; border: 2px dashed var(--sub); border-radius: var(--radius); font-size: 13px; }
+.mixed-empty { margin: 0; padding: 16px 20px; border: 2px dashed var(--sub); border-radius: var(--radius); font-size: 14px; }
 #mixed-page:has(#mode-bar:not([hidden])) .mixed-empty,
 #mixed-page:has(#mixed-settings:not([hidden])) .mixed-empty { display: none; }
 
 /* ---- settings: computer list ---- */
 #settings-page .computer-row { margin-bottom: 10px; border-radius: var(--radius); }
+#settings-page .computer-row:not(.selected):not(:hover) { border-color: transparent; background: transparent; }
+#last-title:empty { display: none; }
 
 /* ---- setup wizard ---- */
 .steps { gap: 10px; border: 0; margin-bottom: 20px; }
@@ -576,13 +578,13 @@ input[type="radio"]:checked::before,
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--sub);
-  font-size: 13px;
+  font-size: 14px;
 }
 .step.done { background: var(--bg); color: var(--ink); }
 .step.active { background: var(--main); color: var(--ink); }
 .step.active::after, .pairing-v2-page .step.active:after { display: none; }
 .wizard, .wizard.pairing-v2 { min-height: 0; padding: 28px; }
-.wizard-head h1, .pairing-v2 .wizard-head h1 { font-size: 24px; font-weight: 700; }
+.wizard-head h1, .pairing-v2 .wizard-head h1 { font-size: 26px; font-weight: 700; }
 .pairing-v2 .v2-space { height: 48px; }
 .pairing-v2-page .step { font-weight: 500; }
 .choice, .value-row, .pair-card, .pair-option, .pair-peer, .v2-peer, .pair-monitor, .pair-test {
@@ -601,7 +603,7 @@ input[type="radio"]:checked::before,
 .event:first-child { padding-top: 0; }
 .reset-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .reset-panel[hidden] { display: none; }
-.reset-panel h2 { font-size: 15px; }
+.reset-panel h2 { font-size: 14px; }
 .reset-panel .sub { margin-top: 4px; font-size: 12px; }
 
 /* ---- dialogs ---- */
@@ -612,7 +614,7 @@ dialog,
   border: var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-dialog);
   color: var(--ink);
 }
 dialog::backdrop,
@@ -627,5 +629,5 @@ dialog::backdrop,
 
 @media (max-width: 900px) {
   main { padding: 24px 24px 40px; }
-  .desktop-map { padding: 24px 16px 20px; }
+  .desktop-map { padding: 8px 0 20px; }
 }

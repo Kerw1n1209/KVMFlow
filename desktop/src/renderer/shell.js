@@ -37,8 +37,14 @@ const markComputerSettingsStructureChanged = () => {
 
 // Events from earlier launches belong to whatever configuration existed then.
 const eventSession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+// Rendered on demand so the format follows the current language; older records only have `time`.
+function eventTime(event) {
+  if (!event.at) return event.time ?? '';
+  const at = new Date(event.at), today = at.toDateString() === new Date().toDateString();
+  return at.toLocaleString(window.KVMFlowI18n.locale, { ...(today ? {} : { month: 'numeric', day: 'numeric' }), hour: '2-digit', minute: '2-digit' });
+}
 function log(title, copy) {
-  model.events.unshift({ title, copy, session: eventSession, titleMessage: window.KVMFlowI18n.describe(title), copyMessage: window.KVMFlowI18n.describe(copy), time: new Date().toLocaleTimeString(window.KVMFlowI18n.locale, { hour: '2-digit', minute: '2-digit' }) });
+  model.events.unshift({ title, copy, session: eventSession, titleMessage: window.KVMFlowI18n.describe(title), copyMessage: window.KVMFlowI18n.describe(copy), at: Date.now() });
   model.events = model.events.slice(0, 8);
   save(); renderDiagnostics();
 }
@@ -54,9 +60,7 @@ function navState() {
     : state === 'learning' ? t("nav.identifying")
     : state === 'pushing' ? t("nav.sending")
     : state === 'disabled' ? t("nav.paused") : t("nav.waiting"));
-  $('#nav-dot').className = `dot${model.usbConfirmed && state !== 'error' ? ' good' : ''}`;
-  $('#nav-state').textContent = label;
-  $('#nav-state').title = label;
+  $('#app-state').textContent = label;
 }
 
 function renderStatus() {
@@ -69,7 +73,7 @@ function renderStatus() {
   const report = window.__kvmflowLastSwitchReport;
   const outcomes = report?.per_monitor || [];
   const accepted = outcomes.length && outcomes.every(entry => entry.commanded === true || entry.ok === true);
-  $('#last-title').textContent = report ? (accepted ? t("command.accepted") : t("switch.incomplete")) : t("waiting.for.usb.switch");
+  $('#last-title').textContent = report ? (accepted ? t("command.accepted") : t("switch.incomplete")) : '';
   $('#last-copy').textContent = '';
 }
 
@@ -292,7 +296,7 @@ function saveSettings() {
 function renderDiagnostics() {
   $('#event-list').innerHTML = model.events.map(event =>
     `<div class="event"><div><strong>${escapeHtml(window.KVMFlowI18n.format(event.titleMessage ?? event.title))}</strong><p class="hint">${escapeHtml(window.KVMFlowI18n.format(event.copyMessage ?? event.copy))}</p></div>
-      <span class="time">${escapeHtml(event.time)}</span></div>`).join('') || `<p class="hint">${t('no.switch.records.yet')}</p>`;
+      <span class="time">${escapeHtml(eventTime(event))}</span></div>`).join('') || `<p class="hint">${t('no.switch.records.yet')}</p>`;
 }
 const pages = ['status', 'add', 'guide', 'settings', 'diagnostics'];
 function navigate(page, options = {}) {

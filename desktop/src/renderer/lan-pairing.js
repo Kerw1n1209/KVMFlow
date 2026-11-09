@@ -7,7 +7,7 @@
   const View = window.KVMFlowPairingView;
   const esc = (value) => escapeHtml(value ?? '');
   const byId = (id) => document.getElementById(id);
-  // Design copy shows the host without the pairing port ("Windows · 192.168.1.23").
+  // Design copy shows the host without the pairing port ("Windows 192.168.1.23").
   const hostOf = (addr) => {
     const value = typeof addr === 'string' ? addr.trim() : '';
     return value.replace(/:\d+$/, '');
@@ -357,7 +357,7 @@
     const items = rows.map(row => `<button type="button" class="pair-peer${dialPeer?.deviceId === row.deviceId ? ' selected' : ''}${row.available && row.addr ? '' : ' offline'}"
         data-pair-peer="${esc(row.deviceId)}" aria-pressed="${dialPeer?.deviceId === row.deviceId}" ${row.available && row.addr ? '' : 'disabled'}>
         <span class="pair-peer-copy"><strong>${esc(row.name)}</strong>
-        <span class="hint">${esc([row.platform, hostOf(row.addr)].filter(Boolean).join(' · ') || t('lan.peer.unreachable'))}</span></span>
+        <span class="hint">${esc([row.platform, hostOf(row.addr)].filter(Boolean).join(' ') || t('lan.peer.unreachable'))}</span></span>
         ${dialPeer?.deviceId === row.deviceId ? `<span class="settings-tag">${t('lan.selected')}</span>` : ''}</button>`).join('');
     const html = items || `<p class="hint pair-empty">${t(lan?.enabled === false ? 'lan.list.empty.offline' : 'lan.list.empty')}</p>`;
     if (list.dataset.rendered !== html) { list.dataset.rendered = html; list.innerHTML = html; }
@@ -406,7 +406,7 @@
       && note.config_merged !== false && window.KVMFlowPairingConfig.hasTopology(session?.deviceId) && !requestError && !busy;
   }
   const pairableRows = () => View.pairablePeers(lan, memberIds());
-  const connectRows = () => pairableRows().map(row => ({ deviceId: row.deviceId, name: row.name, detail: [row.platform, hostOf(row.addr)].filter(Boolean).join(' · ') }));
+  const connectRows = () => pairableRows().map(row => ({ deviceId: row.deviceId, name: row.name, detail: [row.platform, hostOf(row.addr)].filter(Boolean).join(' ') }));
   const validAddress = value => {
     const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/.exec(value);
     return Boolean(match) && match[1].split('.').every(part => Number(part) <= 255)
@@ -536,7 +536,7 @@
     root.classList.add('ob-root');
     byId('steps')?.classList.add('hidden');
     byId('guide-count').textContent = '';
-    byId('nav-state').textContent = byId('nav-state').title = navStatus();
+    byId('app-state').textContent = navStatus();
     const page = pageOf(), data = pageModel(page);
     const locale = document.documentElement.lang;
     const html = Ob.top({ page, locale, exit: !['welcome', 'done'].includes(page), dots: entry !== 'add' })

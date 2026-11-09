@@ -240,7 +240,7 @@ test('startup displays the last switch target without fabricating an event times
   const initial=state(mixedState());
   initial.lastMultiDeviceReport={target_device_id:'host-mac',per_monitor:[{commanded:true}]};
   const {win}=await client(t,{state:initial});
-  assert.match(text(win,'#last-copy'),/已向 Mac 发送显示器切换命令/);
+  assert.match(text(win,'#last-copy'),/已向 Mac 发送显示器切换指令/);
   assert.doesNotMatch(text(win,'#last-copy'),/\d\d:\d\d|已切换|已确认/);
 });
 

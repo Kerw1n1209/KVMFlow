@@ -19,7 +19,7 @@
 })().catch(error => {
   console.error('KVMFlow startup failed', error);
   // Keep a visible error instead of leaving an apparently usable empty shell.
-  const status = document.getElementById('nav-state');
+  const status = document.getElementById('app-state');
   status.textContent = window.KVMFlowI18n.t('background.component.unavailable');
   status.setAttribute('role', 'alert');
 });

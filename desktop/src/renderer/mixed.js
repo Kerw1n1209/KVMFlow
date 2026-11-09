@@ -103,7 +103,7 @@
       .map((computer) => `<option value="${esc(computer.id)}" ${computer.id === screen.assigned ? 'selected' : ''}>${esc(computer.name)}</option>`).join('');
     const unassigned = screen.assigned ? '' : `<option value="" disabled selected>${t('mixed.unassigned')}</option>`;
     return `<div class="assign-cell${absent ? ' absent' : ''}"><div class="assign-screen${device ? '' : ' empty'}">${esc(device?.name || t('mixed.unassigned'))}</div>
-      <span class="desk-stand" aria-hidden="true"></span><label class="assign-label" for="assign-${screen.index}">${esc(screen.name)}${absent ? ` · ${t('mixed.screen.absent')}` : ''}</label>
+      <span class="desk-stand" aria-hidden="true"></span><label class="assign-label" for="assign-${screen.index}">${esc(screen.name)}${absent ? `（${t('mixed.screen.absent')}）` : ''}</label>
       <select id="assign-${screen.index}" class="assign-select" data-fingerprint="${esc(screen.fingerprint)}" ${assignBusy || locked ? 'disabled' : ''}>${unassigned}${unknown}${options}</select></div>`;
   }
 
