@@ -1060,7 +1060,10 @@ fn shortcut_switch_moves_input_on_both_computers() {
     let mut confirmed = a.request("config.get", json!({}));
     confirmed["switch_group"]["sync"]["ports_confirmed"] = json!(true);
     a.request("config.set", json!({"config": confirmed}));
-    let status = a.request("km.configure", json!({"enabled": true, "hotkey": "Control+Alt+j"}));
+    let status = a.request(
+        "km.configure",
+        json!({"enabled": true, "hotkey": "Control+Alt+j"}),
+    );
     assert_eq!(status["role"], json!("server"));
 
     let changed = |here: bool| {
@@ -1071,14 +1074,29 @@ fn shortcut_switch_moves_input_on_both_computers() {
         }
     };
     let window = Duration::from_secs(20);
-    assert!(a.wait_for(changed(false), window).is_some(), "server never left");
-    assert!(b.wait_for(changed(true), window).is_some(), "client never arrived");
-    assert!(a.wait_for(changed(true), window).is_some(), "server never returned");
-    assert!(b.wait_for(changed(false), window).is_some(), "client never left");
+    assert!(
+        a.wait_for(changed(false), window).is_some(),
+        "server never left"
+    );
+    assert!(
+        b.wait_for(changed(true), window).is_some(),
+        "client never arrived"
+    );
+    assert!(
+        a.wait_for(changed(true), window).is_some(),
+        "server never returned"
+    );
+    assert!(
+        b.wait_for(changed(false), window).is_some(),
+        "client never left"
+    );
 
     let adopted = b.request("config.get", json!({}));
     assert_eq!(adopted["km"]["hotkey"], json!("Control+Alt+j"));
-    assert_eq!(adopted["km"]["server_device_id"], json!(status["server_device_id"]));
+    assert_eq!(
+        adopted["km"]["server_device_id"],
+        json!(status["server_device_id"])
+    );
 }
 
 #[cfg(unix)]
@@ -1130,8 +1148,14 @@ fn a_switch_the_client_missed_is_repeated() {
     );
     let (mut a, mut b) = start_km(dir.path(), &script);
     let window = Duration::from_secs(20);
-    assert!(a.wait_for(input_here(false), window).is_some(), "server never left");
-    assert!(b.wait_for(input_here(true), window).is_some(), "client never arrived");
+    assert!(
+        a.wait_for(input_here(false), window).is_some(),
+        "server never left"
+    );
+    assert!(
+        b.wait_for(input_here(true), window).is_some(),
+        "client never arrived"
+    );
 }
 
 /// Giving input back ends the client's session, the server's engine reports
@@ -1153,10 +1177,16 @@ fn the_client_can_give_input_back() {
     );
     let (mut a, mut b) = start_km(dir.path(), &script);
     let window = Duration::from_secs(20);
-    assert!(b.wait_for(input_here(true), window).is_some(), "client never arrived");
+    assert!(
+        b.wait_for(input_here(true), window).is_some(),
+        "client never arrived"
+    );
     let released = b.request("km.release", json!({}));
     assert_eq!(released["input_here"], json!(false));
-    assert!(a.wait_for(input_here(true), window).is_some(), "server never returned");
+    assert!(
+        a.wait_for(input_here(true), window).is_some(),
+        "server never returned"
+    );
 }
 
 /// Rejecting a guessed monitor alias is a wire-level answer, not a cancel:
@@ -1947,7 +1977,10 @@ fn pairing_requests_setting_persists_and_refuses_when_off() {
         pair_two_runtimes(dir.path(), mac_config(), win_config());
     let off = b.request("lan.pair.requests", json!({"enabled": false}));
     assert_eq!(off["enabled"], false);
-    assert_eq!(b.request("config.get", json!({}))["lan"]["pair_requests"], false);
+    assert_eq!(
+        b.request("config.get", json!({}))["lan"]["pair_requests"],
+        false
+    );
     assert_eq!(b.request("lan.status", json!({}))["pair_requests"], false);
     assert_eq!(b.request("lan.pair.requests", json!({}))["enabled"], false);
     expect_pairing_refused(&mut a, &mut b);

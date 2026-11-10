@@ -138,7 +138,9 @@ fn refresh_tray(app: &AppHandle) {
         let _ = host.pause.set_text(tr(&handle, "native.pause"));
         let _ = host.km_share.set_checked(km["enabled"] == true);
         let _ = host.km_share.set_text(tr(&handle, "km.share"));
-        let _ = host.km_home.set_text(tr(&handle, "km.settings.home_hotkey"));
+        let _ = host
+            .km_home
+            .set_text(tr(&handle, "km.settings.home_hotkey"));
         let _ = host.settings.set_text(tr(&handle, "native.open"));
         let _ = host.diagnostics.set_text(tr(&handle, "native.diagnostics"));
         let _ = host.feedback.set_text(tr(&handle, "native.feedback"));
@@ -198,16 +200,23 @@ fn update_km(app: &AppHandle, data: Value) {
 }
 
 fn km_menu_request(app: &AppHandle, method: &'static str, params: Value) {
-    if app.state::<updates::Updates>().installing.load(Ordering::Acquire) {
+    if app
+        .state::<updates::Updates>()
+        .installing
+        .load(Ordering::Acquire)
+    {
         refresh_tray(app);
         return;
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let (runtime, generation) = app.state::<Host>().runtime.snapshot();
-        let result = tauri::async_runtime::spawn_blocking(move || runtime.request(method, params)).await;
+        let result =
+            tauri::async_runtime::spawn_blocking(move || runtime.request(method, params)).await;
         match result {
-            Ok(Ok(data)) if app.state::<Host>().runtime.is_current(generation) => update_km(&app, data),
+            Ok(Ok(data)) if app.state::<Host>().runtime.is_current(generation) => {
+                update_km(&app, data)
+            }
             // Checkbox menus toggle before their callback.
             _ => refresh_tray(&app),
         }

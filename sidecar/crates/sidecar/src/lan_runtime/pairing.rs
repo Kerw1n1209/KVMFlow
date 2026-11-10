@@ -288,7 +288,10 @@ impl Runtime {
                     self.lan_runtime.pair = None;
                 } else if std::time::Instant::now() >= pair.link.deadline {
                     let id = pair.link.device_id.clone();
-                    self.pair_fail("E_LAN_PAIR_TIMEOUT", &format!("pairing with {id} timed out"));
+                    self.pair_fail(
+                        "E_LAN_PAIR_TIMEOUT",
+                        &format!("pairing with {id} timed out"),
+                    );
                 } else {
                     let id = pair.link.device_id.clone();
                     self.pair_fail("E_LAN_CLOSED", &format!("pairing session with {id} closed"));
