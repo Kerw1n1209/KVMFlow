@@ -34,6 +34,10 @@ jobs:
         run: node desktop/scripts/release-metadata.cjs validate
       - name: Verify diagnostics layout in headless Chrome
         run: node desktop/scripts/verify-diagnostics-layout.cjs
+      - name: Check Rust formatting
+        run: |
+          cargo fmt --manifest-path sidecar/Cargo.toml --all --check
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check
 
   build:
     needs: validate
